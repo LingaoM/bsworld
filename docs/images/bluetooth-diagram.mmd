@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    participant TEST as pytest / asyncio
+    participant SEL as BsimSelector
+    participant CLK as BsimClock<br/>(in pytest)
+    participant PHY as BabbleSim PHY
+    participant DEV as Simulated Devices
+
+    Note over TEST,DEV: Simulation time = t0
+
+    rect rgb(245, 247, 250)
+        TEST->>TEST: Run callbacks and timers ready at t0
+        TEST->>SEL: select(timeout to next timer)
+        SEL->>SEL: Poll file descriptors with timeout = 0
+        alt Callback or I/O is ready
+            SEL-->>TEST: Ready file descriptors
+            TEST->>TEST: Continue processing at t0
+        else Nothing is ready
+            Note over SEL,CLK: The standard event loop would block here
+            SEL->>CLK: advance_to_us(t1)
+        end
+    end
+
+    rect rgb(235, 248, 240)
+        CLK->>PHY: WAIT(end = t1) via FIFO
+        PHY->>DEV: Run timers and RF events through t1
+        DEV-->>PHY: HCI, Link Layer, and radio activity
+        Note over PHY,DEV: Every registered participant reaches the same barrier
+        PHY-->>CLK: Target reached
+        CLK-->>SEL: now_us = t1
+    end
+
+    rect rgb(255, 248, 235)
+        SEL->>SEL: Poll file descriptors with timeout = 0
+        SEL-->>TEST: Ready I/O at t1
+        TEST->>TEST: Dispatch I/O, timers, and callbacks at t1
+        Note over TEST,DEV: Simulation time remains t1 while ready work is processed
+    end
+
+    TEST->>SEL: select(timeout to next timer)
+    Note over SEL,CLK: Another WAIT is allowed only when asyncio would block again

@@ -1,0 +1,75 @@
+# Copyright 2026 Xiaomi Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bsworld"
+dynamic = ["version"]
+description = "Deterministic simulation test framework for Bluetooth LE Applications"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+dependencies = ["pytest>=8.4", "pytest-xdist>=3.0", "pytest-asyncio>=1.4"]
+
+[project.optional-dependencies]
+bumble = ["bumble==0.0.235"]
+dev = [
+    "bumble==0.0.235",
+    "exodus-bundler==2.0.4",
+    "packaging>=24",
+    "pytest-cov>=4.0",
+    "ruff>=0.8.0",
+    "setuptools>=68",
+]
+
+[project.entry-points.pytest11]
+bsworld = "bsworld.plugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+fallback_version = "0+unknown"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG"]
+
+[tool.coverage.run]
+source = ["bsworld"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]

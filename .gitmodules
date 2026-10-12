@@ -1,0 +1,33 @@
+[submodule "components/babblesim/base"]
+	path = components/babblesim/base
+	url = https://github.com/BabbleSim/base.git
+[submodule "components/babblesim/ext_2G4_channel_NtNcable"]
+	path = components/babblesim/ext_2G4_channel_NtNcable
+	url = https://github.com/BabbleSim/ext_2G4_channel_NtNcable.git
+[submodule "components/babblesim/ext_2G4_channel_multiatt"]
+	path = components/babblesim/ext_2G4_channel_multiatt
+	url = https://github.com/BabbleSim/ext_2G4_channel_multiatt.git
+[submodule "components/babblesim/ext_2G4_device_WLAN_actmod"]
+	path = components/babblesim/ext_2G4_device_WLAN_actmod
+	url = https://github.com/BabbleSim/ext_2G4_device_WLAN_actmod.git
+[submodule "components/babblesim/ext_2G4_device_burst_interferer"]
+	path = components/babblesim/ext_2G4_device_burst_interferer
+	url = https://github.com/BabbleSim/ext_2G4_device_burst_interferer.git
+[submodule "components/babblesim/ext_2G4_device_playback"]
+	path = components/babblesim/ext_2G4_device_playback
+	url = https://github.com/BabbleSim/ext_2G4_device_playback.git
+[submodule "components/babblesim/ext_2G4_device_playbackv2"]
+	path = components/babblesim/ext_2G4_device_playbackv2
+	url = https://github.com/BabbleSim/ext_2G4_device_playbackv2.git
+[submodule "components/babblesim/ext_2G4_libPhyComv1"]
+	path = components/babblesim/ext_2G4_libPhyComv1
+	url = https://github.com/BabbleSim/ext_2G4_libPhyComv1.git
+[submodule "components/babblesim/ext_2G4_modem_BLE_simple"]
+	path = components/babblesim/ext_2G4_modem_BLE_simple
+	url = https://github.com/BabbleSim/ext_2G4_modem_BLE_simple.git
+[submodule "components/babblesim/ext_2G4_modem_magic"]
+	path = components/babblesim/ext_2G4_modem_magic
+	url = https://github.com/BabbleSim/ext_2G4_modem_magic.git
+[submodule "components/babblesim/ext_2G4_phy_v1"]
+	path = components/babblesim/ext_2G4_phy_v1
+	url = https://github.com/BabbleSim/ext_2G4_phy_v1.git

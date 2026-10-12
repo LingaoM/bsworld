@@ -1,0 +1,98 @@
+# Third-Party Notices
+
+[English](THIRD_PARTY_NOTICES.md) | [中文](docs/zh-CH/THIRD_PARTY_NOTICES.md)
+
+This repository references third-party components and publishes generated runtime trees under component-owned `prebuilt/` directories. Those components are not owned by Xiaomi Corporation and remain governed by their own license terms. Exodus may copy host runtime libraries from the build machine into those trees; inspect the generated files before publishing them.
+
+## BabbleSim
+
+- Project: BabbleSim
+- Source: https://github.com/BabbleSim
+- Website: https://babblesim.github.io/
+- Repository copies: git submodules under `components/babblesim/`
+- License: Apache License 2.0 unless otherwise stated by an individual BabbleSim component.
+
+BSWorld references official BabbleSim repositories as git submodules. The BabbleSim source checked out under `components/babblesim/` is not patched by this repository.
+
+Each BabbleSim component keeps its own license file under that component's `docs/` directory. Review those files together with this notice when packaging or redistributing artifacts built from the submodules.
+
+## Apache NuttX
+
+- Project: Apache NuttX
+- Source: https://github.com/apache/nuttx
+- Usage: external source used to build the NuttX test images documented under `tests/integration/nuttx/`
+- Generated runtimes: `tests/integration/nuttx/*/prebuilt/*/exodus/`
+- License: Apache License 2.0
+
+BSWorld does not vendor Apache NuttX. The NuttX tests document how to build test images from a separate NuttX checkout.
+
+## Apache NimBLE
+
+- Project: Apache Mynewt NimBLE
+- Source: https://github.com/apache/mynewt-nimble
+- Usage: external Bluetooth Host stack used by the NuttX NimBLE tests and by the upstream Linux example inside the QEMU Guest
+- Generated runtimes: `tests/integration/nuttx/nimble/prebuilt/*/exodus/` and `tests/integration/qemu/prebuilt/rootfs.cpio`
+- License: Apache License 2.0
+
+BSWorld does not vendor Apache NimBLE. The NuttX image obtains it through NuttX apps; the QEMU Buildroot configuration downloads a pinned upstream revision and preserves its `LICENSE` and `NOTICE` files in Buildroot's `legal-info` output.
+
+## TrouBLE
+
+- Project: TrouBLE
+- Source: https://github.com/embassy-rs/trouble
+- Usage: Rust Bluetooth Host stack used by the Linux Battery Service example inside the QEMU Guest
+- Generated runtime: `tests/integration/qemu/prebuilt/rootfs.cpio`
+- License: MIT or Apache License 2.0
+
+BSWorld does not vendor TrouBLE. The QEMU Buildroot configuration downloads a pinned upstream revision, cross-compiles the unmodified Linux example, and preserves its license files in Buildroot's `legal-info` output.
+
+## Bumble
+
+- Project: Bumble
+- Source: https://github.com/google/bumble
+- Usage: Python Bluetooth Host stack used by `tests/integration/bumble/`
+- Distribution: installed from PyPI as an optional test dependency; not vendored or included in the binary release
+- License: Apache License 2.0
+
+BSWorld uses Bumble through its public Python and HCI transport APIs and does not modify its source code.
+
+## Zephyr Project
+
+- Project: Zephyr Project
+- Source: https://github.com/zephyrproject-rtos/zephyr
+- Usage: build dependency for the BSWorld Virtual Controller source under `components/bt_virt_controller/` and for the Zephyr sample tests under `tests/integration/zephyr/`
+- Generated runtimes: `components/bt_virt_controller/prebuilt/*/exodus/` and `tests/integration/zephyr/samples/*/prebuilt/*/exodus/`
+- License: Apache License 2.0
+
+`components/bt_virt_controller/` is BSWorld source code built as an out-of-tree Zephyr Application. Zephyr sample tests are built from a separate Zephyr workspace.
+
+## QEMU
+
+- Project: QEMU
+- Upstream source: https://gitlab.com/qemu-project/qemu
+- BSWorld fork: https://github.com/LingaoM/qemu
+- Usage: runs the shared Linux Guest used by `tests/integration/qemu/*/`, and synchronizes TCG instruction-counting time with BabbleSim
+- Distribution: built from a separate source checkout; not vendored in this repository
+- License: GNU General Public License version 2 for QEMU as a whole; individual files may carry compatible licenses
+
+The BSWorld QEMU tests use a modified QEMU fork. Redistributing its executable requires compliance with QEMU's license, including the applicable corresponding-source and notice obligations. The QEMU build procedure and validated source revision are documented under `tests/integration/qemu/`.
+
+## Buildroot
+
+- Project: Buildroot
+- Source: https://gitlab.com/buildroot.org/buildroot
+- Usage: builds the Linux kernel, initramfs, cross toolchain, BlueZ, Apache NimBLE, TrouBLE, and supporting Guest packages used by `tests/integration/qemu/`
+- Repository copies: only BSWorld-owned Buildroot external configuration files under `tests/integration/qemu/source/`; Buildroot source is not vendored
+- License: GNU General Public License version 2 or later for Buildroot, with exceptions and per-file licenses described by the upstream `COPYING` file
+
+Buildroot is a build system; its license does not replace the licenses of software assembled into the generated root filesystem. Run Buildroot's `legal-info` target against the exact release configuration and review the resulting package licenses, notices, and corresponding-source material before distributing a Guest image.
+
+## BlueZ
+
+- Project: BlueZ
+- Source: https://git.kernel.org/pub/scm/bluetooth/bluez.git
+- Usage: Linux Bluetooth Host stack, daemon, and command-line tools inside the QEMU Guest image
+- Distribution: downloaded and built by Buildroot; not vendored in this repository
+- License: GNU General Public License version 2 or later and GNU Lesser General Public License version 2.1 or later, depending on the component
+
+The Guest also contains D-Bus, BusyBox, glibc, and transitive dependencies selected by Buildroot. Their exact versions and licenses must be taken from the `legal-info` output generated for the distributed image.
