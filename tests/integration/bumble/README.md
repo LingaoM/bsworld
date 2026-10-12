@@ -11,10 +11,10 @@ The suite covers:
 - connection establishment between a Bumble central and peripheral;
 - extended periodic advertising, periodic synchronization, and periodic report reception.
 
-Install the validated Bumble release with the repository extra:
+Installing BSWorld also installs the validated Bumble release:
 
 ```sh
-python -m pip install -e ".[bumble]"
+python -m pip install -e .
 ```
 
 Run the suite after preparing BabbleSim and installing the BSWorld binary release described in the repository README:

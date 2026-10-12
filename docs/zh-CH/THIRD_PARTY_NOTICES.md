@@ -51,7 +51,7 @@ BSWorld 不直接包含 TrouBLE 源码。QEMU 的 Buildroot 配置下载固定�
 - 项目：Bumble
 - 源码：https://github.com/google/bumble
 - 用途：作为 `tests/integration/bumble/` 使用的 Python Bluetooth Host 协议栈
-- 分发方式：通过 PyPI 安装为可选的测试依赖，不复制到源码仓库或二进制 Release 中
+- 分发方式：通过 PyPI 安装为默认依赖，不复制到源码仓库或二进制 Release 中
 - 许可证：Apache License 2.0
 
 BSWorld 只使用 Bumble 对外提供的 Python 和 HCI transport 接口，不修改其源码。

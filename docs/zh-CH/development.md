@@ -2,12 +2,12 @@
 
 [English](../development.md) | [中文](development.md)
 
-开发和测试需要 Python 3.12 或更高版本。先创建项目虚拟环境，并安装开发依赖：
+开发和测试需要 Python 3.12 或更高版本。先创建项目虚拟环境，并安装 BSWorld：
 
 ```sh
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 ```
 
 ## 单元测试覆盖的核心行为
@@ -72,7 +72,7 @@ ruff check --fix scripts src tests
 
 ## 构建与打包预编译产物
 
-虚拟 Controller 和各类固件镜像使用已经展开的 [Exodus](https://pypi.org/project/exodus-bundler/) 运行目录。前面安装的 `dev` 依赖已经包含固定版本的 Exodus 及其 Python 3.12 兼容依赖。
+虚拟 Controller 和各类固件镜像使用已经展开的 [Exodus](https://pypi.org/project/exodus-bundler/) 运行目录。安装 BSWorld 时会同时安装固定版本的 Exodus 及其 Python 3.12 兼容依赖。
 
 每个依赖或测试套件都管理自己的 `build.sh` 和 `prebuilt/` 输出目录。可以单独构建某套测试、构建某个平台的全部测试，也可以从仓库根目录构建所有产物：
 

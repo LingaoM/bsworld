@@ -129,14 +129,14 @@ Python 3.12 or newer is required. On Ubuntu or Debian, install the base host too
 sudo apt install -y git make gcc python3.12 python3.12-venv python3-pip
 ```
 
-After cloning the repository, initialize BabbleSim and install BSWorld. The `dev` extra includes Bumble and the Exodus dependency required by the unit tests:
+After cloning the repository, initialize BabbleSim and install BSWorld:
 
 ```sh
 git submodule update --init --recursive components/babblesim
 
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 
 export BSIM_OUT_PATH=/tmp/bsworld/build/babblesim/bsim
 export BSIM_COMPONENTS_PATH=$PWD/components/babblesim/components

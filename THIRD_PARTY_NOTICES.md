@@ -51,7 +51,7 @@ BSWorld does not vendor TrouBLE. The QEMU Buildroot configuration downloads a pi
 - Project: Bumble
 - Source: https://github.com/google/bumble
 - Usage: Python Bluetooth Host stack used by `tests/integration/bumble/`
-- Distribution: installed from PyPI as an optional test dependency; not vendored or included in the binary release
+- Distribution: installed from PyPI as a default dependency; not vendored or included in the binary release
 - License: Apache License 2.0
 
 BSWorld uses Bumble through its public Python and HCI transport APIs and does not modify its source code.

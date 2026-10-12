@@ -129,14 +129,14 @@ Apache NimBLE 是同一套 Host 协议栈跨不同运行环境接入 BSWorld 的
 sudo apt install -y git make gcc python3.12 python3.12-venv python3-pip
 ```
 
-进入已拉取的源码仓库后，初始化 BabbleSim 并安装 BSWorld。`dev` 扩展依赖包含 Bumble 和单元测试所需的 Exodus：
+进入已拉取的源码仓库后，初始化 BabbleSim 并安装 BSWorld：
 
 ```sh
 git submodule update --init --recursive components/babblesim
 
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 
 export BSIM_OUT_PATH=/tmp/bsworld/build/babblesim/bsim
 export BSIM_COMPONENTS_PATH=$PWD/components/babblesim/components

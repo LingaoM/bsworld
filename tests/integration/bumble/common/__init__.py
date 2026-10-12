@@ -42,7 +42,7 @@ except ModuleNotFoundError as exc:
     if exc.name != "bumble":
         raise
     pytest.skip(
-        'Bumble is not installed; run: python -m pip install -e ".[bumble]"',
+        "Bumble is not installed; run: python -m pip install -e .",
         allow_module_level=True,
     )
 

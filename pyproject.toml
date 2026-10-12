@@ -22,11 +22,10 @@ dynamic = ["version"]
 description = "Deterministic simulation test framework for Bluetooth LE Applications"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
-dependencies = ["pytest>=8.4", "pytest-xdist>=3.0", "pytest-asyncio>=1.4"]
-
-[project.optional-dependencies]
-bumble = ["bumble==0.0.235"]
-dev = [
+dependencies = [
+    "pytest>=8.4",
+    "pytest-xdist>=3.0",
+    "pytest-asyncio>=1.4",
     "bumble==0.0.235",
     "exodus-bundler==2.0.4",
     "packaging>=24",

@@ -2,12 +2,12 @@
 
 [English](development.md) | [中文](zh-CH/development.md)
 
-Development and test commands require Python 3.12 or newer. Create the project virtual environment and install the dev extra first:
+Development and test commands require Python 3.12 or newer. Create the project virtual environment and install BSWorld first:
 
 ```sh
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 ```
 
 ## Unit-Tested Contracts
@@ -72,7 +72,7 @@ Keep platform-specific profiles, source configuration, and build instructions wi
 
 ## Prebuilt Builds and Packaging
 
-The Virtual Controller and firmware images use expanded [Exodus](https://pypi.org/project/exodus-bundler/) runtime trees. The `dev` extra installed above provides the pinned Exodus release and its Python 3.12 compatibility dependency.
+The Virtual Controller and firmware images use expanded [Exodus](https://pypi.org/project/exodus-bundler/) runtime trees. Installing BSWorld provides the pinned Exodus release and its Python 3.12 compatibility dependency.
 
 Each dependency or test suite owns its `build.sh` and generated `prebuilt/` directory. Build one suite with its local entry point, one platform with its platform entry point, or all artifacts from the repository root:
 

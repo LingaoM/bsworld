@@ -11,10 +11,10 @@
 - Bumble Central 与 Peripheral 建立连接；
 - 扩展周期广播、周期同步和周期广播报告接收。
 
-使用仓库提供的可选依赖安装已经验证的 Bumble 版本：
+安装 BSWorld 时会同时安装经过验证的 Bumble 版本：
 
 ```sh
-python -m pip install -e ".[bumble]"
+python -m pip install -e .
 ```
 
 按照仓库 README 准备 BabbleSim 并安装 BSWorld 二进制 Release 后，可以直接运行：

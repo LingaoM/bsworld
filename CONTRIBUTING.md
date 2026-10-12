@@ -22,7 +22,7 @@ Use Python 3.12 or newer and initialize all Git submodules:
 git submodule update --init --recursive
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 ```
 
 Virtual-system tests also require BabbleSim and the relevant prebuilt Application and Virtual Controller runtimes. Install the runtimes from the matching project release or build them locally by following [Development and packaging](docs/development.md) and the platform-specific README files.

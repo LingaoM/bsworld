@@ -22,7 +22,7 @@ BSWorld 自有代码使用 Apache License 2.0。引入或复用的第三方组�
 git submodule update --init --recursive
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 ```
 
 虚拟系统测试还需要 BabbleSim，以及对应业务程序和虚拟 Controller 的预编译运行目录。可以从匹配版本的项目 Release 安装，也可以按照[开发和打包](development.md)及各平台 README 在本地构建。
