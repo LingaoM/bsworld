@@ -129,14 +129,14 @@ Python 3.12 or newer is required. On Ubuntu or Debian, install the base host too
 sudo apt install -y git make gcc python3.12 python3.12-venv python3-pip
 ```
 
-After cloning the repository, initialize BabbleSim and install BSWorld:
+After cloning the repository, initialize BabbleSim and install BSWorld. The `dev` extra includes Bumble and the Exodus dependency required by the unit tests:
 
 ```sh
 git submodule update --init --recursive components/babblesim
 
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[bumble]"
+python -m pip install -e ".[dev]"
 
 export BSIM_OUT_PATH=/tmp/bsworld/build/babblesim/bsim
 export BSIM_COMPONENTS_PATH=$PWD/components/babblesim/components
@@ -159,6 +159,8 @@ Run the unit tests and simulation integration tests:
 pytest tests/unit/
 pytest tests/integration/ -n auto
 ```
+
+QEMU guest tests require the separate [QEMU Linux test environment](tests/integration/qemu/README.md). Its executable, kernel, and root filesystem are not included in the prebuilt ZIP, so those tests are skipped until the QEMU environment is prepared.
 
 ## Documentation
 
