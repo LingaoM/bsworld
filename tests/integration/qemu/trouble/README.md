@@ -15,16 +15,16 @@ This test runs the upstream TrouBLE Battery Service peripheral example inside th
 
 ## Build and Run
 
-First run the platform build described in the parent [QEMU Linux environment](../README.md). BlueZ, NimBLE, and TrouBLE tests share the QEMU, Linux kernel, and Guest root filesystem under `tests/integration/qemu/prebuilt/`. Then run:
+For native Linux, compile with the parent [QEMU / Buildroot README](../README.md), retain the BabbleSim/Controller exports and `BSWORLD_QEMU_BIN`, `BSWORLD_QEMU_KERNEL`, `BSWORLD_QEMU_ROOTFS`, then run from the repository root:
 
 ```sh
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
 pytest tests/integration/qemu/trouble -q
 ```
-
-Set `BSWORLD_QEMU_BIN`, `BSWORLD_QEMU_KERNEL`, or `BSWORLD_QEMU_ROOTFS` to test artifacts from other locations.
 
 The QEMU console is saved as `qemu/trouble/qemu_trouble.log`. HCI BTSnoop and BabbleSim RF traces are archived with the other per-test artifacts described in [Logs, Traces, and Captures](../../../../docs/artifacts.md).
 
 ## License
 
-The test code in this directory is licensed under Apache License 2.0. TrouBLE is available under MIT or Apache License 2.0; QEMU, Linux, BlueZ, Buildroot, and the other Guest components retain their own licenses. Before distributing binaries, review the repository [Third-Party Notices](../../../../THIRD_PARTY_NOTICES.md) and the parent documentation's [packaging requirements](../README.md#packaging-and-license-compliance).
+The test code in this directory is licensed under Apache License 2.0. TrouBLE is available under MIT or Apache License 2.0; QEMU, Linux, BlueZ, Buildroot, and the other Guest components retain their own licenses. Before distributing binaries, review the repository [Third-Party Notices](../../../../THIRD_PARTY_NOTICES.md) and the parent documentation's [license notes](../README.md#licenses).

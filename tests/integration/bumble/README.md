@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-These tests run the [Bumble](https://github.com/google/bumble) Bluetooth Host stack directly in pytest's asyncio event loop. Each Bumble device receives an independent BSWorld Virtual Controller and connects to it through a Unix-socket HCI transport. No Bumble source changes or firmware image are required.
+These tests run the [Bumble](https://github.com/google/bumble) Bluetooth Host stack directly in pytest's asyncio event loop. Each Bumble device receives an independent BSWorld Virtual Controller and connects to it through a Unix-socket HCI transport.
 
 The suite covers:
 
@@ -11,15 +11,11 @@ The suite covers:
 - connection establishment between a Bumble central and peripheral;
 - extended periodic advertising, periodic synchronization, and periodic report reception.
 
-Installing BSWorld also installs the validated Bumble release:
+Bumble is installed with BSWorld. For native Linux, follow the repository README's [quick start](../../../README.md#quick-start) to prepare the environment and build BabbleSim and the Virtual Controller. Retain `BSWORLD_BSIM_DIR` and `BSWORLD_BT_VIRT_CONTROLLER_BIN`, then run:
 
 ```sh
-python -m pip install -e .
-```
-
-Run the suite after preparing BabbleSim and installing the BSWorld binary release described in the repository README:
-
-```sh
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
 pytest tests/integration/bumble -n auto
 ```
 

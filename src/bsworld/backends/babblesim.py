@@ -18,7 +18,7 @@ Direct-PHY firmware receives --sim-bsim-* arguments and registers with the
 BabbleSim PHY itself.
 
 Bring-up shape:
-    1. verify prebuilt BabbleSim and Virtual Controller artifacts.
+    1. verify configured BabbleSim and Virtual Controller artifacts.
     2. prepare_sim: kill stragglers for this sim_id, remove stale HCI
        socket files.
     3. assign device ids: Virtual Controllers, Application processes,
@@ -296,7 +296,9 @@ class BabbleSimBackend:
             self.cleanup_sim_artifacts()
 
     def convert_ellisys(self, *, log_dir: Path | None = None) -> None:
-        converter = (
+        if self.env.bsim_dir is None:
+            return
+        converter = self.env.bsim_ellisys_script or (
             self.env.babblesim_root
             / "ext_2G4_phy_v1"
             / "dump_post_process"
@@ -334,8 +336,8 @@ class BabbleSimBackend:
             log(f"removing sim state {sim_state_dir}")
             shutil.rmtree(sim_state_dir, ignore_errors=True)
 
-        results_dir = self.env.bsim_dir / "results" / self.sim_id
-        if results_dir.exists():
+        results_dir = self.env.bsim_dir / "results" / self.sim_id if self.env.bsim_dir else None
+        if results_dir is not None and results_dir.exists():
             log(f"removing bsim results {results_dir}")
             shutil.rmtree(results_dir, ignore_errors=True)
 

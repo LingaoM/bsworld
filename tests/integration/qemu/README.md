@@ -19,99 +19,72 @@ This path is intended for Linux Bluetooth software that should be tested without
 
 The Buildroot and package versions are pinned by the validated Buildroot revision and the BSWorld defconfig. Use these revisions when reproducing the current tests; moving either repository independently may change build options, package versions, or runtime behavior.
 
-## Host Requirements
+## Prepare the Environment
 
-Use a Linux build host. On Ubuntu or Debian, install the tools required by QEMU, Buildroot, and BSWorld:
+The Docker test image includes QEMU, the kernel, and rootfs. The steps below are for native Linux builds. First build BabbleSim from [README build instructions](../../../README.md#build-and-test) and the [Controller](../../../components/bt_virt_controller/README.md), retaining `BSWORLD_ROOT`, `BSIM_OUT_PATH`, and `BSIM_COMPONENTS_PATH`.
 
-```sh
-sudo apt update
-sudo apt install -y \
-  bash bc binutils bzip2 build-essential cpio diffutils file findutils \
-  gawk gcc g++ git gzip libfdt-dev libglib2.0-dev libncurses-dev \
-  libpixman-1-dev make ninja-build patch perl pkg-config python3.12 \
-  python3.12-venv python3-pip rsync sed tar unzip wget which zlib1g-dev
-```
-
-Do not run Buildroot as `root`. Keep source trees and output directories separate so a configuration can be rebuilt or removed without modifying the upstream checkout.
-
-## Prepare BSWorld and BabbleSim
-
-First complete the root [Quick Start](../../../README.md#quick-start). It installs BSWorld, initializes and builds BabbleSim, and installs the Virtual Controller runtime used by every integration suite. Keep the `BSIM_OUT_PATH` and `BSIM_COMPONENTS_PATH` values from that setup in the current shell.
-
-Set `BSWORLD_ROOT` to the BSWorld checkout used by that setup:
+Native Linux builds can follow the official [QEMU build documentation](https://www.qemu.org/docs/master/devel/build-system.html) and [Buildroot manual](https://buildroot.org/downloads/manual/manual.html). Use the BabbleSim-aware QEMU fork. Example environment preparation:
 
 ```sh
-export BSWORLD_ROOT=/path/to/bsworld
+sudo apt-get update
+sudo apt-get install -y \
+  bash bc binutils bzip2 build-essential cpio debianutils diffutils file findutils \
+  gawk gcc g++ git gzip libfdt-dev libffi-dev libglib2.0-dev libncurses-dev \
+  libpixman-1-dev libssl-dev make ninja-build patch perl pkg-config \
+  python3.12 python3.12-venv python3-pip rsync sed tar unzip wget xz-utils zip zlib1g-dev
+source "$BSWORLD_ROOT/.venv/bin/activate"
+python -m pip install wheel 'meson>=1.6.0' 'pycotap>=1.1.0'
+
+export QEMU_DIR="$HOME/qemu"
+export BUILDROOT_DIR="$HOME/buildroot"
+git clone https://github.com/LingaoM/qemu.git "$QEMU_DIR"
+git clone https://gitlab.com/buildroot.org/buildroot.git "$BUILDROOT_DIR"
+git -C "$QEMU_DIR" checkout b2d1776bca209773c4a023e4decb785f7dc3cfb4
+git -C "$BUILDROOT_DIR" checkout 1ad0796f2b40eb8dadc43e95dd1d56708b191375
 ```
 
 ## Build QEMU and the Linux Guest
 
-Clone the QEMU fork and official Buildroot repository. The build entry point fetches and checks out the validated revisions listed above:
+Invoke QEMU configure/ninja and Buildroot make directly. Run Buildroot as a normal user.
 
 ```sh
-git clone https://github.com/LingaoM/qemu.git /path/to/qemu
-git clone https://gitlab.com/buildroot.org/buildroot.git /path/to/buildroot
+# Use your local QEMU and Buildroot workspace paths.
+source "$BSWORLD_ROOT/.venv/bin/activate"
+export QEMU_BUILD_DIR="$QEMU_DIR/build/bsworld"
+export BUILDROOT_OUTPUT="$BUILDROOT_DIR/output-bsworld-linux"
+mkdir -p "$QEMU_BUILD_DIR"
+cd "$QEMU_BUILD_DIR"
+"$QEMU_DIR/configure" \
+  --target-list=aarch64-softmmu \
+  --enable-bsim \
+  --bsim-components-path="$BSIM_COMPONENTS_PATH" \
+  --bsim-out-path="$BSIM_OUT_PATH"
+ninja -C "$QEMU_BUILD_DIR" -j"$(nproc)" qemu-system-aarch64
+
+make -C "$BUILDROOT_DIR" \
+  O="$BUILDROOT_OUTPUT" \
+  BR2_EXTERNAL="$BSWORLD_ROOT/tests/integration/qemu/source" \
+  bsworld_qemu_linux_defconfig
+make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" -j"$(nproc)"
+
+export BSWORLD_QEMU_BIN="$QEMU_BUILD_DIR/qemu-system-aarch64"
+export BSWORLD_QEMU_KERNEL="$BUILDROOT_OUTPUT/images/Image"
+export BSWORLD_QEMU_ROOTFS="$BUILDROOT_OUTPUT/images/rootfs.cpio"
 ```
 
-Run the platform build entry point from the BSWorld repository:
+BlueZ, NimBLE, and TrouBLE share this QEMU, kernel, and rootfs.
+
+The fork's `--enable-bsim` links the BabbleSim communication static libraries into QEMU. The Buildroot external tree at `tests/integration/qemu/source` maintains the guest defconfig, Linux fragment, and NimBLE/TrouBLE package inputs. The first build downloads and compiles the cross toolchain, Linux, and guest packages, so it takes substantially longer than incremental builds.
+
+The rootfs is an initramfs expanded afresh at each guest boot. Inspect the original outputs before testing:
 
 ```sh
-cd "$BSWORLD_ROOT"
-
-tests/integration/qemu/build.sh \
-  --qemu-dir /path/to/qemu \
-  --buildroot-dir /path/to/buildroot \
-  --bsim-out-dir "$BSIM_OUT_PATH"
-```
-
-Before changing either source checkout, the script rejects uncommitted tracked changes. It then checks out the pinned revisions, configures and builds QEMU, builds the Linux Guest with the maintained Buildroot external tree, and stages the three shared test inputs under `tests/integration/qemu/prebuilt/`. Pass `--jobs N` to control Buildroot parallelism. `--skip-source-update` skips repository fetch and checkout but still requires both workspaces to already be at the validated revisions.
-
-By default, intermediate build output is stored under the external workspaces:
-
-| Output | Default path |
-|---|---|
-| QEMU build directory | `/path/to/qemu/build/bsworld/` |
-| Buildroot output directory | `/path/to/buildroot/output-bsworld-linux/` |
-| Test-ready QEMU executable | `tests/integration/qemu/prebuilt/qemu-system-aarch64` |
-| Test-ready Linux kernel | `tests/integration/qemu/prebuilt/Image` |
-| Test-ready Guest root filesystem | `tests/integration/qemu/prebuilt/rootfs.cpio` |
-
-Use `--qemu-build-dir` or `--buildroot-output-dir` when CI or a local build needs different intermediate output locations. The staged `prebuilt/` directory is ignored by Git and is not part of the BSWorld binary Release.
-
-The build entry point configures QEMU with `--enable-bsim`, passes the BSWorld BabbleSim component tree through `--bsim-components-path`, and forwards `--bsim-out-dir` as `--bsim-out-path`. QEMU derives the static library directory from `<bsim-out-path>/lib`; no separate library-path option is required. The BabbleSim communication libraries are linked into `qemu-system-aarch64`, so the executable does not load `libPhyComv1.so` at runtime.
-
-The maintained Buildroot external tree is located at `tests/integration/qemu/source`. It contains a minimal defconfig, a Linux configuration fragment, and package definitions for NimBLE and TrouBLE; no upstream source patches are required. The first build compiles a complete cross toolchain and installs a prebuilt Rust compiler for the TrouBLE cross-build, so it can take substantially longer than later incremental builds. Buildroot downloads upstream source archives during this step; standard Git and HTTPS access to the public upstream servers is required.
-
-The maintained configuration intentionally produces only the artifacts required by BSWorld:
-
-| Setting | Result |
-|---|---|
-| AArch64 `virt` target | Matches QEMU `-M virt -cpu cortex-a53` |
-| Linux Bluetooth, HCI UART H4, and 8250 PCI serial | Exposes the QEMU HCI channel as guest `/dev/ttyS0` |
-| BlueZ CLI and tools | Installs `bluetoothd`, `bluetoothctl`, `btattach`, and `hciconfig`; BlueZ selects D-Bus automatically |
-| Apache NimBLE Linux example | Builds `nimble-linux` from a pinned upstream revision and opens `hci0` through HCI User Channel |
-| TrouBLE Linux example | Cross-compiles `trouble-ble-bas-peripheral` from a pinned upstream revision and opens `hci0` through HCI User Channel |
-| CPIO root filesystem | Produces an initramfs loaded directly into guest memory |
-| No EXT2/EXT4 image | Avoids an unused virtual disk image |
-| No Buildroot `host-qemu` | Avoids compiling a second QEMU without the BSWorld integration |
-| No guest network | The tests use `-nic none`; Bluetooth communication uses the HCI serial channel |
-
-The root filesystem is an initramfs. QEMU expands `rootfs.cpio` into guest memory at every boot, so each test starts from a fresh copy of the same built image and does not depend on a persistent virtual disk.
-
-The Buildroot output can be inspected before running pytest:
-
-```sh
-export BUILDROOT_OUTPUT=/path/to/buildroot/output-bsworld-linux
-
-test -f "$BUILDROOT_OUTPUT/images/Image"
-test -f "$BUILDROOT_OUTPUT/images/rootfs.cpio"
+test -x "$BSWORLD_QEMU_BIN"
+test -f "$BSWORLD_QEMU_KERNEL"
+test -f "$BSWORLD_QEMU_ROOTFS"
 test -x "$BUILDROOT_OUTPUT/target/usr/bin/btattach"
-test -x "$BUILDROOT_OUTPUT/target/usr/bin/hciconfig"
-test -x "$BUILDROOT_OUTPUT/target/usr/bin/bluetoothctl"
-test -x "$BUILDROOT_OUTPUT/target/usr/libexec/bluetooth/bluetoothd"
 test -x "$BUILDROOT_OUTPUT/target/usr/bin/nimble-linux"
 test -x "$BUILDROOT_OUTPUT/target/usr/bin/trouble-ble-bas-peripheral"
-test ! -e "$BUILDROOT_OUTPUT/host/bin/qemu-system-aarch64"
 ```
 
 ## Runtime Data Path
@@ -126,42 +99,22 @@ While the vCPU waits for the PHY acknowledgment, it releases the execution-order
 
 ## Run the Tests
 
-See the [BlueZ tests](bluez/README.md), [NimBLE Linux test](nimble/README.md), and [TrouBLE Linux test](trouble/README.md) for pytest commands, optional artifact path overrides, validated behavior, and per-test logs.
+See the [BlueZ tests](bluez/README.md), [NimBLE Linux test](nimble/README.md), and [TrouBLE Linux test](trouble/README.md) for pytest commands, artifact environment variables, validated behavior, and per-test logs.
 
 ## Rebuild and Inspect the Configuration
 
-Set the source and output paths used by the build entry point, then inspect the active Buildroot configuration without changing it:
+Inspect the current Buildroot configuration:
 
 ```sh
-export BUILDROOT_SOURCE=/path/to/buildroot
-export BUILDROOT_OUTPUT=/path/to/buildroot/output-bsworld-linux
-
-make -C "$BUILDROOT_SOURCE" O="$BUILDROOT_OUTPUT" show-info
-grep -E 'BR2_(PACKAGE_BLUEZ5|PACKAGE_BSWORLD_NIMBLE|PACKAGE_BSWORLD_TROUBLE|TARGET_ROOTFS|PACKAGE_HOST_QEMU)' \
-  "$BUILDROOT_OUTPUT/.config"
+make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" show-info
 ```
 
-After changing the maintained defconfig or Linux fragment, remove the Buildroot output directory and rerun the build entry point so the image cannot retain stale package or kernel settings:
+After changing the defconfig or Linux fragment, choose a fresh `BUILDROOT_OUTPUT`, rerun the defconfig and make commands above, and update the kernel/rootfs exports.
+
+## Licenses
+
+The external configuration and tests in this repository use Apache License 2.0. QEMU, Linux, and guest software retain their own licenses. For distribution, generate Buildroot's `legal-info` from the actual build output; see [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md).
 
 ```sh
-rm -rf "$BUILDROOT_OUTPUT"
-tests/integration/qemu/build.sh \
-  --qemu-dir /path/to/qemu \
-  --buildroot-dir "$BUILDROOT_SOURCE" \
-  --bsim-out-dir "$BSIM_OUT_PATH" \
-  --skip-source-update
+make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" legal-info
 ```
-
-## Packaging and License Compliance
-
-The QEMU build entry point stages local test inputs but does not register them as Release-managed runtimes. Tagged binary Releases therefore do not include QEMU, the Linux kernel, or the Guest root filesystem. If any of these files are distributed separately, treat them as third-party binary distributions rather than as Apache-2.0 BSWorld source.
-
-Generate Buildroot's license and corresponding-source report from the exact output directory used for the release:
-
-```sh
-make -C "$BUILDROOT_SOURCE" O="$BUILDROOT_OUTPUT" legal-info
-```
-
-Review and preserve `$BUILDROOT_OUTPUT/legal-info/` with the release materials. QEMU is distributed under GPL-2.0 and the BSWorld fork contains modifications, so a binary release must also satisfy QEMU's corresponding-source and notice requirements. The guest image contains Linux, BlueZ, Apache NimBLE, TrouBLE, Mbed TLS, D-Bus, BusyBox, glibc, and their dependencies, each under its own terms. Buildroot's `legal-info` output is the starting point for auditing that complete set; it is not a substitute for reviewing the licenses of the actual files being distributed.
-
-The BSWorld defconfig, Linux fragment, test code, and documentation in this repository are licensed under Apache License 2.0. See the repository [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md) for component-level references.

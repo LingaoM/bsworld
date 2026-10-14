@@ -12,84 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Validate manually built BabbleSim artifacts."""
+"""Validate the selected BabbleSim runtime artifacts."""
 from __future__ import annotations
+
+import os
 
 from ..env import Env
 from ..log import die
 
-_BASE_DIR = "base"
-_REQUIRED_SUBMODULES = (
-    (_BASE_DIR, "common/pre.make.inc"),
-    ("ext_2G4_channel_NtNcable", "Depends"),
-    ("ext_2G4_channel_multiatt", "Depends"),
-    ("ext_2G4_device_WLAN_actmod", "Depends"),
-    ("ext_2G4_device_burst_interferer", "Depends"),
-    ("ext_2G4_device_playback", "Depends"),
-    ("ext_2G4_device_playbackv2", "Depends"),
-    ("ext_2G4_libPhyComv1", "Depends"),
-    ("ext_2G4_modem_BLE_simple", "Depends"),
-    ("ext_2G4_modem_magic", "Depends"),
-    ("ext_2G4_phy_v1", "Depends"),
-)
-_REQUIRED_COMPONENTS = (
-    "common",
-    "libPhyComv1",
-    "libRandv2",
-    "libUtilv1",
-    "ext_2G4_channel_NtNcable",
-    "ext_2G4_channel_multiatt",
-    "ext_2G4_device_WLAN_actmod",
-    "ext_2G4_device_burst_interferer",
-    "ext_2G4_device_playback",
-    "ext_2G4_device_playbackv2",
-    "ext_2G4_libPhyComv1",
-    "ext_2G4_modem_BLE_simple",
-    "ext_2G4_modem_magic",
-    "ext_2G4_phy_v1",
-)
 _OUTPUTS = (
     "bin/bs_2G4_phy_v1",
     "bin/bs_device_2G4_burst_interf",
     "bin/bs_device_2G4_WLAN_actmod",
     "bin/bs_device_2G4_playback",
     "bin/bs_device_2G4_playbackv2",
+    "lib/lib_2G4Channel_NtNcable.so",
+    "lib/lib_2G4Channel_multiatt.so",
+    "lib/lib_2G4Modem_BLE_simple.so",
+    "lib/lib_2G4Modem_Magic.so",
+    "lib/libPhyComv1.so",
+    "lib/libPhyComv1.32.so",
+    "lib/libUtilv1.so",
+    "lib/libUtilv1.32.so",
 )
-
-
-def _ensure_submodules_ready(env: Env) -> None:
-    missing = [
-        str(env.babblesim_root / rel / marker)
-        for rel, marker in _REQUIRED_SUBMODULES
-        if not (env.babblesim_root / rel / marker).is_file()
-    ]
-    if missing:
-        formatted = "\n    ".join(missing)
-        die(
-            "BabbleSim submodules are not initialized. Run:\n"
-            "    git submodule update --init --recursive components/babblesim\n"
-            f"Missing:\n    {formatted}",
-            code=15,
-        )
-
-
-def _ensure_default_workspace_ready(env: Env) -> None:
-    missing = []
-    if not (env.babblesim_root / "Makefile").is_file():
-        missing.append(str(env.babblesim_root / "Makefile"))
-    for name in _REQUIRED_COMPONENTS:
-        marker = "pre.make.inc" if name == "common" else "Depends"
-        missing_path = env.babblesim_components_dir / name / marker
-        if not missing_path.is_file():
-            missing.append(str(missing_path))
-    if missing:
-        formatted = "\n    ".join(missing)
-        die(
-            "BabbleSim default workspace is incomplete. Expected "
-            "`components/babblesim/Makefile` and `components/babblesim/components/`.\n"
-            f"Missing:\n    {formatted}",
-            code=15,
-        )
 
 
 def _manual_setup_hint(env: Env) -> str:
@@ -101,17 +46,20 @@ def _manual_setup_hint(env: Env) -> str:
         "    export BSIM_BASE_PATH=$BSIM_COMPONENTS_PATH\n"
         "    export BSIM_BUILD_FAIL_ASAP=1\n"
         "    make -C components/babblesim everything\n"
+        "    export BSWORLD_BSIM_DIR=\"$BSIM_OUT_PATH\"\n"
     )
 
 
 def check_ready(env: Env) -> None:
-    """Validate that BabbleSim was manually built before pytest."""
-    _ensure_submodules_ready(env)
-    _ensure_default_workspace_ready(env)
+    """Validate BabbleSim runtime outputs before pytest."""
+    if env.bsim_dir is None:
+        die("Set BSWORLD_BSIM_DIR to the BabbleSim output directory containing bin/ and lib/. "
+            "See README.md.", code=15)
     missing_outputs = [
         str(env.bsim_dir / rel)
         for rel in _OUTPUTS
         if not (env.bsim_dir / rel).is_file()
+        or (rel.startswith("bin/") and not os.access(env.bsim_dir / rel, os.X_OK))
     ]
     if missing_outputs:
         die(

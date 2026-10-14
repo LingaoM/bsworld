@@ -2,61 +2,52 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-## Prepare a NuttX Workspace
+## Prepare the Environment
 
-For a first-time setup, install system dependencies, Kconfig tools, and the target toolchain by following the Apache NuttX official [Installing](https://nuttx.apache.org/docs/latest/quickstart/install.html) guide.
+Install BSWorld and set `BSWORLD_ROOT` using the repository README's [local Linux setup](../../../README.md#local-linux).
 
-On Ubuntu / Debian, start with the base dependencies recommended by the NuttX documentation:
+The Docker test image includes BTSak and NimBLE firmware. The steps below are for native Linux builds. `NUTTX_DIR` and `NUTTX_APPS_DIR` serve BTSak; `NUTTX_NIMBLE_DIR` and `NUTTX_NIMBLE_APPS_DIR` serve NimBLE. Each configuration uses separate source trees because Make produces an in-tree executable named `nuttx`, and apps contains configuration-dependent build outputs.
+
+For native Linux builds, follow the Apache NuttX official [installation guide](https://nuttx.apache.org/docs/latest/quickstart/install.html). Ubuntu 24.04 can use the following dependencies. Simulator configurations use host GCC/multilib rather than an ARM cross toolchain:
 
 ```sh
-sudo apt install -y \
-  bison flex gettext texinfo libncurses5-dev libncursesw5-dev xxd \
-  git gperf automake libtool pkg-config build-essential genromfs \
+sudo apt-get update
+sudo apt-get install -y \
+  autoconf automake bison flex gettext texinfo gperf libtool pkg-config \
+  build-essential git libncurses-dev xxd genromfs kconfig-frontends \
   libgmp-dev libmpc-dev libmpfr-dev libisl-dev binutils-dev libelf-dev \
-  libexpat1-dev gcc-multilib g++-multilib picocom u-boot-tools util-linux
+  libexpat1-dev gcc-multilib g++-multilib lib32z1-dev picocom u-boot-tools util-linux
+source "$BSWORLD_ROOT/.venv/bin/activate"
+python -m pip install kconfiglib
 ```
 
-Then install the Kconfig tools. `kconfig-frontends` provides menuconfig frontends and the `kconfig-tweak` command used by the build snippets below; `python3-kconfiglib` provides the Python Kconfig frontend supported by NuttX. BSWorld's build scripts require Python 3.12 or newer:
+The `sim:nimble` configuration builds a 32-bit executable and enables FAT filesystem support, which links against host zlib. Install `lib32z1-dev` to provide the 32-bit zlib library; the 64-bit `zlib1g-dev` library alone cannot satisfy this link.
+
+Then prepare the source workspaces. These revisions match the validated Dockerfile pins.
 
 ```sh
-sudo apt install -y \
-  kconfig-frontends python3-kconfiglib python3.12 python3.12-venv python3-pip
+export NUTTX_DIR="$HOME/nuttx"
+export NUTTX_APPS_DIR="$HOME/nuttx-apps"
+export NUTTX_NIMBLE_DIR="$HOME/nuttx-nimble"
+export NUTTX_NIMBLE_APPS_DIR="$HOME/nuttx-nimble-apps"
+
+git clone https://github.com/apache/nuttx.git "$NUTTX_DIR"
+git clone https://github.com/apache/nuttx-apps.git "$NUTTX_APPS_DIR"
+git -C "$NUTTX_DIR" checkout 89c4b8ccaf03f1c6d33624d93ef640d8d176a78d
+git -C "$NUTTX_APPS_DIR" checkout 8404450fb89346ed244d1c701e5feb5d19f32271
+
+# Separate source trees retain both in-tree simulator executables.
+git clone "$NUTTX_DIR" "$NUTTX_NIMBLE_DIR"
+git clone "$NUTTX_APPS_DIR" "$NUTTX_NIMBLE_APPS_DIR"
 ```
 
-Then prepare matching NuttX and apps checkouts. Their paths are passed to the build scripts independently:
+## Compile and Run
 
-```sh
-git clone https://github.com/apache/nuttx.git /path/to/nuttx
-git clone https://github.com/apache/nuttx-apps.git /path/to/nuttx-apps
-```
+Build BabbleSim from [README build instructions](../../../README.md#build-and-test), retaining `BSWORLD_ROOT` and `BSIM_*`, then compile the [Virtual Controller](../../../components/bt_virt_controller/README.md).
 
-The validated revisions are:
-
-| Repository | Revision |
-|---|---|
-| NuttX | `89c4b8ccaf03f1c6d33624d93ef640d8d176a78d` |
-| nuttx-apps | `8404450fb89346ed244d1c701e5feb5d19f32271` |
-
-Before compiling, each standalone build entry point fetches the official Apache repositories, checks out these revisions in detached HEAD state, and verifies the resulting commits. This does not depend on where the local checkout's `origin` points. The script stops before checkout if either repository has uncommitted tracked changes.
-
-## BSWorld Dependencies
-
-BSIM-enabled firmware requires the BabbleSim source and build output from the root BSWorld README. The build entry points receive the BabbleSim output path through `--bsim-out-dir` and derive the component source from this repository.
-
-## Build Entry Points
-
-| Suite | Coverage | Build doc |
+| Suite | Build instructions | Test artifact variable |
 |---|---|---|
-| BTSak | stock NuttX Bluetooth socket scan/advertise commands | [btsak/source/README.md](btsak/source/README.md) |
-| NimBLE | stock NuttX NimBLE central/peripheral connection flow | [nimble/source/README.md](nimble/source/README.md) |
+| BTSak | [source/README](btsak/source/README.md) | `BSWORLD_NUTTX_BTSAK_BIN` |
+| NimBLE | [source/README](nimble/source/README.md) | `BSWORLD_NUTTX_NIMBLE_BIN` |
 
-Build every NuttX test image from the BSWorld repository root:
-
-```sh
-tests/integration/nuttx/build.sh \
-  --nuttx-dir /path/to/nuttx \
-  --nuttx-apps-dir /path/to/nuttx-apps \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
-```
-
-The `btsak/build.sh` and `nimble/build.sh` entry points accept the same arguments and build only their own suite. Every generated image enables `CONFIG_SIM_BSIM_TIME=y` and joins BabbleSim discrete time.
+Both configurations enable `CONFIG_SIM_BSIM_TIME=y` to join BabbleSim discrete time.

@@ -2,7 +2,7 @@
 
 [English](THIRD_PARTY_NOTICES.md) | [中文](docs/zh-CH/THIRD_PARTY_NOTICES.md)
 
-This repository references third-party components and publishes generated runtime trees under component-owned `prebuilt/` directories. Those components are not owned by Xiaomi Corporation and remain governed by their own license terms. Exodus may copy host runtime libraries from the build machine into those trees; inspect the generated files before publishing them.
+Third-party components prepare the Docker build environment and test programs. Native build outputs and artifacts in the Docker test image are selected by environment variables. Third-party components retain their own licenses.
 
 ## BabbleSim
 
@@ -21,7 +21,7 @@ Each BabbleSim component keeps its own license file under that component's `docs
 - Project: Apache NuttX
 - Source: https://github.com/apache/nuttx
 - Usage: external source used to build the NuttX test images documented under `tests/integration/nuttx/`
-- Generated runtimes: `tests/integration/nuttx/*/prebuilt/*/exodus/`
+- Generated runtimes: `BSWORLD_NUTTX_BTSAK_BIN` and `BSWORLD_NUTTX_NIMBLE_BIN`
 - License: Apache License 2.0
 
 BSWorld does not vendor Apache NuttX. The NuttX tests document how to build test images from a separate NuttX checkout.
@@ -31,7 +31,7 @@ BSWorld does not vendor Apache NuttX. The NuttX tests document how to build test
 - Project: Apache Mynewt NimBLE
 - Source: https://github.com/apache/mynewt-nimble
 - Usage: external Bluetooth Host stack used by the NuttX NimBLE tests and by the upstream Linux example inside the QEMU Guest
-- Generated runtimes: `tests/integration/nuttx/nimble/prebuilt/*/exodus/` and `tests/integration/qemu/prebuilt/rootfs.cpio`
+- Generated runtimes: `BSWORLD_NUTTX_NIMBLE_BIN` and `BSWORLD_QEMU_ROOTFS`
 - License: Apache License 2.0
 
 BSWorld does not vendor Apache NimBLE. The NuttX image obtains it through NuttX apps; the QEMU Buildroot configuration downloads a pinned upstream revision and preserves its `LICENSE` and `NOTICE` files in Buildroot's `legal-info` output.
@@ -41,7 +41,7 @@ BSWorld does not vendor Apache NimBLE. The NuttX image obtains it through NuttX 
 - Project: TrouBLE
 - Source: https://github.com/embassy-rs/trouble
 - Usage: Rust Bluetooth Host stack used by the Linux Battery Service example inside the QEMU Guest
-- Generated runtime: `tests/integration/qemu/prebuilt/rootfs.cpio`
+- Generated runtime: `BSWORLD_QEMU_ROOTFS`
 - License: MIT or Apache License 2.0
 
 BSWorld does not vendor TrouBLE. The QEMU Buildroot configuration downloads a pinned upstream revision, cross-compiles the unmodified Linux example, and preserves its license files in Buildroot's `legal-info` output.
@@ -51,7 +51,7 @@ BSWorld does not vendor TrouBLE. The QEMU Buildroot configuration downloads a pi
 - Project: Bumble
 - Source: https://github.com/google/bumble
 - Usage: Python Bluetooth Host stack used by `tests/integration/bumble/`
-- Distribution: installed from PyPI as a default dependency; not vendored or included in the binary release
+- Distribution: installed from PyPI as a default dependency; not vendored in this repository
 - License: Apache License 2.0
 
 BSWorld uses Bumble through its public Python and HCI transport APIs and does not modify its source code.
@@ -61,7 +61,7 @@ BSWorld uses Bumble through its public Python and HCI transport APIs and does no
 - Project: Zephyr Project
 - Source: https://github.com/zephyrproject-rtos/zephyr
 - Usage: build dependency for the BSWorld Virtual Controller source under `components/bt_virt_controller/` and for the Zephyr sample tests under `tests/integration/zephyr/`
-- Generated runtimes: `components/bt_virt_controller/prebuilt/*/exodus/` and `tests/integration/zephyr/samples/*/prebuilt/*/exodus/`
+- Generated runtimes: `BSWORLD_BT_VIRT_CONTROLLER_BIN` and `BSWORLD_ZEPHYR_*_BIN`
 - License: Apache License 2.0
 
 `components/bt_virt_controller/` is BSWorld source code built as an out-of-tree Zephyr Application. Zephyr sample tests are built from a separate Zephyr workspace.

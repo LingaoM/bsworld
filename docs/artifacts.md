@@ -9,7 +9,7 @@ BSWorld preserves framework logs, Application logs, HCI captures, and RF traces 
 At session start, BSWorld prints the output directory for the run:
 
 ```text
-[HH:MM:SS.mmm] [bsworld] log dir: /tmp/run-<timestamp>/<uid>
+[bsworld] log dir: /tmp/run-<timestamp>/<uid>
 ```
 
 The default root is `/tmp`. Override it with a command-line option or environment variable:
@@ -20,6 +20,12 @@ OUT_DIR=/path/to/artifacts pytest tests/
 ```
 
 BSWorld appends `run-<timestamp>/<uid>` beneath the selected root. [pytest-xdist](https://pytest-xdist.readthedocs.io/) workers in one pytest session share this run directory, while every test writes beneath a separate path derived from its pytest node ID. Parallel tests therefore do not overwrite each other's logs, sockets, or captures.
+
+## Docker and CI Results
+
+The [Docker commands](../docker/README.md#run-tests) bind-mount `/output` at `.cache/docker-results` on the host. The default image command saves `pytest.xml` there, alongside the `run-<timestamp>/<uid>` directories containing per-test logs and captures.
+
+In GitHub Actions, open **Actions → CI → the run** to view step output and the JUnit summary. Download the `bsworld-results-<run-id>-<attempt>` artifact for generated `unit.xml`, `integration.xml`, terminal logs, and per-test output under `unit/` and `integration/`. If an image was selected, its tag and metadata are included. Reports and logs are uploaded on failure and retained for 14 days.
 
 ## Directory Layout
 

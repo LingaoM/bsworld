@@ -6,35 +6,29 @@ These tests run unmodified Zephyr Bluetooth samples as Host-only processes in BS
 
 | Test directory | Zephyr samples | Coverage |
 |---|---|---|
-| `broadcast_observe/` | `broadcaster`, `observer` | Advertising, passive scanning, and targeted three-channel interference with recovery |
-| `heart_rate/` | `peripheral_hr`, `central_hr` | Connection, GATT discovery, and notifications |
-| `periodic_advertising/` | `periodic_adv`, `periodic_sync` | Periodic advertising synchronization |
-| `mesh/` | `mesh`, `mesh_provisioner` | Mesh provisioning and configuration-model control |
+| [broadcast_observe/](broadcast_observe/README.md) | `broadcaster`, `observer` | Advertising, passive scanning, and targeted three-channel interference with recovery |
+| [heart_rate/](heart_rate/README.md) | `peripheral_hr`, `central_hr` | Connection, GATT discovery, and notifications |
+| [periodic_advertising/](periodic_advertising/README.md) | `periodic_adv`, `periodic_sync` | Periodic advertising synchronization |
+| [mesh/](mesh/README.md) | `mesh`, `mesh_provisioner` | Mesh provisioning and configuration-model control |
 
-Each directory owns its Python test, process profiles, optional build fragment, build entry point, and generated, expanded `prebuilt/` runtimes. No interactive Zephyr shell is used.
+Each directory owns its Python tests, profiles, and optional configuration fragments.
 
-## Build
+## Environment Setup
 
-Prepare the Zephyr and BabbleSim dependencies as described in [`common/source/README.md`](common/source/README.md). Build all sample images:
+With the Docker test image, run the suite pytest commands directly. The preparation steps below are for native Linux builds.
 
-```sh
-tests/integration/zephyr/samples/build.sh \
-  --zephyr-workspace /path/to/zephyrproject \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
-```
+Prepare source and SDK from the [Zephyr workspace guide](common/source/README.md), compile BabbleSim from [README build instructions](../../../../README.md#build-and-test), then build the [Virtual Controller](../../../../components/bt_virt_controller/README.md).
 
-To build one test group, run its local entry point with the same arguments:
+Retain `BSWORLD_ROOT`, `ZEPHYR_WORKSPACE`, `BSIM_OUT_PATH`, `BSIM_COMPONENTS_PATH`, and `BSIM_BASE_PATH`, plus the test variables `BSWORLD_BSIM_DIR` and `BSWORLD_BT_VIRT_CONTROLLER_BIN`. Set these variables to your local workspace paths.
 
-```sh
-tests/integration/zephyr/samples/heart_rate/build.sh \
-  --zephyr-workspace /path/to/zephyrproject \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
-```
+## Build and Run
 
-The expanded Exodus runtime trees are written to `prebuilt/<sample>/` in the selected group. They are ignored by Git, and the group profiles execute their launchers directly.
+Each test directory's README documents its sample-specific `west build` commands, original output paths, environment variables, and pytest command. Follow the links in the table above. Build and test in the same shell, retaining exports when switching Python environments.
 
-## Run
+After compiling every group and exporting its variables, run all groups in the BSWorld Python environment:
 
 ```sh
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
 pytest tests/integration/zephyr/samples -q --no-ellisys
 ```

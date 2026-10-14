@@ -64,16 +64,14 @@ BSWorld 核心只提供通用的虚拟 Controller、`ProcessInstance` 和拓扑�
 
 ### NuttX
 
-`NuttXProcessProfile` 描述业务程序路径、Controller 地址以及可选的 Shell 能力。`load_nuttx_profile()` 会加入 `--sim-bsim-*` 设备标识和 `--bt-dev=<sock>` HCI socket：
+`NuttXProcessProfile` 描述业务程序的环境变量名、Controller 地址以及可选的 Shell 能力。`load_nuttx_profile()` 会加入 `--sim-bsim-*` 设备标识和 `--bt-dev=<sock>` HCI socket：
 
 ```python
-from pathlib import Path
-
 from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
 
 MY_DEVICE = NuttXProcessProfile(
     name="my_device",
-    path=Path("tests/integration/nuttx/btsak/prebuilt/nuttx/exodus/bin/nuttx"),
+    binary_env="BSWORLD_NUTTX_BTSAK_BIN",
     controller_address="C0:FF:EE:00:00:01",
 )
 ```
@@ -90,13 +88,11 @@ my_device --sim-bsim-sid=<sim_id> --sim-bsim-pid=2G4 \
 只运行 Host 的 Zephyr 业务程序使用 native simulator 风格的设备标识参数：
 
 ```python
-from pathlib import Path
-
 from tests.integration.zephyr.samples.common import ZephyrProcessProfile, load_zephyr_profile
 
 ZEPHYR_APP = ZephyrProcessProfile(
     name="zephyr_app",
-    path=Path("tests/integration/zephyr/samples/broadcast_observe/prebuilt/observer/exodus/bin/zephyr.exe"),
+    binary_env="BSWORLD_ZEPHYR_OBSERVER_BIN",
     controller_address="C0:FF:EE:10:00:01",
 )
 ```
@@ -114,9 +110,11 @@ Python Host 协议栈不需要 `ProcessInstance`。Bumble 测试通过 `topo.add
 部分固件将 Shell 连接到标准输入。设置 `shell=True` 后，在测试用例中通过 Shell 发送命令；`await topo.start()` 会建立初始 PHY 同步边界，命令应在该调用返回后发送：
 
 ```python
+from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
+
 NUTTX_APP = NuttXProcessProfile(
     name="nuttx_app",
-    path=Path("exodus/bin/nuttx"),
+    binary_env="BSWORLD_NUTTX_NIMBLE_BIN",
     shell=True,
 )
 
@@ -243,9 +241,13 @@ BSWorld 在启动 BabbleSim 进程前校验 RF 参数：
 `topo` fixture 将拓扑声明、RF 条件、业务操作和断言组织在同一个 Python 测试中。进程加载函数和 RF 配置接口只登记预期状态；执行 `await topo.start()` 后，框架才会创建对应的运行实例。
 
 ```python
+from tests.integration.zephyr.samples.common import load_zephyr_profile
+from tests.integration.zephyr.samples.heart_rate.devices import ZEPHYR_CENTRAL_HR, ZEPHYR_PERIPHERAL_HR
+
+
 async def test_central_receives_notification(topo):
-    peripheral = load_zephyr_profile(topo, PERIPHERAL)
-    central = load_zephyr_profile(topo, CENTRAL)
+    peripheral = load_zephyr_profile(topo, ZEPHYR_PERIPHERAL_HR)
+    central = load_zephyr_profile(topo, ZEPHYR_CENTRAL_HR)
     topo.set_channel_attenuation(default_db=45.0)
 
     await topo.start()

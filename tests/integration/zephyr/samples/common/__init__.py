@@ -22,31 +22,35 @@ from pathlib import Path
 import pytest
 
 from bsworld.devices import ProcessInstance
+from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
 
 @dataclass(frozen=True)
 class ZephyrProcessProfile:
     name: str
-    path: Path
+    binary_env: str
     controller_address: str
 
+    @property
+    def path(self) -> Path | None:
+        return env_path(self.binary_env)
 
-def sample_profile(group_dir: Path, sample_name: str, address: str) -> ZephyrProcessProfile:
+
+def sample_profile(sample_name: str, address: str) -> ZephyrProcessProfile:
     return ZephyrProcessProfile(
         name=f"zephyr_{sample_name}",
-        path=group_dir / "prebuilt" / sample_name / "exodus" / "bin" / "zephyr.exe",
+        binary_env=f"BSWORLD_ZEPHYR_{sample_name.upper()}_BIN",
         controller_address=address,
     )
 
 
 def require_binaries(profiles: list[ZephyrProcessProfile]) -> None:
-    missing = [str(profile.path) for profile in profiles if not profile.path.is_file()]
-    if missing:
-        pytest.skip(
-            "Zephyr sample binaries are not built; see "
-            "tests/integration/zephyr/samples/README.md. Missing: " + ", ".join(missing)
-        )
+    for profile in profiles:
+        path = profile.path
+        if path is None or not path.is_file() or not path.stat().st_mode & 0o111:
+            pytest.skip(f"Set {profile.binary_env} to the compiled Zephyr executable; "
+                        "see tests/integration/zephyr/samples/README.md.")
 
 
 def sample_log_subdir(sample_name: str) -> Path:
@@ -59,6 +63,7 @@ def load_zephyr_profile(
     *,
     log_subdir: Path | str | None = None,
 ) -> ProcessInstance:
+    require_binaries([profile])
     controller = topo.add_controller(public_address=profile.controller_address)
     binary = profile.path.absolute()
 

@@ -1,0 +1,240 @@
+# Copyright 2026 Xiaomi Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      rebuild_image:
+        description: Rebuild all image layers and refresh the published environment
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  # PRs receive no package write permission. Both jobs reuse the same steps.
+  checks:
+    name: Test pull request
+    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      packages: read
+    steps: &test_steps
+      - name: Check out the commit under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare reports directory
+        run: |
+          export CI_RESULTS="$RUNNER_TEMP/bsworld-results"
+          mkdir -p "$CI_RESULTS"
+          chmod a+rwx "$CI_RESULTS"
+          echo "CI_RESULTS=$CI_RESULTS" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install BSWorld
+        run: python -m pip install -e .
+
+      - name: Lint the current checkout
+        run: |
+          python -m ruff check --no-cache src tests \
+            2>&1 | tee "$CI_RESULTS/ruff.log"
+
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/unit -q -p no:cacheprovider \
+            --out-dir "$CI_RESULTS/unit" --junitxml="$CI_RESULTS/unit.xml" \
+            2>&1 | tee "$CI_RESULTS/unit.log"
+
+      # Docker preparation starts only after lint and unit tests succeed.
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Select the environment image
+        id: environment
+        env:
+          # Python source/tests are mounted at runtime; only build inputs version the environment.
+          ENVIRONMENT_HASH: >-
+            ${{ hashFiles('docker/Dockerfile', 'docker/Dockerfile.dockerignore',
+            'pyproject.toml', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '.gitmodules',
+            'components/bt_virt_controller/**',
+            'tests/integration/zephyr/samples/common/source/**',
+            'tests/integration/zephyr/samples/mesh/source/**',
+            'tests/integration/qemu/source/**', '!**/README*') }}
+          REBUILD_IMAGE: ${{ inputs.rebuild_image || false }}
+        run: |
+          test -n "$ENVIRONMENT_HASH"
+          image_repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          image_tag="$image_repository:env-$ENVIRONMENT_HASH"
+          echo "IMAGE_REPOSITORY=$image_repository" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=$image_tag" >> "$GITHUB_ENV"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$image_tag" > "$CI_RESULTS/environment.txt"
+          if [[ "$REBUILD_IMAGE" != true ]] && docker pull "$image_tag" > "$CI_RESULTS/image-pull.log" 2>&1; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Building the environment image for this checkout."
+          fi
+          if [[ -f "$CI_RESULTS/image-pull.log" ]]; then
+            cat "$CI_RESULTS/image-pull.log"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.environment.outputs.build == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the candidate runtime image
+        if: steps.environment.outputs.build == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ steps.environment.outputs.image_tag }}
+          build-args: |
+            BUILD_UID=1000
+            BUILD_GID=1000
+            BUILD_JOBS=4
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          no-cache: ${{ inputs.rebuild_image || false }}
+          cache-from: type=gha,scope=bsworld-amd64
+          cache-to: type=gha,scope=bsworld-amd64,mode=max,ignore-error=true
+
+      - name: Record the selected image
+        run: |
+          # Pin every docker run and publish operation to the image that was selected here.
+          image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
+          echo "IMAGE_ID=$image_id" >> "$GITHUB_ENV"
+          docker image inspect "$image_id" > "$CI_RESULTS/image.json"
+
+      - name: Run all integration tests
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace,readonly" \
+            --mount "type=bind,src=$CI_RESULTS,dst=/output" \
+            --env PYTHONDONTWRITEBYTECODE \
+            "$IMAGE_ID" pytest tests/integration -n 2 -p no:cacheprovider \
+              --out-dir /output/integration --junitxml=/output/integration.xml \
+            2>&1 | tee "$CI_RESULTS/integration.log"
+
+      - name: Publish the tested image
+        if: success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          if [[ "${{ steps.environment.outputs.build }}" == true ]]; then
+            docker tag "$IMAGE_ID" "$IMAGE_TAG"
+            docker push "$IMAGE_TAG"
+          fi
+          docker tag "$IMAGE_ID" "$IMAGE_REPOSITORY:latest"
+          docker push "$IMAGE_REPOSITORY:latest"
+          docker image inspect --format '{{json .RepoDigests}}' "$IMAGE_ID" \
+            > "$CI_RESULTS/published-digests.json"
+
+      - name: Summarize test reports
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          results = Path(os.environ["CI_RESULTS"])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              environment = results / "environment.txt"
+              if environment.exists():
+                  summary.write(f"Environment: `{environment.read_text().strip()}`\n\n")
+              summary.write("| Suite | Tests | Failures | Errors | Skipped |\n")
+              summary.write("|---|---:|---:|---:|---:|\n")
+              for name in ("unit", "integration"):
+                  report = results / f"{name}.xml"
+                  if not report.exists():
+                      summary.write(f"| {name} | No report | | | |\n")
+                      continue
+                  root = ET.parse(report).getroot()
+                  suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+                  counts = [sum(int(s.get(key, "0")) for s in suites)
+                            for key in ("tests", "failures", "errors", "skipped")]
+                  summary.write(f"| {name} | " + " | ".join(map(str, counts)) + " |\n")
+          PY
+
+      - name: Upload reports, logs, and captures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bsworld-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bsworld-results
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    name: Test and publish main
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      packages: write
+    steps: *test_steps
+
+  result:
+    name: CI result
+    if: always()
+    needs: [checks, publish]
+    runs-on: [self-hosted, linux, x64]
+    permissions: {}
+    steps:
+      - name: Check the required job result
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        run: |
+          [[ "$CHECKS_RESULT" == success && "$PUBLISH_RESULT" == skipped ]] || \
+            [[ "$CHECKS_RESULT" == skipped && "$PUBLISH_RESULT" == success ]]

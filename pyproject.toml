@@ -27,7 +27,6 @@ dependencies = [
     "pytest-xdist>=3.0",
     "pytest-asyncio>=1.4",
     "bumble==0.0.235",
-    "exodus-bundler==2.0.4",
     "packaging>=24",
     "pytest-cov>=4.0",
     "ruff>=0.8.0",

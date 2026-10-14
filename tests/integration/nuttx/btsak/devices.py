@@ -16,12 +16,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from tests.integration.nuttx.common import NuttXProcessProfile
-
-_PREBUILT_DIR = Path(__file__).resolve().parent / "prebuilt"
-_NUTTX_BINARY = _PREBUILT_DIR / "nuttx" / "exodus" / "bin" / "nuttx"
 
 
 def _controller_address(group: int, index: int) -> str:
@@ -32,13 +27,13 @@ def _controller_address(group: int, index: int) -> str:
 
 NUTTX_BTSAK_ADVERTISER = NuttXProcessProfile(
     name="nuttx_btsak_advertiser",
-    path=_NUTTX_BINARY,
+    binary_env="BSWORLD_NUTTX_BTSAK_BIN",
     controller_address=_controller_address(0, 1),
 )
 
 NUTTX_BTSAK_SCANNER = NuttXProcessProfile(
     name="nuttx_btsak_scanner",
-    path=_NUTTX_BINARY,
+    binary_env="BSWORLD_NUTTX_BTSAK_BIN",
     controller_address=_controller_address(1, 1),
 )
 
@@ -46,7 +41,7 @@ NUTTX_BTSAK_SCANNER = NuttXProcessProfile(
 def nuttx_btsak_advertiser(index: int) -> NuttXProcessProfile:
     return NuttXProcessProfile(
         name=f"nuttx_btsak_advertiser{index}",
-        path=_NUTTX_BINARY,
+        binary_env="BSWORLD_NUTTX_BTSAK_BIN",
         controller_address=_controller_address(0, index + 1),
     )
 
@@ -54,7 +49,7 @@ def nuttx_btsak_advertiser(index: int) -> NuttXProcessProfile:
 def nuttx_btsak_scanner(index: int) -> NuttXProcessProfile:
     return NuttXProcessProfile(
         name=f"nuttx_btsak_scanner{index}",
-        path=_NUTTX_BINARY,
+        binary_env="BSWORLD_NUTTX_BTSAK_BIN",
         controller_address=_controller_address(1, index + 1),
     )
 

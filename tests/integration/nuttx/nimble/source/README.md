@@ -1,26 +1,35 @@
-# NuttX NimBLE Image
+# NuttX NimBLE Build
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-The NimBLE tests use the stock NuttX `sim:nimble` configuration and the stock `examples/nimble_bleprph` and `examples/nimble_blecent` Applications. BSWorld carries no copied NimBLE Application source.
+Use the upstream `sim:nimble` configuration and stock Applications. Prepare the workspaces and BabbleSim from the [NuttX environment guide](../../README.md).
 
 ## Build
 
-Run the suite-owned build script from any directory and pass every external workspace path explicitly:
+Use the official [configure.sh / make workflow](https://nuttx.apache.org/docs/latest/quickstart/compiling.html), enabling the options required by these tests:
 
 ```sh
-/path/to/bsworld/tests/integration/nuttx/nimble/build.sh \
-  --nuttx-dir /path/to/nuttx \
-  --nuttx-apps-dir /path/to/nuttx-apps \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
+# Keep BSIM_OUT_PATH and BSIM_COMPONENTS_PATH from the BabbleSim build.
+source "$BSWORLD_ROOT/.venv/bin/activate"
+cd "$NUTTX_NIMBLE_DIR"
+# Only needed when this tree was previously configured.
+if [ -f .config ]; then make distclean; fi
+./tools/configure.sh -l -a "$(realpath --relative-to="$NUTTX_NIMBLE_DIR" "$NUTTX_NIMBLE_APPS_DIR")" sim:nimble
+kconfig-tweak --file .config -e SIM_BSIM_TIME \
+  -d NIMBLE_PORTING_EXAMPLE -d EXAMPLES_NIMBLE \
+  -e EXAMPLES_NIMBLE_BLEPRPH -e EXAMPLES_NIMBLE_BLECENT \
+  -e NIMBLE_ROLE_PERIPHERAL -e NIMBLE_ROLE_CENTRAL -e NIMBLE_ROLE_OBSERVER
+make olddefconfig
+make -j"$(nproc)"
+export BSWORLD_NUTTX_NIMBLE_BIN="$NUTTX_NIMBLE_DIR/nuttx"
 ```
 
-The script enables `CONFIG_SIM_BSIM_TIME`, the peripheral, central, and observer roles, together with the `nimble_bleprph` and `nimble_blecent` examples. It produces:
+`SIM_BSIM_TIME` joins the simulation clock. NimBLE enables bleprph/blecent and the peripheral, central, and observer roles.
 
-```text
-tests/integration/nuttx/nimble/prebuilt/nuttx/exodus/bin/nuttx
+The output is `$NUTTX_NIMBLE_DIR/nuttx`. Keep its linked BabbleSim shared libraries available at the build-time `$BSIM_OUT_PATH/lib/` path. Run in the BSWorld Python environment:
+
+```sh
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
+pytest tests/integration/nuttx/nimble -q --no-ellisys
 ```
-
-This path is a launcher in an expanded Exodus runtime tree.
-
-Build all NuttX suites with [`../../build.sh`](../../build.sh), or build every BSWorld binary with `scripts/build_all.py`.

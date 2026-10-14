@@ -16,13 +16,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from tests.integration.zephyr.samples.common import sample_profile
 
-GROUP_DIR = Path(__file__).resolve().parent
-
-ZEPHYR_PERIPHERAL_HR = sample_profile(GROUP_DIR, "peripheral_hr", "C0:FF:EE:41:01:01")
-ZEPHYR_CENTRAL_HR = sample_profile(GROUP_DIR, "central_hr", "C0:FF:EE:41:01:02")
+ZEPHYR_PERIPHERAL_HR = sample_profile("peripheral_hr", "C0:FF:EE:41:01:01")
+ZEPHYR_CENTRAL_HR = sample_profile("central_hr", "C0:FF:EE:41:01:02")
 
 __all__ = ["ZEPHYR_CENTRAL_HR", "ZEPHYR_PERIPHERAL_HR"]

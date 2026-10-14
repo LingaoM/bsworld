@@ -16,26 +16,52 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bsworld.env import Env, build_root
+from bsworld.env import Env, env_path
 
 
-def test_detect_uses_shared_tmp_build_root() -> None:
+def test_detect_uses_explicit_artifact_paths(monkeypatch, tmp_path) -> None:
+    bsim_dir = tmp_path / "BabbleSim output"
+    controller = tmp_path / "Zephyr build" / "zephyr.exe"
+    monkeypatch.setenv("BSWORLD_BSIM_DIR", str(bsim_dir))
+    monkeypatch.setenv("BSWORLD_BT_VIRT_CONTROLLER_BIN", str(controller))
     env = Env.detect(out_tag="/tmp/out", now_tag="run-fixed", run_uid="uid")
 
-    assert build_root() == Path("/tmp/bsworld/build")
     assert env.babblesim_root == Path(__file__).parents[2] / "components" / "babblesim"
     assert env.babblesim_components_dir == (
         Path(__file__).parents[2] / "components" / "babblesim" / "components"
     )
-    assert env.hci_virt_bin == (
-        Path(__file__).parents[2]
-        / "components"
-        / "bt_virt_controller"
-        / "prebuilt"
-        / "bt_virt_controller"
-        / "exodus"
-        / "bin"
-        / "bt_virt_controller"
-    )
-    assert env.bsim_dir == Path("/tmp/bsworld/build/babblesim/bsim")
-    assert env.bsim_bin_dir == Path("/tmp/bsworld/build/babblesim/bsim/bin")
+    assert env.hci_virt_bin == controller
+    assert env.bsim_dir == bsim_dir
+    assert env.bsim_bin_dir == bsim_dir / "bin"
+
+
+def test_detect_selects_image_runtime_and_trace_script(monkeypatch, tmp_path) -> None:
+    output = tmp_path / "image" / "babblesim"
+    converter = tmp_path / "image" / "convert_results_to_ellisysv2.sh"
+    monkeypatch.setenv("BSWORLD_BSIM_ELLISYS_SCRIPT", str(converter))
+    monkeypatch.setenv("BSWORLD_BSIM_DIR", str(output))
+
+    env = Env.detect()
+
+    assert env.bsim_dir == output
+    assert env.bsim_bin_dir == output / "bin"
+    assert env.bsim_ellisys_script == converter
+
+
+def test_detect_does_not_guess_missing_artifacts(monkeypatch) -> None:
+    monkeypatch.delenv("BSWORLD_BSIM_DIR", raising=False)
+    monkeypatch.setenv("BSWORLD_BT_VIRT_CONTROLLER_BIN", "")
+    env = Env.detect()
+
+    assert env.bsim_dir is None
+    assert env.bsim_bin_dir is None
+    assert env.hci_virt_bin is None
+
+
+def test_env_path_expands_home_and_resolves_relative_paths(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("BSWORLD_NUTTX_BTSAK_BIN", "~/my project/nuttx")
+    assert env_path("BSWORLD_NUTTX_BTSAK_BIN") == Path.home() / "my project" / "nuttx"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BSWORLD_NUTTX_BTSAK_BIN", "build/nuttx")
+    assert env_path("BSWORLD_NUTTX_BTSAK_BIN") == tmp_path / "build" / "nuttx"

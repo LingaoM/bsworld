@@ -1,26 +1,32 @@
-# NuttX BTSak Image
+# NuttX BTSak Build
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-The BTSak tests use the stock NuttX `sim:bthcisock` configuration and stock `btsak` Application. BSWorld carries no copied Application source for this suite.
+Use the upstream `sim:bthcisock` configuration and stock Applications. Prepare the workspaces and BabbleSim from the [NuttX environment guide](../../README.md).
 
 ## Build
 
-Run the suite-owned build script from any directory and pass every external workspace path explicitly:
+Use the official [configure.sh / make workflow](https://nuttx.apache.org/docs/latest/quickstart/compiling.html), enabling the options required by these tests:
 
 ```sh
-/path/to/bsworld/tests/integration/nuttx/btsak/build.sh \
-  --nuttx-dir /path/to/nuttx \
-  --nuttx-apps-dir /path/to/nuttx-apps \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
+# Keep BSIM_OUT_PATH and BSIM_COMPONENTS_PATH from the BabbleSim build.
+source "$BSWORLD_ROOT/.venv/bin/activate"
+cd "$NUTTX_DIR"
+# Only needed when this tree was previously configured.
+if [ -f .config ]; then make distclean; fi
+./tools/configure.sh -l -a "$(realpath --relative-to="$NUTTX_DIR" "$NUTTX_APPS_DIR")" sim:bthcisock
+kconfig-tweak --file .config -e SIM_BSIM_TIME -d BLUETOOTH_SMP_SELFTEST
+make olddefconfig
+make -j"$(nproc)"
+export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
 ```
 
-The script configures NuttX with the supplied apps tree, disables `CONFIG_BLUETOOTH_SMP_SELFTEST`, enables `CONFIG_SIM_BSIM_TIME`, and produces:
+`SIM_BSIM_TIME` joins the simulation clock. BTSak disables the SMP self-test.
 
-```text
-tests/integration/nuttx/btsak/prebuilt/nuttx/exodus/bin/nuttx
+The output is `$NUTTX_DIR/nuttx`. Keep its linked BabbleSim shared libraries available at the build-time `$BSIM_OUT_PATH/lib/` path. Run in the BSWorld Python environment:
+
+```sh
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
+pytest tests/integration/nuttx/btsak -q --no-ellisys
 ```
-
-This path is a launcher in an expanded Exodus runtime tree.
-
-Build all NuttX suites with [`../../build.sh`](../../build.sh), or build every BSWorld binary with `scripts/build_all.py`.

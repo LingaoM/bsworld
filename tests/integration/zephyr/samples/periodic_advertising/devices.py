@@ -16,13 +16,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from tests.integration.zephyr.samples.common import sample_profile
 
-GROUP_DIR = Path(__file__).resolve().parent
-
-ZEPHYR_PERIODIC_ADV = sample_profile(GROUP_DIR, "periodic_adv", "C0:FF:EE:41:02:01")
-ZEPHYR_PERIODIC_SYNC = sample_profile(GROUP_DIR, "periodic_sync", "C0:FF:EE:41:02:02")
+ZEPHYR_PERIODIC_ADV = sample_profile("periodic_adv", "C0:FF:EE:41:02:01")
+ZEPHYR_PERIODIC_SYNC = sample_profile("periodic_sync", "C0:FF:EE:41:02:02")
 
 __all__ = ["ZEPHYR_PERIODIC_ADV", "ZEPHYR_PERIODIC_SYNC"]

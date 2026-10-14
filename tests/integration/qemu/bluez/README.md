@@ -16,16 +16,16 @@ Bumble is used only as a controlled peer. BlueZ, the Linux Bluetooth subsystem, 
 
 ## Build and Run
 
-Follow the parent [QEMU Linux environment guide](../README.md) and run its build entry point. The BlueZ, NimBLE, and TrouBLE tests share the QEMU executable, Linux kernel, and Guest root filesystem under `tests/integration/qemu/prebuilt/`. Then run:
+For native Linux, compile with the parent [QEMU / Buildroot README](../README.md), retain the BabbleSim/Controller exports and `BSWORLD_QEMU_BIN`, `BSWORLD_QEMU_KERNEL`, `BSWORLD_QEMU_ROOTFS`, then run from the repository root:
 
 ```sh
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
 pytest tests/integration/qemu/bluez -q
 ```
-
-To use artifacts built elsewhere, set `BSWORLD_QEMU_BIN`, `BSWORLD_QEMU_KERNEL`, and `BSWORLD_QEMU_ROOTFS`. These environment variables take precedence over the staged files.
 
 Each test receives an isolated simulation ID, HCI socket, and log directory. The QEMU console is recorded under `qemu/bluez/qemu_bluez.log`; HCI BTSnoop and BabbleSim RF traces are generated alongside the standard per-test artifacts described in [Logs, traces, and captures](../../../../docs/artifacts.md).
 
 ## License
 
-The tests in this directory are licensed under Apache License 2.0. QEMU, Linux, BlueZ, Buildroot, and the other packages in the Guest image retain their own licenses. Review [Third-Party Notices](../../../../THIRD_PARTY_NOTICES.md) and the parent guide's [packaging requirements](../README.md#packaging-and-license-compliance) before distributing binaries.
+The tests in this directory are licensed under Apache License 2.0. QEMU, Linux, BlueZ, Buildroot, and the other packages in the Guest image retain their own licenses. Review [Third-Party Notices](../../../../THIRD_PARTY_NOTICES.md) and the parent guide's [license notes](../README.md#licenses) before distributing binaries.

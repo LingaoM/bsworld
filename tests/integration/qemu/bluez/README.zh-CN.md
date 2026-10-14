@@ -16,16 +16,16 @@ Bumble 在这些用例中只作为行为可控的对端。测试主体仍然是 
 
 ## 构建与运行
 
-先执行上一级 [QEMU Linux 环境说明](../README.zh-CN.md)中的平台构建入口。BlueZ、NimBLE 与 TrouBLE 测试共用 `tests/integration/qemu/prebuilt/` 中的 QEMU、Linux kernel 和 Guest 根文件系统。随后运行：
+本机 Linux 按父目录 [QEMU / Buildroot README](../README.zh-CN.md) 编译，保留 BabbleSim、Controller 变量及 `BSWORLD_QEMU_BIN`、`BSWORLD_QEMU_KERNEL`、`BSWORLD_QEMU_ROOTFS`，再从仓库根目录运行：
 
 ```sh
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
 pytest tests/integration/qemu/bluez -q
 ```
-
-如需使用其他位置的构建结果，可以设置 `BSWORLD_QEMU_BIN`、`BSWORLD_QEMU_KERNEL` 和 `BSWORLD_QEMU_ROOTFS`；环境变量的优先级高于脚本放入的本地产物。
 
 每个测试都使用独立的仿真标识、HCI socket 和日志目录。QEMU console 保存在 `qemu/bluez/qemu_bluez.log`，HCI BTSnoop 与 BabbleSim RF 跟踪文件则与其他按用例生成的文件一起归档，具体结构见[日志、跟踪文件与抓包](../../../../docs/zh-CH/artifacts.md)。
 
 ## 许可证
 
-当前目录中的测试使用 Apache License 2.0。QEMU、Linux、BlueZ、Buildroot 以及 Guest 镜像内的其他软件继续遵循各自许可证。分发二进制前，应检查[第三方声明](../../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)和上一级文档中的[打包与许可证合规要求](../README.zh-CN.md#打包与许可证合规)。
+当前目录中的测试使用 Apache License 2.0。QEMU、Linux、BlueZ、Buildroot 以及 Guest 镜像内的其他软件继续遵循各自许可证。分发二进制前，应检查[第三方声明](../../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)和上一级文档中的[许可证说明](../README.zh-CN.md#许可证)。

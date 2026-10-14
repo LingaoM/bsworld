@@ -104,7 +104,7 @@ Deterministic execution, structured test results, and complete protocol records 
 
 | Application environment | Validated scenarios | Documentation |
 |---|---|---|
-| Zephyr Bluetooth samples | Broadcast/observe, targeted interference/recovery, Heart Rate central/peripheral, periodic advertising/sync, Mesh provisioning/configuration | [Tests](tests/integration/zephyr/samples/README.md) · [Environment and build](tests/integration/zephyr/samples/common/source/README.md) |
+| Zephyr Bluetooth samples | Broadcast/observe, targeted interference/recovery, Heart Rate central/peripheral, periodic advertising/sync, Mesh provisioning/configuration | [Tests and sample builds](tests/integration/zephyr/samples/README.md) · [Environment](tests/integration/zephyr/samples/common/source/README.md) |
 | Bumble Python Host stack | Advertising/scanning, targeted interference/recovery, connection, periodic advertising/sync | [Tests](tests/integration/bumble/README.md) |
 | Linux and BlueZ under QEMU | Controller initialization, advertising, scanning, connection, and disconnection through the Linux Bluetooth subsystem | [Tests](tests/integration/qemu/bluez/README.md) · [Environment and build](tests/integration/qemu/README.md) |
 | TrouBLE Rust Host stack under QEMU | Advertising discovery, connection, Battery Service discovery, and Battery Level reads through HCI User Channel | [Tests](tests/integration/qemu/trouble/README.md) · [Environment and build](tests/integration/qemu/README.md) |
@@ -123,50 +123,117 @@ Apache NimBLE provides a complete example of one Host stack using BSWorld across
 
 ## Quick Start
 
-Python 3.12 or newer is required. On Ubuntu or Debian, install the base host tools first:
+BSWorld supports building and testing on Linux/x86_64, using a local Python environment or Docker. The native setup below uses Ubuntu 24.04.
+
+### Local Linux
+
+Development and test commands require Python 3.12 or newer. On a local Ubuntu 24.04 machine, first install Git, Make, compilers, Python virtual environment support, and the basic tools used by BabbleSim:
 
 ```sh
-sudo apt install -y git make gcc python3.12 python3.12-venv python3-pip
+sudo apt-get update
+sudo apt-get install -y \
+  bash ca-certificates curl git file make binutils build-essential \
+  python3.12 python3.12-dev python3.12-venv python3-pip \
+  gcc-multilib g++-multilib coreutils findutils grep sed gawk
 ```
 
-After cloning the repository, initialize BabbleSim and install BSWorld:
+For a new checkout:
 
 ```sh
-git submodule update --init --recursive components/babblesim
+git clone https://github.com/XiaoMi/bsworld.git
+cd bsworld
+```
 
+From the repository root, create the project virtual environment and install BSWorld:
+
+```sh
+export BSWORLD_ROOT="$PWD"
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
+```
 
-export BSIM_OUT_PATH=/tmp/bsworld/build/babblesim/bsim
-export BSIM_COMPONENTS_PATH=$PWD/components/babblesim/components
-export BSIM_BASE_PATH=$BSIM_COMPONENTS_PATH
+For development checks:
+
+```sh
+ruff check src tests
+pytest tests/unit -q
+```
+
+#### Build and Test
+
+Compile with BabbleSim's own Makefile:
+
+```sh
+cd "$BSWORLD_ROOT"
+git submodule update --init --recursive components/babblesim
+export BSIM_OUT_PATH="$BSWORLD_ROOT/components/babblesim/build"
+export BSIM_COMPONENTS_PATH="$BSWORLD_ROOT/components/babblesim/components"
+export BSIM_BASE_PATH="$BSIM_COMPONENTS_PATH"
 export BSIM_BUILD_FAIL_ASAP=1
-make -C components/babblesim everything
+make -C "$BSWORLD_ROOT/components/babblesim" everything
+export BSWORLD_BSIM_DIR="$BSIM_OUT_PATH"
 ```
 
-Prebuilt Virtual Controller and firmware runtimes are not stored in the source repository. Download `bsworld-prebuilt-<version>.zip` from this repository's Releases page, using the release whose version matches the source checkout, then install it into the repository-relative `prebuilt/` directories:
+Then follow the README commands for the [Controller](components/bt_virt_controller/README.md), [Zephyr samples](tests/integration/zephyr/samples/README.md), [NuttX](tests/integration/nuttx/README.md), and [QEMU / Buildroot](tests/integration/qemu/README.md).
 
 ```sh
-./scripts/install_binary_release.py /path/to/bsworld-prebuilt-<version>.zip
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
+pytest tests/integration -n auto
 ```
 
-The script verifies the release manifest and checksums, preserves the Exodus symbolic links, and installs the expanded runtime trees. pytest executes their `exodus/bin/*` launchers directly. If a matching release artifact is unavailable, follow [Development and packaging](docs/development.md) to generate the same directories locally.
+### Docker
 
-Run the unit tests and simulation integration tests:
+See the [Docker guide](docker/README.md) for build options, test commands, logs, and CI usage.
+
+The [Dockerfile](docker/Dockerfile) builds all test firmware and produces a test image containing BSWorld, pytest, BabbleSim runtime components, the Controller, Zephyr samples, NuttX images, and QEMU / Linux Guest artifacts. The final image keeps the programs, firmware, trace converter, and libraries required to run tests.
+
+Build from the repository root:
 
 ```sh
-pytest tests/unit/
-pytest tests/integration/ -n auto
+sudo docker build --progress=plain -f docker/Dockerfile \
+  --build-arg BUILD_UID="$(id -u)" --build-arg BUILD_GID="$(id -g)" \
+  --build-arg BUILD_JOBS=4 \
+  -t bsworld:dev .
 ```
 
-QEMU guest tests require the separate [QEMU Linux test environment](tests/integration/qemu/README.md). Its executable, kernel, and root filesystem are not included in the prebuilt ZIP, so those tests are skipped until the QEMU environment is prepared.
+The image sets the firmware environment variables and runs integration tests by default. Save reports and logs on the host:
+
+```sh
+mkdir -p .cache/docker-results
+sudo docker run --rm \
+  --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
+  bsworld:dev
+```
+
+To test the current checkout, mount it at `/workspace`; firmware remains under `/opt`:
+
+```sh
+sudo docker run --rm \
+  --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
+  --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
+  bsworld:dev
+```
+
+Pass a pytest command after the image name to select a suite:
+
+```sh
+sudo docker run --rm \
+  --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
+  --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
+  bsworld:dev \
+  pytest tests/integration/zephyr/samples/heart_rate -n 2 \
+    --out-dir /output --junitxml=/output/heart-rate.xml
+```
+
+The [GitHub Actions workflow](.github/workflows/ci.yml) first runs Ruff and unit tests on the runner. Once both pass, it runs integration tests with the current checkout in the matching Docker environment, building a candidate if needed, then publishes tested images from `main` to GHCR. Reports and logs are uploaded even when tests fail.
 
 ## Documentation
 
 - [Writing tests and RF scenarios](docs/writing-tests.md): process adapters, asyncio waits, shell commands, attenuation, and interference.
 - [Logs, traces, and captures](docs/artifacts.md): log directories, BTSnoop captures, and Ellisys traces.
-- [Development and packaging](docs/development.md): lint, unit tests, coverage, framework extensions, and prebuilt generation.
+- [Development and unit tests](docs/development.md): development conventions, lint, unit tests, and coverage.
 
 ## Community
 

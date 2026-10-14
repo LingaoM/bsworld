@@ -2,61 +2,52 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-## 准备 NuttX 源码工作区
+## 准备环境
 
-首次搭建环境时，先参考 Apache NuttX 官方[安装文档](https://nuttx.apache.org/docs/latest/quickstart/install.html)，安装系统依赖、Kconfig 工具和目标工具链。
+先按仓库 README 的[本地 Linux 环境搭建](../../../docs/zh-CH/README.md#本地-linux)安装 BSWorld 并设置 `BSWORLD_ROOT`。
 
-在 Ubuntu / Debian 上，先安装 NuttX 官方建议的基础依赖：
+Docker 测试镜像已包含 BTSak 和 NimBLE 固件。以下步骤用于本机 Linux 构建。`NUTTX_DIR`、`NUTTX_APPS_DIR` 用于 BTSak；`NUTTX_NIMBLE_DIR`、`NUTTX_NIMBLE_APPS_DIR` 用于 NimBLE。两个配置分别使用独立源码树，因为 NuttX 的 Make 构建会在源码根目录生成同名 `nuttx`，apps 也有配置相关的编译产物。
+
+本机 Linux 构建先参考 Apache NuttX 官方[安装文档](https://nuttx.apache.org/docs/latest/quickstart/install.html)。Ubuntu 24.04 可安装以下依赖；sim 配置使用主机 GCC/multilib，不需要 ARM 交叉工具链：
 
 ```sh
-sudo apt install -y \
-  bison flex gettext texinfo libncurses5-dev libncursesw5-dev xxd \
-  git gperf automake libtool pkg-config build-essential genromfs \
+sudo apt-get update
+sudo apt-get install -y \
+  autoconf automake bison flex gettext texinfo gperf libtool pkg-config \
+  build-essential git libncurses-dev xxd genromfs kconfig-frontends \
   libgmp-dev libmpc-dev libmpfr-dev libisl-dev binutils-dev libelf-dev \
-  libexpat1-dev gcc-multilib g++-multilib picocom u-boot-tools util-linux
+  libexpat1-dev gcc-multilib g++-multilib lib32z1-dev picocom u-boot-tools util-linux
+source "$BSWORLD_ROOT/.venv/bin/activate"
+python -m pip install kconfiglib
 ```
 
-再安装 Kconfig 工具。`kconfig-frontends` 提供 menuconfig 前端以及构建脚本使用的 `kconfig-tweak`；`python3-kconfiglib` 是 NuttX 支持的 Python Kconfig 前端。BSWorld 构建脚本需要 Python 3.12 或更高版本：
+`sim:nimble` 配置编译 32 位可执行文件，并启用需要链接宿主机 zlib 的 FAT 文件系统支持。安装 `lib32z1-dev` 提供 32 位 zlib 库；仅有 64 位的 `zlib1g-dev` 库无法完成此链接。
+
+然后准备源码工作区；以下版本与 Dockerfile 的验证版本一致。
 
 ```sh
-sudo apt install -y \
-  kconfig-frontends python3-kconfiglib python3.12 python3.12-venv python3-pip
+export NUTTX_DIR="$HOME/nuttx"
+export NUTTX_APPS_DIR="$HOME/nuttx-apps"
+export NUTTX_NIMBLE_DIR="$HOME/nuttx-nimble"
+export NUTTX_NIMBLE_APPS_DIR="$HOME/nuttx-nimble-apps"
+
+git clone https://github.com/apache/nuttx.git "$NUTTX_DIR"
+git clone https://github.com/apache/nuttx-apps.git "$NUTTX_APPS_DIR"
+git -C "$NUTTX_DIR" checkout 89c4b8ccaf03f1c6d33624d93ef640d8d176a78d
+git -C "$NUTTX_APPS_DIR" checkout 8404450fb89346ed244d1c701e5feb5d19f32271
+
+# Separate source trees retain both in-tree simulator executables.
+git clone "$NUTTX_DIR" "$NUTTX_NIMBLE_DIR"
+git clone "$NUTTX_APPS_DIR" "$NUTTX_NIMBLE_APPS_DIR"
 ```
 
-然后准备版本匹配的 NuttX 和 nuttx-apps 源码工作区。两个路径分别传给构建脚本，无需采用固定目录结构：
+## 编译与运行
 
-```sh
-git clone https://github.com/apache/nuttx.git /path/to/nuttx
-git clone https://github.com/apache/nuttx-apps.git /path/to/nuttx-apps
-```
+先按[README 构建说明](../../../docs/zh-CH/README.md#构建与测试)编译 BabbleSim，并保留 `BSWORLD_ROOT` 和 `BSIM_*` 变量，再按照 [Controller README](../../../components/bt_virt_controller/README.zh-CN.md)编译虚拟 Controller。
 
-当前验证的版本是：
-
-| 仓库 | Revision |
-|---|---|
-| NuttX | `89c4b8ccaf03f1c6d33624d93ef640d8d176a78d` |
-| nuttx-apps | `8404450fb89346ed244d1c701e5feb5d19f32271` |
-
-每个可独立执行的构建入口都会在编译前从 Apache 官方仓库拉取源码，以 detached HEAD 方式切换到上述提交，并校验最终提交号；本地工作区中 `origin` 的地址不会改变构建所采用的源码来源。如果任一仓库的已跟踪文件存在未提交修改，脚本会在切换版本前停止。
-
-## BSWorld 依赖
-
-构建 BSIM 固件前，需要先按照仓库根目录 README 准备好 BabbleSim 源码和构建输出。构建入口通过 `--bsim-out-dir` 接收 BabbleSim 输出路径，并根据当前仓库位置确定组件源码路径。
-
-## 构建入口
-
-| 套件 | 覆盖内容 | 构建文档 |
+| 套件 | 编译说明 | 测试产物变量 |
 |---|---|---|
-| BTSak | NuttX 自带的 Bluetooth socket 广播与扫描命令 | [btsak/source/README.zh-CN.md](btsak/source/README.zh-CN.md) |
-| NimBLE | NuttX 自带的 NimBLE Central/Peripheral 连接流程 | [nimble/source/README.zh-CN.md](nimble/source/README.zh-CN.md) |
+| BTSak | [source/README](btsak/source/README.zh-CN.md) | `BSWORLD_NUTTX_BTSAK_BIN` |
+| NimBLE | [source/README](nimble/source/README.zh-CN.md) | `BSWORLD_NUTTX_NIMBLE_BIN` |
 
-在 BSWorld 仓库根目录构建全部 NuttX 测试镜像：
-
-```sh
-tests/integration/nuttx/build.sh \
-  --nuttx-dir /path/to/nuttx \
-  --nuttx-apps-dir /path/to/nuttx-apps \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
-```
-
-`btsak/build.sh` 和 `nimble/build.sh` 接收相同参数，只构建各自负责的测试套件。生成的镜像都会启用 `CONFIG_SIM_BSIM_TIME=y`，并加入 BabbleSim 离散时间。
+两个配置均启用 `CONFIG_SIM_BSIM_TIME=y`，接入 BabbleSim 离散时间。

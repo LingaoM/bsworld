@@ -1,0 +1,21 @@
+# Include only Python/tests and the local firmware build inputs.
+**
+!pyproject.toml
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+!src/
+!src/**
+!tests/
+!tests/**
+!components/
+!components/bt_virt_controller/
+!components/bt_virt_controller/**
+**/.git
+**/.cache
+**/build
+**/prebuilt
+**/__pycache__
+**/*.egg-info
+**/*.pyc
+**/README*
+**/.env*

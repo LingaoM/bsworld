@@ -1,53 +1,31 @@
-# Zephyr 示例程序构建配置
+# Zephyr 工作区与公共配置
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-BSWorld 不复制 Zephyr 示例程序源码。测试镜像直接使用外部 Zephyr 源码工作区中上游自带的示例构建，只额外叠加两项本地配置：
+本目录仅维护 BSWorld 的配置：`bsim_host_only.overlay` 选择 Unix socket HCI 传输，`bsim.conf` 启用 Host-only BabbleSim 设置。Mesh 另外使用 `mesh/source/mesh.conf`。示例源码来自 Zephyr 工作区。
 
-- `bsim_host_only.overlay` 选择基于 Unix socket 的 HCI 传输方式。
-- `bsim.conf` 启用所有示例共用的纯 Host BabbleSim 配置；Mesh 测试还会叠加 `mesh/source/mesh.conf`。
+## 准备工作区
 
-## 准备 Zephyr 源码工作区
-
-当前经过验证的 Zephyr 提交为：
-
-```text
-35c46048d330ce1bea9248d4dd6a9879d0fe5be7
-```
-
-主机依赖以 Zephyr 官方[入门指南](https://docs.zephyrproject.org/latest/develop/getting_started/index.html)为准。新的源码工作区可以按以下步骤初始化：
+先按仓库 README 的[本地 Linux 环境搭建](../../../../../../docs/zh-CH/README.md#本地-linux)安装 BSWorld，再参考 Zephyr 官方[入门文档](https://docs.zephyrproject.org/latest/develop/getting_started/index.html)安装额外依赖，并创建以下工作区。源码版本与 Dockerfile 一致：
 
 ```sh
-python3.12 -m venv /path/to/zephyrproject/.venv
-source /path/to/zephyrproject/.venv/bin/activate
-pip install west
+export ZEPHYR_WORKSPACE="$HOME/zephyrproject"
+python3.12 -m venv "$ZEPHYR_WORKSPACE/.venv"
+source "$ZEPHYR_WORKSPACE/.venv/bin/activate"
+python -m pip install west
 
-west init /path/to/zephyrproject
-cd /path/to/zephyrproject
+# Use the same revision as the Dockerfile when reproducing the validated setup.
+git init "$ZEPHYR_WORKSPACE/zephyr"
+git -C "$ZEPHYR_WORKSPACE/zephyr" remote add origin https://github.com/zephyrproject-rtos/zephyr
+git -C "$ZEPHYR_WORKSPACE/zephyr" fetch --depth=1 origin 35c46048d330ce1bea9248d4dd6a9879d0fe5be7
+git -C "$ZEPHYR_WORKSPACE/zephyr" checkout --detach FETCH_HEAD
+west init -l "$ZEPHYR_WORKSPACE/zephyr"
+cd "$ZEPHYR_WORKSPACE"
 west update
 west packages pip --install
 west zephyr-export
-
 cd zephyr
-west sdk install
+west sdk install --gnu-toolchains x86_64-zephyr-elf
 ```
 
-构建示例程序前，必须先将 BabbleSim 构建到 `--bsim-out-dir` 指定的路径。具体准备方式见仓库的中文 [README](../../../../../../docs/zh-CH/README.md)。
-
-## 构建
-
-调用平台级构建入口，并明确传入所有外部路径：
-
-```sh
-/path/to/bsworld/tests/integration/zephyr/samples/build.sh \
-  --zephyr-workspace /path/to/zephyrproject \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
-```
-
-构建前，脚本会拉取 Zephyr 官方仓库，切换到经过验证的提交，更新 west 工作区和 Python 依赖，执行 Zephyr export，并安装 SDK。随后脚本构建全部上游示例程序，并将每个可执行程序打包到对应测试组：
-
-```text
-tests/integration/zephyr/samples/<group>/prebuilt/<sample>/exodus/bin/zephyr.exe
-```
-
-仓库级 `scripts/build_all.py` 在生成全部 BSWorld 二进制产物时也会复用这个入口。
+完成环境搭建后，先按[README 构建说明](../../../../../../docs/zh-CH/README.md#构建与测试)编译 BabbleSim，再从[示例索引](../../README.zh-CN.md)进入对应测试目录的 README，执行其中的 `west build` 命令并导出测试变量。

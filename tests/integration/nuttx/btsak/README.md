@@ -2,18 +2,15 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+This directory contains end-to-end tests for the stock NuttX `btsak` Application. The tests run one NuttX image that includes `btsak`, then use process shell commands to choose the role for each process.
 
-This directory contains end-to-end tests for the stock NuttX `btsak` Application. BSWorld does not keep custom Bluetooth LE Application source here. The tests build and run one NuttX image that includes `btsak`, then use process shell commands to choose the role for each process.
-
-Application build instructions and prebuilt artifact locations are documented in [source/README.md](source/README.md). For first-time NuttX environment setup, start with [../README.md](../README.md).
+Application build instructions and artifact environment variables are documented in [source/README.md](source/README.md). For first-time NuttX environment setup, start with [../README.md](../README.md).
 
 ## Files
 
 - `devices.py`: reusable `NuttXProcessProfile` definitions for scanner and advertiser roles. Both roles use the same NuttX image.
 - `test_btsak_scan_advertise.py`: end-to-end scenarios covering one scanner discovering one or more advertisers.
-- `build.sh`: independently builds and packages the test image.
 - `source/`: build inputs and details for the stock NuttX image.
-- `prebuilt/`: generated, expanded Exodus runtimes consumed by this test suite.
 
 `NuttXProcessProfile` entries set `controller_address`. BSWorld passes that address to the Virtual Controller before the Host connects.
 
@@ -49,12 +46,11 @@ The interference case uses the same unmodified NuttX image as the other cases. O
 
 ## Run
 
+For native Linux, compile with [source/README.md](source/README.md), retain the BabbleSim and Controller variables, then switch back to the BSWorld Python environment and run:
+
 ```sh
-tests/integration/nuttx/btsak/build.sh \
-  --nuttx-dir /path/to/nuttx \
-  --nuttx-apps-dir /path/to/nuttx-apps \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
+source "$BSWORLD_ROOT/.venv/bin/activate"
+export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
+cd "$BSWORLD_ROOT"
 pytest tests/integration/nuttx/btsak -q --no-ellisys
 ```
-
-The tests require the generated `prebuilt/nuttx/exodus/bin/nuttx` launcher.

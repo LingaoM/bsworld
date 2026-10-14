@@ -9,7 +9,7 @@ BSWorld 会为每个测试保存框架日志、业务程序日志、HCI 抓包�
 测试会话启动时，框架会打印本次运行的输出目录：
 
 ```text
-[HH:MM:SS.mmm] [bsworld] log dir: /tmp/run-<timestamp>/<uid>
+[bsworld] log dir: /tmp/run-<timestamp>/<uid>
 ```
 
 默认根目录是 `/tmp`。可以通过命令行参数或环境变量修改：
@@ -20,6 +20,12 @@ OUT_DIR=/path/to/artifacts pytest tests/
 ```
 
 框架会在指定根目录下继续创建 `run-<timestamp>/<uid>`。同一次 pytest 会话中的 [pytest-xdist](https://pytest-xdist.readthedocs.io/) worker 共享这个会话目录，但每个测试按照 pytest node ID 写入独立子目录，因此并行测试不会覆盖彼此的日志、socket 或抓包文件。
+
+## Docker 与 CI 结果
+
+[Docker 命令](../../docker/README.zh-CN.md#运行测试)将 `/output` 挂载到主机的 `.cache/docker-results`。镜像默认命令在其中保存 `pytest.xml`，各测试的日志和抓包文件保存在同级的 `run-<timestamp>/<uid>` 目录下。
+
+在 GitHub Actions 中，打开 **Actions → CI → 对应运行记录** 查看步骤输出和 JUnit 摘要。下载 `bsworld-results-<run-id>-<attempt>` 附件，可获得已生成的 `unit.xml`、`integration.xml`、终端日志，以及 `unit/`、`integration/` 下的测试产物。如果已选择镜像，附件还包含镜像标签和信息。失败时也会上传报告与日志，保留 14 天。
 
 ## 目录结构
 

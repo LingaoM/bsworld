@@ -4,24 +4,14 @@
 
 `bt_virt_controller` 是 Xiaomi 为 BSWorld 开发的虚拟 Controller 实现。它的源代码独立于 Zephyr 源码树维护，并面向 [nrf52_bsim](https://docs.zephyrproject.org/latest/boards/native/nrf_bsim/doc/nrf52_bsim.html) 构建。该程序运行完整的 HCI 接口和 Link Layer 协议逻辑，并通过 BabbleSim PHY 参与无线数据收发和 RF 交互。虚拟 Controller 提供基于 Unix socket 的双向 H4 传输通道，以及可选的非阻塞 BTSnoop 抓包 socket。
 
-本目录同时管理业务程序源码、独立构建入口和生成的运行目录：
-
-```text
-components/bt_virt_controller/
-    build.sh
-    CMakeLists.txt / Kconfig / prj.conf
-    src/
-    prebuilt/bt_virt_controller/exodus/
-```
-
-`prebuilt/` 是被 Git 忽略的生成目录。pytest 会直接启动 `prebuilt/bt_virt_controller/exodus/bin/bt_virt_controller`。
+本目录保留 Application 源码、配置和构建说明。编译产物位于 Zephyr 工作区，通过 `BSWORLD_BT_VIRT_CONTROLLER_BIN` 指定。
 
 ## 运行接口
 
 BSWorld 为每个 HCI socket 启动一个虚拟 Controller：
 
-```sh
-bt_virt_controller \
+```text
+"$BSWORLD_BT_VIRT_CONTROLLER_BIN" \
   -s=<sim_id> \
   -d=<device_id> \
   [-hci-poll-interval=<microseconds>] \
@@ -38,30 +28,30 @@ bt_virt_controller \
 
 ## 构建
 
-先按照仓库的中文 [README](../../docs/zh-CH/README.md) 安装 [Exodus](https://pypi.org/project/exodus-bundler/) 并构建 BabbleSim，再参考 [Zephyr 示例程序构建说明](../../tests/integration/zephyr/samples/common/source/README.zh-CN.md)准备 Zephyr 源码工作区。
+Docker 测试镜像已包含 Controller。以下命令用于本机 Linux 构建。
 
-然后可以从任意目录执行本组件自己的构建脚本。所有外部路径都通过参数显式传入：
+先按照[README 构建说明](../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim，并保留 `BSWORLD_ROOT`、`BSIM_OUT_PATH`、`BSIM_COMPONENTS_PATH` 和 `BSIM_BASE_PATH`。本机请先按 [Zephyr 环境说明](../../tests/integration/zephyr/samples/common/source/README.zh-CN.md)设置 `ZEPHYR_WORKSPACE`。
 
-```sh
-/path/to/bsworld/components/bt_virt_controller/build.sh \
-  --zephyr-workspace /path/to/zephyrproject \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
-```
-
-脚本会切换到经过验证的 Zephyr 提交，更新 west 工作区，构建 Controller，对待处理的可执行文件执行 strip，再由 Exodus 直接生成展开后的运行目录：
-
-```text
-components/bt_virt_controller/prebuilt/bt_virt_controller/exodus/bin/bt_virt_controller
-```
-
-可以直接执行生成的 launcher 做基本检查：
+直接使用官方 [west build](https://docs.zephyrproject.org/latest/develop/west/build-flash-debug.html) 命令：
 
 ```sh
-components/bt_virt_controller/prebuilt/bt_virt_controller/exodus/bin/bt_virt_controller --help
+source "$ZEPHYR_WORKSPACE/.venv/bin/activate"
+cd "$ZEPHYR_WORKSPACE"
+west build -p always -b nrf52_bsim \
+  -d "$ZEPHYR_WORKSPACE/build/bsworld_bt_virt_controller" \
+  "$BSWORLD_ROOT/components/bt_virt_controller"
+export BSWORLD_BT_VIRT_CONTROLLER_BIN="$ZEPHYR_WORKSPACE/build/bsworld_bt_virt_controller/zephyr/zephyr.exe"
+"$BSWORLD_BT_VIRT_CONTROLLER_BIN" --help
 ```
 
-默认产物使用 Zephyr Project 的开源 Bluetooth Controller。也可以使用 [nRF Connect SDK](https://www.nordicsemi.com/Products/Development-software/nRF-Connect-SDK) 构建等价产物，但对外分发前需要单独检查 NCS 的许可证条款。
+运行 pytest 前，在同一个 shell 中切回 BSWorld Python 环境：
+
+```sh
+source "$BSWORLD_ROOT/.venv/bin/activate"
+```
+
+默认使用开源 Zephyr Bluetooth Controller。使用 nRF Connect SDK 构建的等价程序应按其自身许可处理。
 
 ## 许可证与依赖
 
-本目录中的 BSWorld 定制源码归 Xiaomi Corporation 所有，使用 Apache License 2.0。生成的运行目录还包含 Zephyr、BabbleSim、Exodus，以及可能的 Host 运行库；这些组件遵循各自的许可证。详见[第三方声明](../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。
+本目录中的 BSWorld 源码归 Xiaomi Corporation 所有，使用 Apache License 2.0。Zephyr 和 BabbleSim 遵循各自的许可证，详见[第三方声明](../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。

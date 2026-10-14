@@ -17,12 +17,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-import pytest
-from tests.integration.nuttx.common import load_nuttx_profile
+from tests.integration.nuttx.common import load_nuttx_profile, require_binaries
 from tests.integration.nuttx.nimble.devices import (
     DEFAULT_DEVICE_NAME,
     NUTTX_NIMBLE_CENTRAL,
@@ -42,18 +40,9 @@ class NimbleNetwork:
     peripheral: ProcessInstance
 
 
-def _require_binaries(paths: Sequence[Path]) -> None:
-    missing = [str(path) for path in paths if not path.is_file()]
-    if missing:
-        pytest.skip(
-            "NuttX NimBLE example binaries are not built; see "
-            "tests/integration/nuttx/nimble/source/README.zh-CN.md. Missing: " + ", ".join(missing)
-        )
-
-
 def _load_network(topo) -> NimbleNetwork:
     profiles = [NUTTX_NIMBLE_CENTRAL, NUTTX_NIMBLE_PERIPHERAL]
-    _require_binaries(list(dict.fromkeys(profile.path for profile in profiles)))
+    require_binaries(profiles)
     return NimbleNetwork(
         central=load_nuttx_profile(
             topo,

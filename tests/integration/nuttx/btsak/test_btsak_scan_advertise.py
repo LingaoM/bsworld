@@ -28,7 +28,7 @@ from tests.integration.nuttx.btsak.devices import (
     nuttx_btsak_advertiser,
     nuttx_btsak_scanner,
 )
-from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
+from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile, require_binaries
 
 from bsworld.devices.instance import ProcessInstance
 from bsworld.interference import StaticAttenuation
@@ -48,15 +48,6 @@ class ScanAdvertiseNetwork:
     advertisers: list[ProcessInstance]
 
 
-def _require_binaries(paths: Sequence[Path]) -> None:
-    missing = [str(path) for path in paths if not path.is_file()]
-    if missing:
-        pytest.skip(
-            "NuttX BTSak example binary is not built; see "
-            "tests/integration/nuttx/btsak/source/README.zh-CN.md. Missing: " + ", ".join(missing)
-        )
-
-
 def _load_network(
     topo,
     *,
@@ -64,7 +55,7 @@ def _load_network(
     advertisers: Sequence[NuttXProcessProfile],
 ) -> ScanAdvertiseNetwork:
     profiles = [*scanners, *advertisers]
-    _require_binaries(list(dict.fromkeys(profile.path for profile in profiles)))
+    require_binaries(profiles)
 
     loaded_scanners = [
         load_nuttx_profile(

@@ -16,13 +16,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from tests.integration.zephyr.samples.common import sample_profile
 
-GROUP_DIR = Path(__file__).resolve().parent
-
-ZEPHYR_MESH = sample_profile(GROUP_DIR, "mesh", "C0:FF:EE:41:03:01")
-ZEPHYR_MESH_PROVISIONER = sample_profile(GROUP_DIR, "mesh_provisioner", "C0:FF:EE:41:03:02")
+ZEPHYR_MESH = sample_profile("mesh", "C0:FF:EE:41:03:01")
+ZEPHYR_MESH_PROVISIONER = sample_profile("mesh_provisioner", "C0:FF:EE:41:03:02")
 
 __all__ = ["ZEPHYR_MESH", "ZEPHYR_MESH_PROVISIONER"]

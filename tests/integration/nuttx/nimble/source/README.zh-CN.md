@@ -1,26 +1,35 @@
-# NuttX NimBLE 镜像
+# NuttX NimBLE 构建
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-NimBLE 测试直接使用 NuttX 上游自带的 `sim:nimble` 配置，以及 `examples/nimble_bleprph` 和 `examples/nimble_blecent` 业务程序。BSWorld 不复制 NimBLE 业务程序源码。
+使用上游 `sim:nimble` 配置及其原生 Application。先按 [NuttX 环境说明](../../README.zh-CN.md)准备工作区并编译 BabbleSim。
 
-## 构建
+## 编译
 
-可以从任意目录执行该测试套件的构建脚本，所有外部源码工作区路径都通过参数明确传入：
+使用官方 [configure.sh / make 流程](https://nuttx.apache.org/docs/latest/quickstart/compiling.html)，并启用测试需要的选项：
 
 ```sh
-/path/to/bsworld/tests/integration/nuttx/nimble/build.sh \
-  --nuttx-dir /path/to/nuttx \
-  --nuttx-apps-dir /path/to/nuttx-apps \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
+# Keep BSIM_OUT_PATH and BSIM_COMPONENTS_PATH from the BabbleSim build.
+source "$BSWORLD_ROOT/.venv/bin/activate"
+cd "$NUTTX_NIMBLE_DIR"
+# Only needed when this tree was previously configured.
+if [ -f .config ]; then make distclean; fi
+./tools/configure.sh -l -a "$(realpath --relative-to="$NUTTX_NIMBLE_DIR" "$NUTTX_NIMBLE_APPS_DIR")" sim:nimble
+kconfig-tweak --file .config -e SIM_BSIM_TIME \
+  -d NIMBLE_PORTING_EXAMPLE -d EXAMPLES_NIMBLE \
+  -e EXAMPLES_NIMBLE_BLEPRPH -e EXAMPLES_NIMBLE_BLECENT \
+  -e NIMBLE_ROLE_PERIPHERAL -e NIMBLE_ROLE_CENTRAL -e NIMBLE_ROLE_OBSERVER
+make olddefconfig
+make -j"$(nproc)"
+export BSWORLD_NUTTX_NIMBLE_BIN="$NUTTX_NIMBLE_DIR/nuttx"
 ```
 
-脚本启用 `CONFIG_SIM_BSIM_TIME`、Peripheral、Central 和 Observer 角色，以及 `nimble_bleprph`、`nimble_blecent` 示例程序，并生成：
+`SIM_BSIM_TIME` 接入仿真时钟。NimBLE 启用 bleprph/blecent 示例及 peripheral、central、observer 角色。
 
-```text
-tests/integration/nuttx/nimble/prebuilt/nuttx/exodus/bin/nuttx
+产物为 `$NUTTX_NIMBLE_DIR/nuttx`。运行 pytest 时必须保证编译链接的 BabbleSim 动态库位于编译时指定的 `$BSIM_OUT_PATH/lib/`。在 BSWorld Python 环境中运行：
+
+```sh
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
+pytest tests/integration/nuttx/nimble -q --no-ellisys
 ```
-
-这个路径是已经展开的 Exodus 运行目录中的 launcher。
-
-使用 [`../../build.sh`](../../build.sh) 可以构建全部 NuttX 测试套件；`scripts/build_all.py` 可以构建 BSWorld 的全部二进制。

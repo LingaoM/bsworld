@@ -104,7 +104,7 @@ pytest 侧的调度器保留标准 [asyncio](https://docs.python.org/3/library/a
 
 | 业务程序环境 | 已验证场景 | 文档 |
 |---|---|---|
-| Zephyr Bluetooth 示例程序 | 广播与扫描、定向干扰与恢复、Heart Rate Central/Peripheral、周期广播与同步、Mesh 配网和配置 | [测试说明](../../tests/integration/zephyr/samples/README.zh-CN.md) · [环境与构建](../../tests/integration/zephyr/samples/common/source/README.zh-CN.md) |
+| Zephyr Bluetooth 示例程序 | 广播与扫描、定向干扰与恢复、Heart Rate Central/Peripheral、周期广播与同步、Mesh 配网和配置 | [测试与示例构建](../../tests/integration/zephyr/samples/README.zh-CN.md) · [环境](../../tests/integration/zephyr/samples/common/source/README.zh-CN.md) |
 | Bumble Python Host 协议栈 | 广播与扫描、定向干扰与恢复、连接、周期广播与同步 | [测试说明](../../tests/integration/bumble/README.zh-CN.md) |
 | QEMU 中的 Linux 与 BlueZ | 通过 Linux Bluetooth 子系统完成 Controller 初始化、广播、扫描、建连和断连 | [测试说明](../../tests/integration/qemu/bluez/README.zh-CN.md) · [环境与构建](../../tests/integration/qemu/README.zh-CN.md) |
 | QEMU 中的 TrouBLE Rust Host 协议栈 | 通过 HCI User Channel 完成广播发现、建连、Battery Service 发现和 Battery Level 读取 | [测试说明](../../tests/integration/qemu/trouble/README.zh-CN.md) · [环境与构建](../../tests/integration/qemu/README.zh-CN.md) |
@@ -123,50 +123,117 @@ Apache NimBLE 是同一套 Host 协议栈跨不同运行环境接入 BSWorld 的
 
 ## 快速开始
 
-需要 Python 3.12 或更高版本。在 Ubuntu 或 Debian 上先安装基础工具：
+BSWorld 支持在 Linux/x86_64 上使用本地 Python 环境或 Docker 编译和测试。以下原生环境搭建以 Ubuntu 24.04 为例。
+
+### 本地 Linux
+
+开发和测试需要 Python 3.12 或更高版本。以下以本地 Ubuntu 24.04 为例，先安装 Git、Make、编译器、Python 虚拟环境支持，以及 BabbleSim 使用的基础工具：
 
 ```sh
-sudo apt install -y git make gcc python3.12 python3.12-venv python3-pip
+sudo apt-get update
+sudo apt-get install -y \
+  bash ca-certificates curl git file make binutils build-essential \
+  python3.12 python3.12-dev python3.12-venv python3-pip \
+  gcc-multilib g++-multilib coreutils findutils grep sed gawk
 ```
 
-进入已拉取的源码仓库后，初始化 BabbleSim 并安装 BSWorld：
+首次使用时，先获取仓库：
 
 ```sh
-git submodule update --init --recursive components/babblesim
+git clone https://github.com/XiaoMi/bsworld.git
+cd bsworld
+```
 
+在仓库根目录创建项目虚拟环境，并安装 BSWorld：
+
+```sh
+export BSWORLD_ROOT="$PWD"
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
+```
 
-export BSIM_OUT_PATH=/tmp/bsworld/build/babblesim/bsim
-export BSIM_COMPONENTS_PATH=$PWD/components/babblesim/components
-export BSIM_BASE_PATH=$BSIM_COMPONENTS_PATH
+开发检查：
+
+```sh
+ruff check src tests
+pytest tests/unit -q
+```
+
+#### 构建与测试
+
+先使用 BabbleSim 自带的 Makefile 构建：
+
+```sh
+cd "$BSWORLD_ROOT"
+git submodule update --init --recursive components/babblesim
+export BSIM_OUT_PATH="$BSWORLD_ROOT/components/babblesim/build"
+export BSIM_COMPONENTS_PATH="$BSWORLD_ROOT/components/babblesim/components"
+export BSIM_BASE_PATH="$BSIM_COMPONENTS_PATH"
 export BSIM_BUILD_FAIL_ASAP=1
-make -C components/babblesim everything
+make -C "$BSWORLD_ROOT/components/babblesim" everything
+export BSWORLD_BSIM_DIR="$BSIM_OUT_PATH"
 ```
 
-源码仓库不保存预编译的虚拟 Controller 和固件运行目录。请从当前仓库的 Releases 页面下载与源码版本一致的 `bsworld-prebuilt-<version>.zip`，再使用下面的命令将它安装到仓库中对应的 `prebuilt/` 目录：
+然后按各目录 README 的命令配置和编译 [Controller](../../components/bt_virt_controller/README.zh-CN.md)、[Zephyr 示例](../../tests/integration/zephyr/samples/README.zh-CN.md)、[NuttX](../../tests/integration/nuttx/README.zh-CN.md)及 [QEMU / Buildroot](../../tests/integration/qemu/README.zh-CN.md)。
 
 ```sh
-./scripts/install_binary_release.py /path/to/bsworld-prebuilt-<version>.zip
+cd "$BSWORLD_ROOT"
+source .venv/bin/activate
+pytest tests/integration -n auto
 ```
 
-脚本会校验发布清单和校验和，保留 Exodus 符号链接，并安装已经展开的运行目录。pytest 直接执行其中的 `exodus/bin/*`。如果对应版本没有可下载的 Release 产物，可以按照 [开发和打包](development.md) 在本地生成相同目录。
+### Docker
 
-运行单元测试和仿真集成测试：
+构建参数、测试命令、日志保存及 CI 用法见 [Docker 使用说明](../../docker/README.zh-CN.md)。
+
+[Dockerfile](../../docker/Dockerfile) 编译全部测试固件，并生成包含 BSWorld、pytest、BabbleSim 运行组件、Controller、Zephyr 示例、NuttX 镜像，以及 QEMU / Linux Guest 的测试镜像。最终镜像只保留测试所需的程序、固件、转换脚本和运行库。
+
+在仓库根目录构建镜像：
 
 ```sh
-pytest tests/unit/
-pytest tests/integration/ -n auto
+sudo docker build --progress=plain -f docker/Dockerfile \
+  --build-arg BUILD_UID="$(id -u)" --build-arg BUILD_GID="$(id -g)" \
+  --build-arg BUILD_JOBS=4 \
+  -t bsworld:dev .
 ```
 
-QEMU Guest 测试还需要单独准备 [QEMU Linux 测试环境](../../tests/integration/qemu/README.zh-CN.md)。预编译 ZIP 不包含它的可执行程序、kernel 和根文件系统；准备好 QEMU 环境之前，这些测试会跳过。
+镜像已设置固件环境变量，默认运行集成测试。将报告和日志保存到本机：
+
+```sh
+mkdir -p .cache/docker-results
+sudo docker run --rm \
+  --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
+  bsworld:dev
+```
+
+测试当前仓库代码时，把仓库挂载到 `/workspace`；镜像内的固件保持位于 `/opt`：
+
+```sh
+sudo docker run --rm \
+  --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
+  --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
+  bsworld:dev
+```
+
+可以在镜像名后指定 pytest 命令来选择套件：
+
+```sh
+sudo docker run --rm \
+  --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
+  --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
+  bsworld:dev \
+  pytest tests/integration/zephyr/samples/heart_rate -n 2 \
+    --out-dir /output --junitxml=/output/heart-rate.xml
+```
+
+[GitHub Actions workflow](../../.github/workflows/ci.yml) 先在 runner 上执行 Ruff 和单元测试。两项通过后，才使用对应的 Docker 环境和本次提交执行集成测试，必要时构建候选镜像，并从 `main` 将通过测试的镜像发布到 GHCR。测试失败时也会上传报告和日志。
 
 ## 文档
 
 - [编写测试和 RF 场景](writing-tests.md)：进程配置、asyncio 等待、Shell 命令、路径衰减和干扰注入。
 - [日志、跟踪文件与抓包](artifacts.md)：日志目录、BTSnoop 和 Ellisys 空口跟踪文件。
-- [开发和打包](development.md)：静态检查、单元测试、测试覆盖率、框架扩展和预编译产物生成。
+- [开发和单元测试](development.md)：开发约定、静态检查、单元测试和测试覆盖率。
 
 ## 社区协作
 

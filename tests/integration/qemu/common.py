@@ -16,19 +16,21 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 from bsworld.devices import ProcessInstance
+from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
-_PREBUILT_DIR = Path(__file__).parent / "prebuilt"
 
-
-def _artifact(env_name: str, default_name: str) -> Path:
-    return Path(os.environ.get(env_name, _PREBUILT_DIR / default_name)).expanduser().resolve()
+def _artifact(env_name: str, *, executable: bool = False) -> Path:
+    path = env_path(env_name)
+    if path is None or not path.is_file() or (executable and not path.stat().st_mode & 0o111):
+        pytest.skip(f"Set {env_name} to the built QEMU/Linux artifact; "
+                    "see tests/integration/qemu/README.md.")
+    return path
 
 
 def load_qemu_guest(
@@ -39,12 +41,9 @@ def load_qemu_guest(
     log_subdir: Path,
 ) -> ProcessInstance:
     """Add one QEMU Linux guest and its Virtual Controller to a topology."""
-    qemu = _artifact("BSWORLD_QEMU_BIN", "qemu-system-aarch64")
-    kernel = _artifact("BSWORLD_QEMU_KERNEL", "Image")
-    rootfs = _artifact("BSWORLD_QEMU_ROOTFS", "rootfs.cpio")
-    missing = [str(path) for path in (qemu, kernel, rootfs) if not path.is_file()]
-    if missing:
-        pytest.skip("QEMU Linux artifacts are unavailable: " + ", ".join(missing))
+    qemu = _artifact("BSWORLD_QEMU_BIN", executable=True)
+    kernel = _artifact("BSWORLD_QEMU_KERNEL")
+    rootfs = _artifact("BSWORLD_QEMU_ROOTFS")
 
     controller = topo.add_controller(public_address=controller_address)
 

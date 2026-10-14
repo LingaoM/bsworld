@@ -16,16 +16,9 @@ BSWorld's first-party code is licensed under Apache License 2.0. Imported or reu
 
 ## Development Setup
 
-Use Python 3.12 or newer and initialize all Git submodules:
+Prepare the Python environment using the README's [local Linux setup](README.md#local-linux). Development checks and coverage commands are documented in [Development and unit tests](docs/development.md).
 
-```sh
-git submodule update --init --recursive
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-```
-
-Virtual-system tests also require BabbleSim and the relevant prebuilt Application and Virtual Controller runtimes. Install the runtimes from the matching project release or build them locally by following [Development and packaging](docs/development.md) and the platform-specific README files.
+For integration tests, use the [Docker test image](docker/README.md#run-tests), or follow the README's [build instructions](README.md#build-and-test) and platform READMEs to compile BabbleSim, the Controller, and the relevant Applications locally.
 
 ## Making Changes
 
@@ -34,7 +27,7 @@ Virtual-system tests also require BabbleSim and the relevant prebuilt Applicatio
 - Use standard asyncio APIs for asynchronous test work. Do not use blocking waits such as `time.sleep()` in an async test.
 - Add or update tests for externally visible behavior. Prefer assertions on public outcomes over private implementation details.
 - Update English and Chinese documentation together when behavior, commands, or public interfaces change.
-- Do not commit locally generated `prebuilt/` runtime directories. Tagged release builds publish them separately.
+- Do not commit locally compiled binaries, caches, or test logs.
 - Add the Apache-2.0 copyright header used by neighboring files to new first-party source, configuration, and script files. Preserve upstream license headers in third-party code and update `THIRD_PARTY_NOTICES*` when introducing a new external component.
 
 ## Validation
@@ -42,7 +35,7 @@ Virtual-system tests also require BabbleSim and the relevant prebuilt Applicatio
 Run the checks relevant to the change. At minimum, framework changes should pass:
 
 ```sh
-ruff check scripts src tests
+ruff check src tests
 pytest tests/unit/
 ```
 

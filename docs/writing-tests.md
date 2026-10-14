@@ -64,16 +64,14 @@ BSWorld core provides generic Virtual Controller, `ProcessInstance`, and topolog
 
 ### NuttX
 
-`NuttXProcessProfile` defines the Application path, Controller address, and optional shell support. `load_nuttx_profile()` adds the `--sim-bsim-*` device identity and the HCI socket as `--bt-dev=<sock>`:
+`NuttXProcessProfile` defines the Application environment variable, Controller address, and optional shell support. `load_nuttx_profile()` adds the `--sim-bsim-*` device identity and the HCI socket as `--bt-dev=<sock>`:
 
 ```python
-from pathlib import Path
-
 from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
 
 MY_DEVICE = NuttXProcessProfile(
     name="my_device",
-    path=Path("tests/integration/nuttx/btsak/prebuilt/nuttx/exodus/bin/nuttx"),
+    binary_env="BSWORLD_NUTTX_BTSAK_BIN",
     controller_address="C0:FF:EE:00:00:01",
 )
 ```
@@ -90,13 +88,11 @@ my_device --sim-bsim-sid=<sim_id> --sim-bsim-pid=2G4 \
 A Host-only Zephyr Application uses native simulator-style device identity arguments:
 
 ```python
-from pathlib import Path
-
 from tests.integration.zephyr.samples.common import ZephyrProcessProfile, load_zephyr_profile
 
 ZEPHYR_APP = ZephyrProcessProfile(
     name="zephyr_app",
-    path=Path("tests/integration/zephyr/samples/broadcast_observe/prebuilt/observer/exodus/bin/zephyr.exe"),
+    binary_env="BSWORLD_ZEPHYR_OBSERVER_BIN",
     controller_address="C0:FF:EE:10:00:01",
 )
 ```
@@ -114,9 +110,11 @@ Python Host stacks do not need a `ProcessInstance`. Bumble tests call `topo.add_
 Some firmware images expose a shell on standard input. Enable `shell=True` and send commands from the test after `await topo.start()`, which establishes the initial PHY synchronization boundary:
 
 ```python
+from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
+
 NUTTX_APP = NuttXProcessProfile(
     name="nuttx_app",
-    path=Path("exodus/bin/nuttx"),
+    binary_env="BSWORLD_NUTTX_NIMBLE_BIN",
     shell=True,
 )
 
@@ -243,9 +241,13 @@ BSWorld validates RF inputs before spawning BabbleSim processes:
 The `topo` fixture keeps topology declarations, RF conditions, Application actions, and assertions in one Python test. Process loaders and RF configuration calls record the desired state; `await topo.start()` materializes it as a running simulation.
 
 ```python
+from tests.integration.zephyr.samples.common import load_zephyr_profile
+from tests.integration.zephyr.samples.heart_rate.devices import ZEPHYR_CENTRAL_HR, ZEPHYR_PERIPHERAL_HR
+
+
 async def test_central_receives_notification(topo):
-    peripheral = load_zephyr_profile(topo, PERIPHERAL)
-    central = load_zephyr_profile(topo, CENTRAL)
+    peripheral = load_zephyr_profile(topo, ZEPHYR_PERIPHERAL_HR)
+    central = load_zephyr_profile(topo, ZEPHYR_CENTRAL_HR)
     topo.set_channel_attenuation(default_db=45.0)
 
     await topo.start()

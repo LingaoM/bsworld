@@ -14,6 +14,7 @@
 #
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -57,7 +58,7 @@ class _SpawnRecorder:
 
 
 def _patch_controller_bin(monkeypatch, tmp_path: Path) -> Path:
-    controller = tmp_path / "prebuilt" / "hci" / "exodus" / "bin" / "bt_virt_controller"
+    controller = tmp_path / "build" / "hci" / "bt_virt_controller"
     controller.parent.mkdir(parents=True, exist_ok=True)
     controller.write_text("#!/bin/sh\n")
     controller.chmod(0o755)
@@ -145,7 +146,7 @@ def test_write_attenuation_matrix_supports_static_and_timed_paths(tmp_path) -> N
     assert timed_file.read_text() == "0    40.0\n10    80.0\n"
 
 
-def test_check_deps_ready_only_validates_prebuilt_artifacts(tmp_path, monkeypatch) -> None:
+def test_check_deps_ready_only_validates_built_artifacts(tmp_path, monkeypatch) -> None:
     env = _env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     calls: list[str] = []
@@ -429,7 +430,8 @@ def test_finish_skips_ellisys_conversion_when_disabled(tmp_path) -> None:
     assert calls == ["cleanup"]
 
 
-def test_convert_ellisys_writes_trace_under_babblesim_log_dir(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("image_script", [False, True])
+def test_convert_ellisys_writes_trace_under_babblesim_log_dir(tmp_path, monkeypatch, image_script) -> None:
     env = _env(tmp_path)
     converter = (
         env.babblesim_root
@@ -437,6 +439,9 @@ def test_convert_ellisys_writes_trace_under_babblesim_log_dir(tmp_path, monkeypa
         / "dump_post_process"
         / "convert_results_to_ellisysv2.sh"
     )
+    if image_script:
+        converter = tmp_path / "image" / "convert_results_to_ellisysv2.sh"
+        env = replace(env, bsim_ellisys_script=converter)
     converter.parent.mkdir(parents=True)
     converter.write_text("#!/bin/sh\n")
     results_dir = env.bsim_dir / "results" / "sim"

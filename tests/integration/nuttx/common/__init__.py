@@ -19,19 +19,31 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from bsworld.devices import ProcessInstance
+from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
 
 @dataclass(frozen=True)
 class NuttXProcessProfile:
     name: str
-    path: Path
+    binary_env: str
     shell: bool = True
     controller_address: str | None = None
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "path", Path(self.path))
+    @property
+    def path(self) -> Path | None:
+        return env_path(self.binary_env)
+
+
+def require_binaries(profiles: list[NuttXProcessProfile]) -> None:
+    for profile in profiles:
+        path = profile.path
+        if path is None or not path.is_file() or not path.stat().st_mode & 0o111:
+            pytest.skip(f"Set {profile.binary_env} to the compiled NuttX executable; "
+                        "see tests/integration/nuttx/README.md.")
 
 
 def load_nuttx_profile(
@@ -40,6 +52,7 @@ def load_nuttx_profile(
     *,
     log_subdir: Path | str | None = None,
 ) -> ProcessInstance:
+    require_binaries([profile])
     controller = topo.add_controller(public_address=profile.controller_address)
     binary = profile.path.absolute()
 
@@ -68,4 +81,5 @@ def load_nuttx_profile(
 __all__ = [
     "NuttXProcessProfile",
     "load_nuttx_profile",
+    "require_binaries",
 ]

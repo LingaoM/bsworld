@@ -16,13 +16,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from tests.integration.nuttx.common import NuttXProcessProfile
 
-_PREBUILT_DIR = Path(__file__).resolve().parent / "prebuilt"
 DEFAULT_DEVICE_NAME = "NuttX NimBLE PRPH"
-_NUTTX_BINARY = _PREBUILT_DIR / "nuttx" / "exodus" / "bin" / "nuttx"
 
 
 def _controller_address(group: int, index: int) -> str:
@@ -33,13 +29,13 @@ def _controller_address(group: int, index: int) -> str:
 
 NUTTX_NIMBLE_PERIPHERAL = NuttXProcessProfile(
     name="nuttx_nimble_peripheral",
-    path=_NUTTX_BINARY,
+    binary_env="BSWORLD_NUTTX_NIMBLE_BIN",
     controller_address=_controller_address(0, 1),
 )
 
 NUTTX_NIMBLE_CENTRAL = NuttXProcessProfile(
     name="nuttx_nimble_central",
-    path=_NUTTX_BINARY,
+    binary_env="BSWORLD_NUTTX_NIMBLE_BIN",
     controller_address=_controller_address(1, 1),
 )
 

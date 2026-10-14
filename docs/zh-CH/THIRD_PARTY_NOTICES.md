@@ -2,7 +2,7 @@
 
 [English](../../THIRD_PARTY_NOTICES.md) | [中文](THIRD_PARTY_NOTICES.md)
 
-本仓库使用了若干第三方组件，并在各组件自己的 `prebuilt/` 目录生成展开后的运行目录。这些组件不属于 Xiaomi Corporation，仍须遵守各自的许可证条款。Exodus 可能会把构建主机的运行库复制到这些目录中，正式发布前需要检查实际生成的文件。
+本仓库引用的第三方组件用于准备 Docker 编译环境及构建测试程序。本机构建产物及 Docker 测试镜像中的产物通过环境变量指定；第三方组件仍遵循各自的许可证。
 
 ## BabbleSim
 
@@ -21,7 +21,7 @@ BSWorld 通过 Git submodule 引用 BabbleSim 官方仓库，不会修改 `compo
 - 项目：Apache NuttX
 - 源码：https://github.com/apache/nuttx
 - 用途：构建 `tests/integration/nuttx/` 使用的测试镜像
-- 生成的运行目录：`tests/integration/nuttx/*/prebuilt/*/exodus/`
+- 生成的程序：`BSWORLD_NUTTX_BTSAK_BIN` 和 `BSWORLD_NUTTX_NIMBLE_BIN`
 - 许可证：Apache License 2.0
 
 BSWorld 不直接包含 Apache NuttX 源码。NuttX 测试文档说明了如何使用独立的 NuttX 源码工作区构建测试镜像。
@@ -31,7 +31,7 @@ BSWorld 不直接包含 Apache NuttX 源码。NuttX 测试文档说明了如何�
 - 项目：Apache Mynewt NimBLE
 - 源码：https://github.com/apache/mynewt-nimble
 - 用途：用于 NuttX NimBLE 测试，以及 QEMU Guest 中的上游 Linux 示例测试
-- 生成的运行目录：`tests/integration/nuttx/nimble/prebuilt/*/exodus/` 和 `tests/integration/qemu/prebuilt/rootfs.cpio`
+- 生成的程序：`BSWORLD_NUTTX_NIMBLE_BIN` 和 `BSWORLD_QEMU_ROOTFS`
 - 许可证：Apache License 2.0
 
 BSWorld 不直接包含 Apache NimBLE 源码。NuttX 镜像通过 NuttX apps 引入 NimBLE；QEMU 的 Buildroot 配置下载固定的上游提交，并在 Buildroot `legal-info` 输出中保留其 `LICENSE` 和 `NOTICE` 文件。
@@ -41,7 +41,7 @@ BSWorld 不直接包含 Apache NimBLE 源码。NuttX 镜像通过 NuttX apps 引
 - 项目：TrouBLE
 - 源码：https://github.com/embassy-rs/trouble
 - 用途：QEMU Guest 中 Linux Battery Service 示例使用的 Rust Bluetooth Host 协议栈
-- 生成的运行文件：`tests/integration/qemu/prebuilt/rootfs.cpio`
+- 生成的运行文件：`BSWORLD_QEMU_ROOTFS`
 - 许可证：MIT 或 Apache License 2.0
 
 BSWorld 不直接包含 TrouBLE 源码。QEMU 的 Buildroot 配置下载固定的上游提交，交叉编译未经修改的 Linux 示例，并在 Buildroot `legal-info` 输出中保留其许可证文件。
@@ -51,7 +51,7 @@ BSWorld 不直接包含 TrouBLE 源码。QEMU 的 Buildroot 配置下载固定�
 - 项目：Bumble
 - 源码：https://github.com/google/bumble
 - 用途：作为 `tests/integration/bumble/` 使用的 Python Bluetooth Host 协议栈
-- 分发方式：通过 PyPI 安装为默认依赖，不复制到源码仓库或二进制 Release 中
+- 分发方式：通过 PyPI 安装为默认依赖，不复制到源码仓库中
 - 许可证：Apache License 2.0
 
 BSWorld 只使用 Bumble 对外提供的 Python 和 HCI transport 接口，不修改其源码。
@@ -61,7 +61,7 @@ BSWorld 只使用 Bumble 对外提供的 Python 和 HCI transport 接口，不�
 - 项目：Zephyr Project
 - 源码：https://github.com/zephyrproject-rtos/zephyr
 - 用途：构建 `components/bt_virt_controller/` 中的 BSWorld 虚拟 Controller，以及 `tests/integration/zephyr/` 中的 Zephyr 示例测试
-- 生成的运行目录：`components/bt_virt_controller/prebuilt/*/exodus/` 和 `tests/integration/zephyr/samples/*/prebuilt/*/exodus/`
+- 生成的程序：`BSWORLD_BT_VIRT_CONTROLLER_BIN` 和 `BSWORLD_ZEPHYR_*_BIN`
 - 许可证：Apache License 2.0
 
 `components/bt_virt_controller/` 是 BSWorld 自行维护的源码，独立于 Zephyr 源码树维护，并基于 Zephyr 构建。Zephyr 示例测试则使用独立的 Zephyr 源码工作区构建。

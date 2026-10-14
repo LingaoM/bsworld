@@ -26,30 +26,16 @@ from datetime import datetime
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_BUILD_ROOT = Path("/tmp/bsworld/build")
 
 
 def repo_root() -> Path:
     return _REPO_ROOT
 
 
-def build_root() -> Path:
-    return _DEFAULT_BUILD_ROOT
-
-
-def virtual_controller_launcher(root: Path | None = None) -> Path:
-    """Return the repository-owned Virtual Controller launcher path."""
-    repo = Path(root) if root is not None else _REPO_ROOT
-    return (
-        repo
-        / "components"
-        / "bt_virt_controller"
-        / "prebuilt"
-        / "bt_virt_controller"
-        / "exodus"
-        / "bin"
-        / "bt_virt_controller"
-    )
+def env_path(name: str) -> Path | None:
+    """Resolve a configured artifact without assuming a build location."""
+    value = os.environ.get(name)
+    return Path(value).expanduser().resolve() if value else None
 
 
 def _now_tag() -> str:
@@ -70,16 +56,17 @@ class Env:
     # BabbleSim source submodules and default component workspace
     babblesim_root: Path
 
-    # Virtual Controller launcher owned by its source directory
-    hci_virt_bin: Path
+    # Native artifacts are selected explicitly before pytest starts.
+    hci_virt_bin: Path | None
 
     # shared build outputs prepared before pytest
-    bsim_dir: Path
-    bsim_bin_dir: Path
+    bsim_dir: Path | None
+    bsim_bin_dir: Path | None
 
     bs_state_dir: Path
 
     bsim_ellisys: bool = True
+    bsim_ellisys_script: Path | None = None
 
     @classmethod
     def detect(
@@ -96,8 +83,7 @@ class Env:
         out_dir = base_dir / resolved_tag / uid
         log_dir = out_dir / "log"
 
-        build_dir = build_root()
-        bsim_dir = build_dir / "babblesim" / "bsim"
+        bsim_dir = env_path("BSWORLD_BSIM_DIR")
 
         import pwd
         user = pwd.getpwuid(os.getuid()).pw_name
@@ -108,11 +94,12 @@ class Env:
             out_dir=out_dir,
             log_dir=log_dir,
             babblesim_root=_REPO_ROOT / "components" / "babblesim",
-            hci_virt_bin=virtual_controller_launcher(),
+            hci_virt_bin=env_path("BSWORLD_BT_VIRT_CONTROLLER_BIN"),
             bsim_dir=bsim_dir,
-            bsim_bin_dir=bsim_dir / "bin",
+            bsim_bin_dir=bsim_dir / "bin" if bsim_dir else None,
             bs_state_dir=Path("/tmp") / f"bs_{user}",
             bsim_ellisys=bsim_ellisys,
+            bsim_ellisys_script=env_path("BSWORLD_BSIM_ELLISYS_SCRIPT"),
         )
 
     def sim_dir(self, sim_id: str) -> Path:

@@ -16,16 +16,9 @@ BSWorld 自有代码使用 Apache License 2.0。引入或复用的第三方组�
 
 ## 搭建开发环境
 
-项目要求 Python 3.12 或更高版本，并需要初始化全部 Git 子模块：
+先按 README 的[本地 Linux 环境搭建](README.md#本地-linux)准备 Python 环境。开发检查和覆盖率命令见[开发和单元测试](development.md)。
 
-```sh
-git submodule update --init --recursive
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-```
-
-虚拟系统测试还需要 BabbleSim，以及对应业务程序和虚拟 Controller 的预编译运行目录。可以从匹配版本的项目 Release 安装，也可以按照[开发和打包](development.md)及各平台 README 在本地构建。
+集成测试可以使用 [Docker 测试镜像](../../docker/README.zh-CN.md#运行测试)，或按照 README 的[构建说明](README.md#构建与测试)及各平台 README，在本机编译 BabbleSim、虚拟 Controller 和相应业务程序。
 
 ## 修改代码
 
@@ -34,7 +27,7 @@ python -m pip install -e .
 - 异步测试可以直接使用标准 asyncio API，但不能调用 `time.sleep()` 这类会阻塞事件循环的等待接口。
 - 对外可见行为发生变化时，需要增加或更新测试。测试应优先断言公开结果，而不是绑定私有实现细节。
 - 行为、命令或公共接口发生变化时，中英文文档必须同步更新。
-- 不要提交本地生成的 `prebuilt/` 运行目录；带标签的发布构建会单独发布这些文件。
+- 不要提交本地编译产物、缓存或测试日志。
 - 新增的一方源码、配置和脚本应使用相邻文件中的 Apache-2.0 版权头。第三方代码必须保留原有许可证声明；引入新的外部组件时，需要同步更新 `THIRD_PARTY_NOTICES*`。
 
 ## 验证修改
@@ -42,7 +35,7 @@ python -m pip install -e .
 运行与修改范围相符的检查。框架代码至少应通过：
 
 ```sh
-ruff check scripts src tests
+ruff check src tests
 pytest tests/unit/
 ```
 

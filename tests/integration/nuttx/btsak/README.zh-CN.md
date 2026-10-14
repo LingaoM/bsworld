@@ -2,18 +2,15 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+这个目录保存基于 NuttX 自带 `btsak` 业务程序的端到端测试。测试运行同一个包含 `btsak` 的 NuttX 镜像，再通过进程 Shell 命令让不同进程分别充当扫描设备或广播设备。
 
-这个目录保存基于 NuttX 自带 `btsak` 业务程序的端到端测试。BSWorld 不在这里保留自定义 Bluetooth LE 业务程序源码。测试构建并运行同一个包含 `btsak` 的 NuttX 镜像，再通过进程 Shell 命令让不同进程分别充当扫描设备或广播设备。
-
-业务程序构建方式和预编译产物位置见 [source/README.zh-CN.md](source/README.zh-CN.md)。首次准备 NuttX 环境时，先看 [../README.zh-CN.md](../README.zh-CN.md)。
+业务程序构建命令和产物路径见 [source/README.zh-CN.md](source/README.zh-CN.md)。首次准备 NuttX 环境时，先看 [../README.zh-CN.md](../README.zh-CN.md)。
 
 ## 文件职责
 
 - `devices.py`：定义扫描设备和广播设备使用的 `NuttXProcessProfile`。两个角色使用同一份 NuttX 镜像。
 - `test_btsak_scan_advertise.py`：端到端测试，验证一个扫描设备能够发现一个或多个广播设备。
-- `build.sh`：独立构建并打包测试镜像。
 - `source/`：NuttX 上游镜像的构建配置和说明。
-- `prebuilt/`：测试直接使用的、已经展开的 Exodus 运行目录。
 
 `devices.py` 中的 `NuttXProcessProfile` 配置了 `controller_address`。BSWorld 会在 Host 连接前把该地址传给虚拟 Controller。
 
@@ -49,12 +46,11 @@ bt bnep0 scan get
 
 ## 运行
 
+本机 Linux 按 [source/README.zh-CN.md](source/README.zh-CN.md) 构建，保留 BabbleSim 和 Controller 变量，再切回 BSWorld Python 环境并运行：
+
 ```sh
-tests/integration/nuttx/btsak/build.sh \
-  --nuttx-dir /path/to/nuttx \
-  --nuttx-apps-dir /path/to/nuttx-apps \
-  --bsim-out-dir /tmp/bsworld/build/babblesim/bsim
+source "$BSWORLD_ROOT/.venv/bin/activate"
+export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
+cd "$BSWORLD_ROOT"
 pytest tests/integration/nuttx/btsak -q --no-ellisys
 ```
-
-测试需要已经生成的 `prebuilt/nuttx/exodus/bin/nuttx` launcher。

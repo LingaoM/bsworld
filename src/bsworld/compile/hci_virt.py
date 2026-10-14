@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Validate the expanded virtual HCI controller runtime."""
+"""Validate the native Virtual Controller executable."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ..env import Env
@@ -23,20 +24,21 @@ from ..log import die
 
 def _setup_hint(env: Env) -> str:
     return (
-        "Install the matching prebuilt release or build the Virtual Controller before pytest:\n"
-        f"    {env.hci_virt_bin}"
+        "Build the Virtual Controller and export BSWORLD_BT_VIRT_CONTROLLER_BIN "
+        "as the path to zephyr.exe. See components/bt_virt_controller/README.md."
     )
 
 
 def controller_bin(env: Env) -> Path:
     """Return the Virtual Controller launcher path."""
+    check_ready(env)
     return env.hci_virt_bin
 
 
 def check_ready(env: Env) -> None:
     """Validate the launcher before pytest starts devices."""
-    if not env.hci_virt_bin.is_file():
-        die(f"hci_virt launcher not found: {env.hci_virt_bin}\n{_setup_hint(env)}", code=15)
+    if env.hci_virt_bin is None or not env.hci_virt_bin.is_file() or not os.access(env.hci_virt_bin, os.X_OK):
+        die(f"Virtual Controller executable unavailable: {env.hci_virt_bin}\n{_setup_hint(env)}", code=15)
 
 
 __all__ = ["check_ready", "controller_bin"]

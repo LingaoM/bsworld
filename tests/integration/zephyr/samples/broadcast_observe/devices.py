@@ -16,13 +16,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from tests.integration.zephyr.samples.common import sample_profile
 
-GROUP_DIR = Path(__file__).resolve().parent
-
-ZEPHYR_BROADCASTER = sample_profile(GROUP_DIR, "broadcaster", "C0:FF:EE:41:00:01")
-ZEPHYR_OBSERVER = sample_profile(GROUP_DIR, "observer", "C0:FF:EE:41:00:02")
+ZEPHYR_BROADCASTER = sample_profile("broadcaster", "C0:FF:EE:41:00:01")
+ZEPHYR_OBSERVER = sample_profile("observer", "C0:FF:EE:41:00:02")
 
 __all__ = ["ZEPHYR_BROADCASTER", "ZEPHYR_OBSERVER"]

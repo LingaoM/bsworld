@@ -1,52 +1,21 @@
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-.Python
+*.pyc
 *.egg-info/
-.eggs/
-/build/
+.venv/
+
+# Build and test artifacts
+build/
 dist/
+prebuilt/
+.cache/
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
-.tox/
 .coverage
 .coverage.*
-htmlcov/
-coverage.xml
 
-# venv
-.venv/
-venv/
-env/
-
-# IDE
+# Local configuration
 .vscode/
-.idea/
-*.swp
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Project artifacts
-.cache/
-
-# Expanded Exodus runtime trees. Tagged CI publishes these as release assets.
-/components/bt_virt_controller/prebuilt/
-/tests/integration/nuttx/*/prebuilt/
-/tests/integration/zephyr/samples/*/prebuilt/
-
-# Local QEMU and Guest test outputs; intentionally excluded from binary releases.
-/tests/integration/qemu/prebuilt/
-/bsworld-prebuilt-*.zip
-
-# Local config overrides (no sensitive data should ever land here, but be safe)
 *.local
 .env
 .env.*
-
-.omc/
-._DS_Store
