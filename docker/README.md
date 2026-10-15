@@ -37,7 +37,7 @@ sudo docker run --rm \
   ghcr.io/xiaomi/bsworld:latest
 ```
 
-`latest` selects the most recently tested environment published from `main`. To use a specific environment, replace it with the `env-<hash>` tag shown in that CI run's summary.
+`latest` selects the most recently tested image published from `main`. To use a specific commit, replace it with the `sha-<commit>` tag shown in that CD run's summary.
 
 The image includes Python, BSWorld, tests, and compiled firmware. The default command is `pytest tests/integration -n 2 --out-dir /output --junitxml=/output/pytest.xml`.
 
@@ -135,6 +135,10 @@ To use this image with the [test commands](#run-tests), replace `ghcr.io/xiaomi/
 The commands above mount `/output` at the host's `.cache/docker-results`. This directory must be writable by the image's `bsworld` user. Local builds match UID/GID through the build arguments; the published-image example prepares the directory for UID/GID 1000. The CI workflow prepares its result-directory permissions automatically.
 
 Pytest terminal output appears in the caller's terminal or CI step logs. The default command passes pytest's exit code through `docker run`, allowing CI to determine success or failure. The workflow uploads its result directory after testing, including on test failure.
+
+[CI](../.github/workflows/ci.yml) runs lint and unit tests, then builds the current checkout with Docker caching and runs integration tests against that image. PRs and manual runs do not publish. After a successful push to `main`, [CD](../.github/workflows/cd.yml) publishes the tested image as `sha-<commit>` and `latest`; an older commit is skipped if `main` has advanced. GHCR reuses existing layers during the push.
+
+CI and CD use the same self-hosted Linux/x86_64 runner and Docker daemon. CI keeps the tested image locally and uploads only its metadata for CD. Keep the image until CD finishes. If it is missing or CD runs on another runner, publication fails; rerun main CI to rebuild and test it.
 
 ### Shell
 

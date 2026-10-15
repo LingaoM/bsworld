@@ -27,6 +27,8 @@ The [Docker commands](../docker/README.md#run-tests) bind-mount `/output` at `.c
 
 In GitHub Actions, open **Actions → CI → the run** to view step output and the JUnit summary. Download the `bsworld-results-<run-id>-<attempt>` artifact for generated `unit.xml`, `integration.xml`, terminal logs, and per-test output under `unit/` and `integration/`. If an image was selected, its tag and metadata are included. Reports and logs are uploaded on failure and retained for 14 days.
 
+Successful main push CI runs also save `bsworld-image-<run-id>-<attempt>` for 7 days. This small artifact contains the tested image ID, local tag, source commit, CI run, and runner information. The image stays in the Docker daemon on the same self-hosted runner. The separate **CD** workflow reads this metadata and publishes that image to GHCR as `sha-<commit>` and `latest`, provided the commit is still the current `main`. Open **Actions → CD → the run** for the publication or skip result. PRs and manual CI runs build and test their checkout without publishing images.
+
 ## Directory Layout
 
 A typical NuttX scanning test produces this layout:
