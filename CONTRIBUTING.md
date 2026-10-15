@@ -30,7 +30,7 @@ We recommend the [Docker test image](docker/README.md#run-tests) with your check
 
 ## Validation
 
-Run the checks relevant to the change in a [Docker shell](docker/README.md#shell) with your checkout mounted, or in the local Python environment. At minimum, framework changes should pass:
+Run the checks relevant to the change in the [Docker environment](docker/README.md#run-tests) with your checkout mounted, or in the local Python environment. At minimum, framework changes should pass:
 
 ```sh
 ruff check --no-cache src tests

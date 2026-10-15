@@ -3,8 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 BR2_aarch64=y
-BR2_TOOLCHAIN_BUILDROOT_CXX=y
-BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_18=y
+# Use the pinned Buildroot release's prebuilt AArch64 glibc toolchain.
+# This profile includes C++ and threads for the NimBLE and TrouBLE examples.
+BR2_TOOLCHAIN_EXTERNAL=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_AARCH64_GLIBC_STABLE=y
+BR2_TOOLCHAIN_EXTERNAL_DOWNLOAD=y
 BR2_GLOBAL_PATCH_DIR="board/qemu/patches"
 BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
 BR2_LINUX_KERNEL=y

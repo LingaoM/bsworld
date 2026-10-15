@@ -81,7 +81,7 @@ The BSWorld QEMU tests use a modified QEMU fork. Redistributing its executable r
 
 - Project: Buildroot
 - Source: https://gitlab.com/buildroot.org/buildroot
-- Usage: builds the Linux kernel, initramfs, cross toolchain, BlueZ, Apache NimBLE, TrouBLE, and supporting Guest packages used by `tests/integration/qemu/`
+- Usage: downloads a prebuilt cross toolchain and uses it to build the Linux kernel, initramfs, BlueZ, Apache NimBLE, TrouBLE, and supporting Guest packages used by `tests/integration/qemu/`
 - Repository copies: only BSWorld-owned Buildroot external configuration files under `tests/integration/qemu/source/`; Buildroot source is not vendored
 - License: GNU General Public License version 2 or later for Buildroot, with exceptions and per-file licenses described by the upstream `COPYING` file
 

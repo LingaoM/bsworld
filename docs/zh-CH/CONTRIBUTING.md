@@ -30,7 +30,7 @@ BSWorld 自有代码使用 Apache License 2.0。引入或复用的第三方组�
 
 ## 验证修改
 
-以下检查在挂载当前仓库的 [Docker 终端](../../docker/README.zh-CN.md#容器终端)或本机 Python 环境中执行。框架代码至少应通过：
+以下检查在挂载当前仓库的 [Docker 环境](../../docker/README.zh-CN.md#运行测试)或本机 Python 环境中执行。框架代码至少应通过：
 
 ```sh
 ruff check --no-cache src tests

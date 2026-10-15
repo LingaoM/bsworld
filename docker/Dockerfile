@@ -1,9 +1,11 @@
-# Compile Linux/x86_64 simulation firmware in component order.
+# syntax=docker/dockerfile:1
+
+# Build independent Linux/x86_64 firmware stages from a stable tool environment.
 # The final runtime stage contains pytest, firmware, and runtime libraries.
 # Build stages can be selected with --target when developing firmware.
 
-# BSWorld: create the Python environment and install declared project dependencies.
-FROM public.ecr.aws/docker/library/ubuntu:24.04 AS bsworld
+# Keep project dependencies out of the common firmware build environment.
+FROM public.ecr.aws/docker/library/ubuntu:24.04 AS build-base
 
 # Python headers and a native compiler support packages with C/C++ extensions.
 # DEBIAN_FRONTEND applies only to installation, not to interactive containers.
@@ -16,7 +18,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Reuse Ubuntu's existing account if it already owns the requested UID.
 ARG BUILD_UID=1000
 ARG BUILD_GID=1000
-ARG BUILD_JOBS=4
 RUN if ! getent group "$BUILD_GID" >/dev/null; then groupadd -g "$BUILD_GID" bsworld; fi \
     && if getent passwd "$BUILD_UID" >/dev/null; then \
         build_user="$(getent passwd "$BUILD_UID" | cut -d: -f1)"; \
@@ -29,23 +30,37 @@ USER bsworld
 RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 \
-    CMAKE_BUILD_PARALLEL_LEVEL=$BUILD_JOBS \
-    PIP_CACHE_DIR=/cache/pip \
-    BR2_DL_DIR=/cache/downloads/buildroot
+    PIP_CACHE_DIR=/cache/pip
 
-# Install Python dependencies before firmware compilation so test-only changes
-# can reuse the firmware layers. Install the BSWorld package in the final stage.
+WORKDIR /workspace
+CMD ["bash"]
+
+# BSWorld: only this branch depends on the project's Python dependencies.
+# Firmware builds reuse build-base even when pyproject.toml changes.
+FROM build-base AS bsworld
 COPY pyproject.toml /opt/bsworld-environment/pyproject.toml
 RUN python -c 'import subprocess, tomllib; \
     config = tomllib.load(open("/opt/bsworld-environment/pyproject.toml", "rb")); \
     dependencies = config["build-system"]["requires"] + config["project"]["dependencies"]; \
     subprocess.check_call(["python", "-m", "pip", "install", *dependencies])'
 
-WORKDIR /workspace
-CMD ["bash"]
+# Install the project once for early Python checks and the final runtime image.
+# Keep this branch separate from firmware so Python changes reuse compiled outputs.
+FROM bsworld AS python-test
+ENV PYTHONPATH=/workspace \
+    PYTHONUNBUFFERED=1 \
+    BSWORLD_ROOT=/workspace
+COPY --chown=$BUILD_UID:$BUILD_GID pyproject.toml /workspace/pyproject.toml
+COPY --chown=$BUILD_UID:$BUILD_GID src /workspace/src
+COPY --chown=$BUILD_UID:$BUILD_GID tests /workspace/tests
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/bsworld/
+# Git metadata is excluded from images; CI supplies the Git-derived version.
+ARG BSWORLD_VERSION=0+local
+RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_BSWORLD="$BSWORLD_VERSION" \
+    python -m pip install --no-deps --no-build-isolation -e .
 
 # BabbleSim: native Linux compiler, linker, and Make-based build support.
-FROM bsworld AS babblesim
+FROM build-base AS babblesim
 USER root
 
 # Install multilib support before BabbleSim builds, as required by the README setup.
@@ -162,7 +177,9 @@ RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
 
 # Compile the BSWorld Controller and upstream Host-only Bluetooth samples.
 COPY --chown=$BUILD_UID:$BUILD_GID components/bt_virt_controller /opt/bsworld-build/bt_virt_controller
+ARG BUILD_JOBS=4
 RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
+    && export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS" \
     && cd "$ZEPHYR_WORKSPACE" \
     && west build -p always -b nrf52_bsim \
         -d "$ZEPHYR_WORKSPACE/build/bsworld_bt_virt_controller" \
@@ -171,6 +188,7 @@ RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
 COPY --chown=$BUILD_UID:$BUILD_GID tests/integration/zephyr/samples/common/source /opt/bsworld-build/zephyr/common
 COPY --chown=$BUILD_UID:$BUILD_GID tests/integration/zephyr/samples/mesh/source /opt/bsworld-build/zephyr/mesh
 RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
+    && export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS" \
     && cd "$ZEPHYR_WORKSPACE" \
     && for sample in broadcaster observer peripheral_hr central_hr \
         periodic_adv periodic_sync mesh mesh_provisioner; do \
@@ -188,16 +206,18 @@ RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
 
 # NuttX: prepare tools and source workspaces for sim:bthcisock and sim:nimble.
 # https://nuttx.apache.org/docs/latest/quickstart/install.html
-FROM zephyr AS nuttx
+FROM babblesim AS nuttx
 USER root
 
 # kconfig-frontends provides kconfig-tweak for the documented test configurations.
 # The simulator uses the inherited host/multilib compiler rather than an ARM toolchain.
+# lib32z1-dev supplies the 32-bit zlib dependency for sim:nimble's FAT support.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     autoconf automake bison flex gettext texinfo gperf libtool pkg-config \
     libncurses-dev xxd genromfs kconfig-frontends \
     libgmp-dev libmpc-dev libmpfr-dev libisl-dev binutils-dev libelf-dev \
     libexpat1-dev picocom u-boot-tools util-linux \
+    cmake ninja-build wget unzip xz-utils lib32z1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" \
@@ -236,6 +256,7 @@ RUN git clone "$NUTTX_DIR" "$NUTTX_NIMBLE_DIR" \
     && git clone "$NUTTX_APPS_DIR" "$NUTTX_NIMBLE_APPS_DIR"
 
 # Keep independent NuttX/apps trees for both in-tree simulator configurations.
+ARG BUILD_JOBS=4
 RUN cd "$NUTTX_DIR" \
     && ./tools/configure.sh -l -a ../nuttx-apps sim:bthcisock \
     && kconfig-tweak --file .config -e SIM_BSIM_TIME -d BLUETOOTH_SMP_SELFTEST \
@@ -244,11 +265,6 @@ RUN cd "$NUTTX_DIR" \
     && strip --strip-unneeded nuttx
 
 # sim:nimble enables 32-bit compilation and FAT, which links against host zlib.
-USER root
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    lib32z1-dev \
-    && rm -rf /var/lib/apt/lists/*
-USER bsworld
 RUN cd "$NUTTX_NIMBLE_DIR" \
     && ./tools/configure.sh -l -a ../nuttx-nimble-apps sim:nimble \
     && kconfig-tweak --file .config -e SIM_BSIM_TIME \
@@ -260,11 +276,14 @@ RUN cd "$NUTTX_NIMBLE_DIR" \
     && strip --strip-unneeded nuttx
 
 # QEMU: libraries and Python tooling for the BSWorld aarch64-softmmu fork.
-FROM nuttx AS qemu
+FROM babblesim AS qemu
 USER root
 
+# Keep the optional libraries previously inherited from Zephyr and NuttX.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ninja-build pkg-config bison flex \
     libfdt-dev libffi-dev libglib2.0-dev libpixman-1-dev zlib1g-dev \
+    libexpat1-dev libelf-dev libgmp-dev libncurses-dev libsdl2-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/qemu
@@ -284,6 +303,7 @@ RUN git init "$QEMU_DIR" \
     && git -C "$QEMU_DIR" checkout --detach FETCH_HEAD \
     && test "$(git -C "$QEMU_DIR" rev-parse HEAD)" = "$QEMU_REVISION"
 
+ARG BUILD_JOBS=4
 RUN mkdir -p "$QEMU_DIR/build/bsworld" \
     && cd "$QEMU_DIR/build/bsworld" \
     && "$QEMU_DIR/configure" --target-list=aarch64-softmmu --enable-bsim \
@@ -293,12 +313,14 @@ RUN mkdir -p "$QEMU_DIR/build/bsworld" \
     && strip --strip-unneeded qemu-system-aarch64
 
 # Buildroot: host utilities for the toolchain, Linux kernel, and guest root filesystem.
-FROM qemu AS buildroot
+# Guest kernel/rootfs builds do not depend on QEMU or BabbleSim.
+FROM build-base AS buildroot
 USER root
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     bc bzip2 cpio debianutils diffutils gzip \
     patch perl rsync tar zip libssl-dev \
+    bison flex gawk wget unzip xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/buildroot
@@ -306,7 +328,8 @@ USER bsworld
 
 # Validated Buildroot revision for the maintained Linux guest configuration.
 ARG BUILDROOT_REVISION=1ad0796f2b40eb8dadc43e95dd1d56708b191375
-ENV BUILDROOT_DIR=/opt/buildroot
+ENV BUILDROOT_DIR=/opt/buildroot \
+    BR2_DL_DIR=/cache/downloads/buildroot
 
 RUN git init "$BUILDROOT_DIR" \
     && git -C "$BUILDROOT_DIR" remote add origin https://gitlab.com/buildroot.org/buildroot.git \
@@ -316,7 +339,11 @@ RUN git init "$BUILDROOT_DIR" \
 
 # Build the AArch64 kernel and initramfs with the shared Linux guest packages.
 COPY --chown=$BUILD_UID:$BUILD_GID tests/integration/qemu/source /opt/bsworld-build/qemu-guest
-RUN make -C "$BUILDROOT_DIR" O="$BUILDROOT_DIR/output-bsworld-linux" \
+ARG BUILD_JOBS=4
+# Share downloads across configuration changes without reusing a stale output tree.
+# Include the user IDs so local builds with different owners have writable caches.
+RUN --mount=type=cache,id=bsworld-buildroot-downloads-${BUILD_UID}-${BUILD_GID},target=/cache/downloads/buildroot,uid=${BUILD_UID},gid=${BUILD_GID},sharing=locked \
+    make -C "$BUILDROOT_DIR" O="$BUILDROOT_DIR/output-bsworld-linux" \
         BR2_EXTERNAL=/opt/bsworld-build/qemu-guest bsworld_qemu_linux_defconfig \
     && make -C "$BUILDROOT_DIR" O="$BUILDROOT_DIR/output-bsworld-linux" -j"$BUILD_JOBS" \
     && test -f "$BUILDROOT_DIR/output-bsworld-linux/images/Image" \
@@ -325,28 +352,22 @@ RUN make -C "$BUILDROOT_DIR" O="$BUILDROOT_DIR/output-bsworld-linux" \
     && test -x "$BUILDROOT_DIR/output-bsworld-linux/target/usr/bin/nimble-linux" \
     && test -x "$BUILDROOT_DIR/output-bsworld-linux/target/usr/bin/trouble-ble-bas-peripheral"
 
-# Start from a fresh OS so compiler, SDK, source, and intermediate layers are
-# excluded from the published runtime image.
-FROM public.ecr.aws/docker/library/ubuntu:24.04 AS runtime
-ARG BUILD_UID=1000
-ARG BUILD_GID=1000
+# Extend the Python image that passed lint/unit tests with runtime libraries and
+# firmware. BabbleSim is copied whole; other components' source/SDKs stay above.
+FROM python-test AS runtime
+USER root
+# These are the runtime counterparts of the firmware stages' development packages.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    bash ca-certificates python3.12 procps gawk \
+    procps gawk \
     libc6-i386 lib32gcc-s1 lib32stdc++6 lib32z1 libstdc++6 \
     libglib2.0-0t64 libpixman-1-0 libfdt1 libffi8 zlib1g libsndio7.0 \
     libsdl2-2.0-0 libx11-6 libpulse0 \
+    libexpat1 libelf1t64 libgmp10 libncursesw6 libtinfo6 \
     && rm -rf /var/lib/apt/lists/*
-RUN if ! getent group "$BUILD_GID" >/dev/null; then groupadd -g "$BUILD_GID" bsworld; fi \
-    && if getent passwd "$BUILD_UID" >/dev/null; then \
-        build_user="$(getent passwd "$BUILD_UID" | cut -d: -f1)"; \
-        usermod -l bsworld -d /home/bsworld -m -g "$BUILD_GID" "$build_user"; \
-    else useradd -m -u "$BUILD_UID" -g "$BUILD_GID" -s /bin/bash bsworld; fi \
-    && install -d -o "$BUILD_UID" -g "$BUILD_GID" /workspace /output /opt/babblesim/build/results
+RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/babblesim/build/results
 
-# Preserve BabbleSim's bin/../lib layout and NuttX's build-time library rpath.
-COPY --from=babblesim --chown=$BUILD_UID:$BUILD_GID /opt/babblesim/build/bin /opt/babblesim/build/bin
-COPY --from=babblesim --chown=$BUILD_UID:$BUILD_GID /opt/babblesim/build/lib/*.so /opt/babblesim/build/lib/
-COPY --from=babblesim --chown=$BUILD_UID:$BUILD_GID /opt/babblesim/ext_2G4_phy_v1/dump_post_process/convert_results_to_ellisysv2.sh /opt/babblesim/convert_results_to_ellisysv2.sh
+# Keep BabbleSim's source, scripts, and outputs together at their build-time paths.
+COPY --from=babblesim --chown=$BUILD_UID:$BUILD_GID /opt/babblesim /opt/babblesim
 COPY --from=zephyr /opt/zephyrproject/build/bsworld_bt_virt_controller/zephyr/zephyr.exe /opt/firmware/bt_virt_controller
 COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_broadcaster/zephyr/zephyr.exe /opt/firmware/zephyr/broadcaster
 COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_observer/zephyr/zephyr.exe /opt/firmware/zephyr/observer
@@ -361,15 +382,9 @@ COPY --from=nuttx /opt/nuttx-nimble/nuttx /opt/firmware/nuttx/nimble
 COPY --from=qemu /opt/qemu/build/bsworld/qemu-system-aarch64 /opt/firmware/qemu/qemu-system-aarch64
 COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/Image /opt/firmware/qemu/Image
 COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/rootfs.cpio /opt/firmware/qemu/rootfs.cpio
-COPY --from=bsworld --chown=$BUILD_UID:$BUILD_GID /opt/venv /opt/venv
 
-# Make tests.integration helpers importable through the pytest console command.
-ENV PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH=/workspace \
-    LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUNBUFFERED=1 \
-    BSWORLD_ROOT=/workspace \
-    BSWORLD_BSIM_DIR=/opt/babblesim/build \
-    BSWORLD_BSIM_ELLISYS_SCRIPT=/opt/babblesim/convert_results_to_ellisysv2.sh \
+ENV BSWORLD_BSIM_DIR=/opt/babblesim/build \
+    BSWORLD_BSIM_ELLISYS_SCRIPT=/opt/babblesim/ext_2G4_phy_v1/dump_post_process/convert_results_to_ellisysv2.sh \
     BSWORLD_BT_VIRT_CONTROLLER_BIN=/opt/firmware/bt_virt_controller \
     BSWORLD_ZEPHYR_BROADCASTER_BIN=/opt/firmware/zephyr/broadcaster \
     BSWORLD_ZEPHYR_OBSERVER_BIN=/opt/firmware/zephyr/observer \
@@ -385,15 +400,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
     BSWORLD_QEMU_KERNEL=/opt/firmware/qemu/Image \
     BSWORLD_QEMU_ROOTFS=/opt/firmware/qemu/rootfs.cpio
 
-# Editable installation lets CI bind-mount the current checkout at /workspace.
-# Firmware remains in /opt while Python source and tests come from that checkout.
-COPY --chown=$BUILD_UID:$BUILD_GID pyproject.toml /workspace/pyproject.toml
-COPY --chown=$BUILD_UID:$BUILD_GID src /workspace/src
-COPY --chown=$BUILD_UID:$BUILD_GID tests /workspace/tests
-COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/bsworld/
 USER bsworld
-WORKDIR /workspace
-RUN python -m pip install --no-deps --no-build-isolation -e .
 
 # Verify binaries and their dynamic dependencies in the final filesystem.
 # BabbleSim .Tsymbols files are readable text maps, not executable binaries.

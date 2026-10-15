@@ -25,9 +25,9 @@ BSWorld appends `run-<timestamp>/<uid>` beneath the selected root. [pytest-xdist
 
 The [Docker commands](../docker/README.md#run-tests) bind-mount `/output` at `.cache/docker-results` on the host. The default image command saves `pytest.xml` there, alongside the `run-<timestamp>/<uid>` directories containing per-test logs and captures.
 
-In GitHub Actions, open **Actions → CI → the run** to view step output and the JUnit summary. Download the `bsworld-results-<run-id>-<attempt>` artifact for generated `unit.xml`, `integration.xml`, terminal logs, and per-test output under `unit/` and `integration/`. If an image was selected, its tag and metadata are included. Reports and logs are uploaded on failure and retained for 14 days.
+In GitHub Actions, open **Actions → CI → the run** to view `Build runtime image` and the separate `Lint`, `Unit tests`, and `Integration tests` jobs. All checks run inside the built image. Each check job uploads its own `bsworld-results-<job>-<run-id>-<attempt>` artifact, where `<job>` is `lint`, `unit`, or `integration`. The unit artifact contains `unit.xml`, terminal logs, and per-test output under `unit/`; the integration artifact contains `integration.xml`, logs, captures, and output under `integration/`. The lint artifact contains `ruff.log`. The integration artifact also includes the image tag and metadata when available. Reports and logs are uploaded on failure and retained for 14 days.
 
-Successful main push CI runs also save `bsworld-image-<run-id>-<attempt>` for 7 days. This small artifact contains the tested image ID, local tag, source commit, CI run, and runner information. The image stays in the Docker daemon on the same self-hosted runner. The separate **CD** workflow reads this metadata and publishes that image to GHCR as `sha-<commit>` and `latest`, provided the commit is still the current `main`. Open **Actions → CD → the run** for the publication or skip result. PRs and manual CI runs build and test their checkout without publishing images.
+See the [Docker guide](../docker/README.md#use-a-published-image) to select an image by `latest`, source commit, or Release tag.
 
 ## Directory Layout
 

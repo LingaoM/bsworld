@@ -4,7 +4,7 @@
 
 BSWorld can run a complete Linux guest as one participant in the BabbleSim time domain. The validated setup uses a single-vCPU AArch64 QEMU `virt` machine and a Buildroot Linux kernel and initramfs containing BlueZ, Apache NimBLE, and TrouBLE. QEMU connects the guest's HCI UART to a BSWorld Virtual Controller through a Host Unix socket, while its instruction-counting clock is synchronized with BabbleSim.
 
-This path is intended for Linux Bluetooth software that should be tested without porting the Application or Host stack to an RTOS. Buildroot is used only to build the guest kernel, root filesystem, and cross toolchain.
+This path is intended for Linux Bluetooth software that should be tested without porting the Application or Host stack to an RTOS. Buildroot builds the guest kernel and root filesystem using an automatically downloaded prebuilt cross toolchain.
 
 ## Validated Versions
 
@@ -18,6 +18,8 @@ This path is intended for Linux Bluetooth software that should be tested without
 | TrouBLE | `730198ecf94ee6953163b7485cf902d5f9d45dbd` | Rust Linux Host example inside the Guest |
 
 The Buildroot and package versions are pinned by the validated Buildroot revision and the BSWorld defconfig. Use these revisions when reproducing the current tests; moving either repository independently may change build options, package versions, or runtime behavior.
+
+The current defconfig selects Bootlin's prebuilt AArch64 glibc stable toolchain (`2026.08-1`), including C++ and thread support. This profile is fixed by the pinned Buildroot revision.
 
 ## Prepare the Environment
 
@@ -76,7 +78,7 @@ export BSWORLD_QEMU_ROOTFS="$BUILDROOT_OUTPUT/images/rootfs.cpio"
 
 BlueZ, NimBLE, and TrouBLE share this QEMU, kernel, and rootfs.
 
-The fork's `--enable-bsim` links the BabbleSim communication static libraries into QEMU. The Buildroot external tree at `tests/integration/qemu/source` maintains the guest defconfig, Linux fragment, and NimBLE/TrouBLE package inputs. The first build downloads and compiles the cross toolchain, Linux, and guest packages, so it takes substantially longer than incremental builds.
+The fork's `--enable-bsim` links the BabbleSim communication static libraries into QEMU. The Buildroot external tree at `tests/integration/qemu/source` maintains the guest defconfig, Linux fragment, and NimBLE/TrouBLE package inputs. Buildroot automatically downloads and extracts the Bootlin toolchain, then compiles Linux and the guest packages. The first build takes substantially longer than incremental builds.
 
 The rootfs is an initramfs expanded afresh at each guest boot. Inspect the original outputs before testing:
 
@@ -111,7 +113,7 @@ Inspect the current Buildroot configuration:
 make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" show-info
 ```
 
-After changing the defconfig or Linux fragment, choose a fresh `BUILDROOT_OUTPUT`, rerun the defconfig and make commands above, and update the kernel/rootfs exports.
+After changing the defconfig, Linux fragment, or toolchain selection, choose a fresh `BUILDROOT_OUTPUT`, rerun the defconfig and make commands above, and update the kernel/rootfs exports. Do not reuse an output directory created with the previous toolchain.
 
 ## Licenses
 

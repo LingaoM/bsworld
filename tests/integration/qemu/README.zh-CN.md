@@ -4,7 +4,7 @@
 
 BSWorld 可以将完整的 Linux Guest 作为 BabbleSim 时间域中的一个参与者运行。当前验证环境使用单 vCPU 的 AArch64 QEMU `virt` 机器，由 Buildroot 生成 Linux kernel 和 initramfs，并在同一 Guest 镜像中提供 BlueZ、Apache NimBLE 与 TrouBLE Host 协议栈。QEMU 通过 Host Unix socket 将 Guest 的 HCI UART 连接到 BSWorld 虚拟 Controller，同时将基于指令计数的虚拟时钟与 BabbleSim 同步。
 
-该接入方式面向不适合迁移到 RTOS 的 Linux Bluetooth 软件。Buildroot 只负责构建 Guest kernel、根文件系统和交叉工具链。
+该接入方式面向不适合迁移到 RTOS 的 Linux Bluetooth 软件。Buildroot 自动下载预编译交叉工具链，用它构建 Guest kernel 和根文件系统。
 
 ## 已验证版本
 
@@ -18,6 +18,8 @@ BSWorld 可以将完整的 Linux Guest 作为 BabbleSim 时间域中的一个参
 | TrouBLE | `730198ecf94ee6953163b7485cf902d5f9d45dbd` | Guest 内的 Rust Linux Host 示例 |
 
 Linux 与 BlueZ 版本由经过验证的 Buildroot 提交和 BSWorld defconfig 共同确定。复现当前测试时应使用表中的提交；单独升级任一外部仓库都可能改变构建选项、软件版本或运行行为。
+
+当前 defconfig 选择 Bootlin 的预编译 AArch64 glibc stable 工具链（`2026.08-1`），包含 C++ 和线程支持。该 profile 由固定的 Buildroot 提交确定，此次工具链切换尚待本机编译验证。
 
 ## 准备环境
 
@@ -76,7 +78,7 @@ export BSWORLD_QEMU_ROOTFS="$BUILDROOT_OUTPUT/images/rootfs.cpio"
 
 BlueZ、NimBLE、TrouBLE 共用该 QEMU、kernel 和 rootfs。
 
-该 QEMU fork 的 `--enable-bsim` 将 BabbleSim 通信静态库链接到程序。Buildroot external tree 位于 `tests/integration/qemu/source`，包括 guest defconfig、Linux 配置片段以及 NimBLE 和 TrouBLE 软件包。首次编译会下载并构建交叉工具链、Linux 和 guest 软件，耗时明显长于增量编译。
+该 QEMU fork 的 `--enable-bsim` 将 BabbleSim 通信静态库链接到程序。Buildroot external tree 位于 `tests/integration/qemu/source`，包括 guest defconfig、Linux 配置片段以及 NimBLE 和 TrouBLE 软件包。Buildroot 自动下载并解压 Bootlin 工具链，再编译 Linux 和 guest 软件。
 
 rootfs 是 initramfs，每次测试启动 guest 时重新展开，确保测试从同一镜像状态开始。产物可直接检查：
 
@@ -111,7 +113,7 @@ pytest 命令、必需的产物环境变量、已验证场景和日志说明分�
 make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" show-info
 ```
 
-改变 defconfig 或 Linux fragment 后，选择一个新的 `BUILDROOT_OUTPUT`，重新执行上述 defconfig 和 make 命令，并更新 kernel/rootfs 环境变量。
+改变 defconfig、Linux fragment 或工具链选择后，选择一个新的 `BUILDROOT_OUTPUT`，重新执行上述 defconfig 和 make 命令，并更新 kernel/rootfs 环境变量。不要复用旧工具链创建的输出目录。
 
 ## 许可证
 
