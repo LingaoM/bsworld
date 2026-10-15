@@ -81,7 +81,7 @@ BSWorld QEMU 测试使用包含修改的 QEMU fork。对外分发其可执行程
 
 - 项目：Buildroot
 - 源码：https://gitlab.com/buildroot.org/buildroot
-- 用途：构建 `tests/integration/qemu/` 使用的 Linux kernel、initramfs、交叉工具链、BlueZ、Apache NimBLE、TrouBLE 和 Guest 配套软件
+- 用途：下载预编译交叉工具链，并用它构建 `tests/integration/qemu/` 使用的 Linux kernel、initramfs、BlueZ、Apache NimBLE、TrouBLE 和 Guest 配套软件
 - 仓库内位置：仅在 `tests/integration/qemu/source/` 保存 BSWorld 自行维护的 Buildroot external 配置，不包含 Buildroot 源码
 - 许可证：Buildroot 使用 GNU General Public License version 2 or later；例外情况和单个文件的许可证以上游 `COPYING` 为准
 

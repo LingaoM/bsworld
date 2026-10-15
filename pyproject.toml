@@ -31,6 +31,7 @@ dependencies = [
     "pytest-cov>=4.0",
     "ruff>=0.8.0",
     "setuptools>=68",
+    "setuptools-scm>=8",
 ]
 
 [project.entry-points.pytest11]

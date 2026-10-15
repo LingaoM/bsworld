@@ -2,29 +2,23 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-We recommend pulling `ghcr.io/xiaomi/bsworld:latest` to run tests on Linux/x86_64. You can also build your own image with the [Dockerfile](Dockerfile).
+Use the published image to run BSWorld tests directly. It includes Python, BSWorld, tests, and compiled firmware. Build your own image when changing firmware source or build configuration.
 
-## Image Contents
-
-The [Dockerfile](Dockerfile) prepares dependencies and builds artifacts in BSWorld, BabbleSim, Zephyr, NuttX, QEMU, and Buildroot order, then creates an independent `runtime` image.
-
-The final image includes Python 3.12, BSWorld, pytest, tests, BabbleSim runtime components and the Ellisys converter, the Virtual Controller, eight Zephyr samples, two NuttX BTSak/NimBLE executables, and QEMU with the Linux kernel and guest rootfs. Image environment variables select the firmware paths.
-
-The final image contains the runtime programs and libraries. Upstream source, SDKs, toolchains, and intermediate files remain in Docker build caches.
-
-## Prerequisites
-
-Use a Linux/x86_64 host with Docker Engine. On Ubuntu, follow Docker's [installation instructions](https://docs.docker.com/engine/install/ubuntu/), then verify the installation:
-
-```sh
-sudo docker info
-```
-
-Testing the current checkout requires Git. Building an image also requires Docker's Buildx plugin.
+Use a Linux/x86_64 host with [Docker Engine](https://docs.docker.com/engine/install/ubuntu/). Python, component SDKs, and toolchains do not need to be installed on the host. Local development also requires Git, and image builds require Docker's Buildx plugin. The commands use `sudo`; omit it if your user already has Docker access.
 
 ## Use a Published Image
 
-Pull the image and run its packaged integration tests from any directory:
+Choose `latest` for the most recently published tested main image, or a matching commit or Release image when validating older source:
+
+| Version | Image reference |
+|---|---|
+| Latest tested main | `ghcr.io/xiaomi/bsworld:latest` |
+| Full commit ID | `ghcr.io/xiaomi/bsworld:sha-<40-character-commit>` |
+| Release tag | `ghcr.io/xiaomi/bsworld:v1.0.0` |
+
+`v1.0.0` illustrates the tag format; replace it with an available Release tag. Commit images use the full 40-character commit ID.
+
+Pull and run the packaged integration tests from any directory; no source checkout is required. Replace `latest` in both commands to select another version:
 
 ```sh
 sudo docker pull ghcr.io/xiaomi/bsworld:latest
@@ -37,19 +31,20 @@ sudo docker run --rm \
   ghcr.io/xiaomi/bsworld:latest
 ```
 
-`latest` selects the most recently tested image published from `main`. To use a specific commit, replace it with the `sha-<commit>` tag shown in that CD run's summary.
+The default command runs all integration tests with two parallel workers (`pytest tests/integration -n 2`). The writable `/output` mount saves reports, logs, and captures under the host's `.cache/docker-results`; `pytest.xml` is the test report. `--rm` removes the container after it exits, while these files remain on the host. See [Logs and captures](../docs/artifacts.md) for the output layout.
 
-The image includes Python, BSWorld, tests, and compiled firmware. The default command is `pytest tests/integration -n 2 --out-dir /output --junitxml=/output/pytest.xml`.
+For older source, use its matching release or commit image. To pull the current checkout's image, if published:
+
+```sh
+SOURCE_COMMIT="$(git rev-parse HEAD)"
+sudo docker pull "ghcr.io/xiaomi/bsworld:sha-$SOURCE_COMMIT"
+```
 
 ## Run Tests
 
-### Test the Current Checkout
-
-Clone the repository if needed. Run these commands from the repository root to test your Python source and tests with the image's firmware:
+To test your own Python code and tests, run from the repository root and mount it at `/workspace`:
 
 ```sh
-git clone https://github.com/XiaoMi/bsworld.git
-cd bsworld
 mkdir -p .cache/docker-results
 sudo chown 1000:1000 .cache/docker-results
 sudo docker run --rm \
@@ -59,11 +54,13 @@ sudo docker run --rm \
   ghcr.io/xiaomi/bsworld:latest
 ```
 
-Mounting `/workspace` uses your checkout's Python source and tests. Firmware remains in `/opt`; changes to firmware source or build configuration require rebuilding the image.
+The `/workspace` mount replaces the image's Python source and tests with your checkout. `readonly` lets the container read those files without modifying them; test output goes to the separate writable `/output` mount.
+
+Python and test changes can be checked this way without rebuilding. Firmware still comes from the image, so firmware source or build configuration changes require [rebuilding it](#build).
 
 ### Select a Suite
 
-From the repository root, pass a pytest command after the image name. For example:
+To select a suite, put a pytest command after the image name. It replaces the image's default command:
 
 ```sh
 sudo docker run --rm \
@@ -75,9 +72,9 @@ sudo docker run --rm \
     --out-dir /output --junitxml=/output/heart-rate.xml
 ```
 
-### Unit Tests and Lint
+`-n 2` uses two test workers. `--out-dir` selects the log and capture directory; `--junitxml` writes the test report. Paths under `/output` appear in `.cache/docker-results` on the host.
 
-Check the current checkout:
+Run unit tests against the current checkout:
 
 ```sh
 sudo docker run --rm \
@@ -85,6 +82,11 @@ sudo docker run --rm \
   --env PYTHONDONTWRITEBYTECODE=1 \
   -e PYTHONPATH=/workspace \
   ghcr.io/xiaomi/bsworld:latest pytest tests/unit -q -p no:cacheprovider
+```
+
+Run Ruff for static checks:
+
+```sh
 sudo docker run --rm \
   --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
   -e PYTHONPATH=/workspace \
@@ -93,19 +95,81 @@ sudo docker run --rm \
 
 ## Build
 
-Clone the repository if needed, then run from its root:
+Clone the repository with its tags and history, then run the remaining commands from its root:
 
 ```sh
 git clone https://github.com/XiaoMi/bsworld.git
 cd bsworld
-sudo docker buildx version
+```
+
+Prepare the Python tooling target, then read the package version automatically from Git with `setuptools-scm`:
+
+```sh
 sudo docker build --progress=plain -f docker/Dockerfile \
+  --target bsworld -t bsworld:tooling \
+  --build-arg BUILD_UID="$(id -u)" \
+  --build-arg BUILD_GID="$(id -g)" .
+BSWORLD_VERSION="$(sudo docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
+  --env PYTHONDONTWRITEBYTECODE=1 --env GIT_OPTIONAL_LOCKS=0 \
+  bsworld:tooling python -m setuptools_scm)"
+```
+
+Build the `python-test` target and run lint and unit tests before compiling firmware:
+
+```sh
+sudo docker build --progress=plain -f docker/Dockerfile \
+  --target python-test \
+  --build-arg BUILD_UID="$(id -u)" \
+  --build-arg BUILD_GID="$(id -g)" \
+  --build-arg BSWORLD_VERSION="$BSWORLD_VERSION" \
+  -t bsworld:python-test .
+sudo docker run --rm --env PYTHONDONTWRITEBYTECODE=1 \
+  bsworld:python-test python -m ruff check --no-cache src tests
+sudo docker run --rm --env PYTHONDONTWRITEBYTECODE=1 \
+  bsworld:python-test python -m pytest tests/unit -q -p no:cacheprovider
+```
+
+After these checks pass, build the complete runtime image using the same [Dockerfile](Dockerfile). It extends `python-test`, builds the firmware branches, and adds their outputs and runtime libraries:
+
+```sh
+sudo docker build --progress=plain -f docker/Dockerfile \
+  --target runtime \
   --build-arg BUILD_UID="$(id -u)" \
   --build-arg BUILD_GID="$(id -g)" \
   --build-arg BUILD_JOBS=4 \
+  --build-arg BSWORLD_VERSION="$BSWORLD_VERSION" \
   -t bsworld:dev .
+```
 
+`BUILD_UID` and `BUILD_GID` match the image user to your host user so generated files have the expected ownership. Adjust `BUILD_JOBS` for compilation parallelism. The first build downloads dependencies and compiles firmware; later builds reuse Docker's cache. The final runtime image retains the Python test environment, including its basic build tools, and adds firmware and runtime dependencies. BabbleSim is copied as a whole directory; other components' upstream source, SDKs, and intermediate outputs stay in their build stages.
+
+The build stages have independent dependencies so unrelated changes can reuse compiled firmware:
+
+```text
+build-base
+├── bsworld (Python project dependencies)
+│   └── python-test (installed project and tests)
+│       └── runtime (+ runtime libraries and firmware from the branches below)
+├── babblesim
+│   ├── zephyr
+│   ├── nuttx
+│   └── qemu
+└── buildroot (guest kernel and rootfs)
+```
+
+The runtime stage inherits the Python environment and explicitly installs the shared libraries needed by the firmware and QEMU; these libraries are not added to `python-test`. It copies the entire BabbleSim directory and the other branches' compiled outputs, then checks executable dependencies with `ldd`. Python dependency changes do not rebuild firmware, Zephyr/NuttX changes do not rebuild QEMU, and QEMU changes do not rebuild Buildroot. Changes to a shared base or BabbleSim still rebuild the stages that depend on them. `BUILD_JOBS` is scoped to the compilation steps so changing it preserves dependency installation and source download layers.
+
+CI has three jobs: `ci` (shown as `CI result`), `publish`, and `release`. The CI job runs lint and unit tests in `python-test` before building runtime, then runs integration tests in runtime and uploads one combined report artifact, including available reports when a check fails. Only a successful main push publishes that exact tested image. Releases add a release tag to an already published commit image without rebuilding it. Main runs are kept separately so newer pushes do not replace pending commit builds; obsolete checks for the same PR are canceled.
+
+Buildroot downloads use a BuildKit cache mount shared across configurations for the same build UID/GID; its output directory is built from the current inputs. CI uses the fixed `bsworld-ci` builder with `keep-state: true` to retain both build layers and downloads on the self-hosted runner. Keep using the same builder locally to reuse its caches. The GHA cache backs up build layers but does not export cache mount contents. Local `--no-cache` reruns build steps while the download cache can still be reused. CI's `rebuild_image` input refreshes the stages in order, preserving the newly tested Python layers when assembling runtime; this validates a rebuild without publishing.
+
+Run the locally built image. Restore ownership of the output directory if it was previously prepared for the published image's UID/GID 1000:
+
+```sh
 mkdir -p .cache/docker-results
+sudo chown "$(id -u):$(id -g)" .cache/docker-results
 sudo docker run --rm \
   --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
   --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
@@ -113,43 +177,6 @@ sudo docker run --rm \
   bsworld:dev
 ```
 
-| Argument | Purpose | Default |
-|---|---|---|
-| `BUILD_UID` / `BUILD_GID` | UID/GID of the image's `bsworld` user; match the current user when building locally | `1000` / `1000` |
-| `BUILD_JOBS` | Firmware compilation parallelism | `4` |
+For a source archive without Git metadata, pass the known package version as `BSWORLD_VERSION` instead of running the version command; omitting it uses `0+local`.
 
-Source revisions and SDK options are configured in the Dockerfile. The first build downloads source/SDKs and compiles all firmware; later builds reuse Docker layers. Image construction checks binaries and their runtime library dependencies.
-
-To use this image with the [test commands](#run-tests), replace `ghcr.io/xiaomi/bsworld:latest` with `bsworld:dev`. The local build uses your UID/GID, so keep the output directory owned by your user.
-
-## Files and Logs
-
-| Container path | Contents |
-|---|---|
-| `/workspace` | BSWorld Python source and tests; mount the commit under test here |
-| `/opt/firmware` | Controller, Zephyr, NuttX, QEMU, kernel, and rootfs |
-| `/opt/babblesim` | BabbleSim programs, dynamic models, and trace converter |
-| `/opt/venv` | BSWorld Python environment |
-| `/output` | JUnit reports and per-test logs/captures |
-
-The commands above mount `/output` at the host's `.cache/docker-results`. This directory must be writable by the image's `bsworld` user. Local builds match UID/GID through the build arguments; the published-image example prepares the directory for UID/GID 1000. The CI workflow prepares its result-directory permissions automatically.
-
-Pytest terminal output appears in the caller's terminal or CI step logs. The default command passes pytest's exit code through `docker run`, allowing CI to determine success or failure. The workflow uploads its result directory after testing, including on test failure.
-
-[CI](../.github/workflows/ci.yml) runs lint and unit tests, then builds the current checkout with Docker caching and runs integration tests against that image. PRs and manual runs do not publish. After a successful push to `main`, [CD](../.github/workflows/cd.yml) publishes the tested image as `sha-<commit>` and `latest`; an older commit is skipped if `main` has advanced. GHCR reuses existing layers during the push.
-
-CI and CD use the same self-hosted Linux/x86_64 runner and Docker daemon. CI keeps the tested image locally and uploads only its metadata for CD. Keep the image until CD finishes. If it is missing or CD runs on another runner, publication fails; rerun main CI to rebuild and test it.
-
-### Shell
-
-From the repository root, open a shell with the current checkout mounted:
-
-```sh
-sudo docker run --rm -it \
-  --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
-  --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
-  -e PYTHONPATH=/workspace \
-  ghcr.io/xiaomi/bsworld:latest bash
-```
-
-For native Linux builds, see the [repository README](../README.md#local-linux). See [Logs and captures](../docs/artifacts.md) for the output layout and [Third-Party Notices](../THIRD_PARTY_NOTICES.md) for component notices.
+Use `bsworld:dev` in place of the published image in the [test commands](#run-tests). For native Linux setup, see the [repository README](../README.md#local-linux).

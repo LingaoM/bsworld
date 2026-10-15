@@ -140,7 +140,7 @@ sudo docker run --rm \
   ghcr.io/xiaomi/bsworld:latest
 ```
 
-These commands run the integration tests packaged in the image and save `pytest.xml`, logs, and captures under `.cache/docker-results` in the current directory. `latest` selects the most recent environment image published from `main` after passing CI tests.
+These commands run the integration tests packaged in the image and save `pytest.xml`, logs, and captures under `.cache/docker-results` in the current directory. Images can be selected by `latest`, full commit ID (`sha-<commit>`), or a published Release tag such as `v1.0.0`. Use the same reference for pulling and running; select the matching commit or Release image when testing older source. Version selection examples are in the [Docker guide](docker/README.md#use-a-published-image).
 
 To test your current checkout, mount the repository root at `/workspace`; firmware uses the compiled artifacts in the image. Mounting instructions, suite selection, unit tests, lint, and image build commands are described in the [Docker guide](docker/README.md).
 

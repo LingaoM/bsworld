@@ -140,7 +140,7 @@ sudo docker run --rm \
   ghcr.io/xiaomi/bsworld:latest
 ```
 
-上述命令运行镜像内置的集成测试，将 `pytest.xml`、日志和抓包文件保存到当前目录的 `.cache/docker-results` 下。`latest` 指向最近从 `main` 发布且通过 CI 测试的环境镜像。
+上述命令运行镜像内置的集成测试，将 `pytest.xml`、日志和抓包文件保存到当前目录的 `.cache/docker-results` 下。镜像支持通过 `latest`、完整 commit ID（`sha-<commit>`）和已发布的 Release tag（例如 `v1.0.0`）选择。拉取和运行时使用相同的镜像地址；测试旧版本源码时，选择对应 commit 或 Release 的镜像。版本选择示例见 [Docker 使用说明](../../docker/README.zh-CN.md#使用已发布镜像)。
 
 测试当前仓库时，将仓库根目录挂载到 `/workspace`，固件使用镜像内的编译产物。挂载方式、测试套件选择、单元测试、静态检查及自行构建镜像的方法见 [Docker 使用说明](../../docker/README.zh-CN.md)。
 
