@@ -72,8 +72,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
+          # Reuse this runner's BuildKit state across workflow runs.
           name: bsworld-ci
           keep-state: true
+          cache-binary: false
 
       - name: Prepare Python tooling in Docker
         timeout-minutes: 30
@@ -86,7 +88,6 @@ jobs:
           load: true
           tags: ${{ env.PYTHON_TOOLING_IMAGE }}
           no-cache: ${{ inputs.rebuild_image || false }}
-          cache-from: type=gha,scope=bsworld-amd64
 
       - name: Read the Git-derived package version in Docker
         timeout-minutes: 5
@@ -118,7 +119,6 @@ jobs:
           build-args: BSWORLD_VERSION=${{ env.BSWORLD_VERSION }}
           # The tooling build already refreshed the shared layers when requested.
           no-cache-filters: ${{ inputs.rebuild_image && 'python-test' || '' }}
-          cache-from: type=gha,scope=bsworld-amd64
 
       - name: Lint in Docker
         timeout-minutes: 10
@@ -156,8 +156,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           # Preserve the Python layers that just passed lint/unit, even on a rebuild.
           no-cache-filters: ${{ inputs.rebuild_image && 'babblesim,zephyr,nuttx,qemu,buildroot,runtime' || '' }}
-          cache-from: type=gha,scope=bsworld-amd64
-          cache-to: type=gha,scope=bsworld-amd64,mode=max,ignore-error=true
 
       - name: Record the candidate image
         id: image

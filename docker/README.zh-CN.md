@@ -159,8 +159,6 @@ runtime 继承 Python 环境，并在自己的阶段显式安装固件和 QEMU �
 
 CI 包含 `ci`（检查名为 `CI result`）、`publish`、`release` 三个 job。`ci` 先在 `python-test` 中运行 lint 和单测，再构建 runtime 并在其中运行集成测试，最后统一上传报告；检查失败时也会保存已经生成的报告。只有 main push 检查成功才发布同一个经过测试的镜像。Release 直接给已经发布的 commit 镜像增加版本标签，不重新编译。main 的各次运行独立保留，避免后来的 push 替换仍在排队的 commit 构建；同一个 PR 的过时检查会被取消。
 
-Buildroot 下载目录使用 BuildKit cache mount，相同构建 UID/GID 的不同配置可以复用下载文件；编译输出目录按当前输入重新生成。CI 使用固定名称的 `bsworld-ci` builder，并通过 `keep-state: true` 在自托管 runner 上保留构建层和下载缓存。本地也应使用同一个 builder 复用缓存。GHA 缓存备份构建层，不会导出 cache mount 的内容。本地 `--no-cache` 会重新执行构建步骤，下载缓存仍可复用。CI 的 `rebuild_image` 输入按阶段依次刷新，组装 runtime 时保留刚通过测试的 Python 层，执行完整重建验证但不发布镜像。
-
 构建完成后，使用本地镜像运行测试：
 
 ```sh
