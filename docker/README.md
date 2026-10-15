@@ -163,8 +163,6 @@ The runtime stage inherits the Python environment and explicitly installs the sh
 
 CI has three jobs: `ci` (shown as `CI result`), `publish`, and `release`. The CI job runs lint and unit tests in `python-test` before building runtime, then runs integration tests in runtime and uploads one combined report artifact, including available reports when a check fails. Only a successful main push publishes that exact tested image. Releases add a release tag to an already published commit image without rebuilding it. Main runs are kept separately so newer pushes do not replace pending commit builds; obsolete checks for the same PR are canceled.
 
-Buildroot downloads use a BuildKit cache mount shared across configurations for the same build UID/GID; its output directory is built from the current inputs. CI uses the fixed `bsworld-ci` builder with `keep-state: true` to retain both build layers and downloads on the self-hosted runner. Keep using the same builder locally to reuse its caches. The GHA cache backs up build layers but does not export cache mount contents. Local `--no-cache` reruns build steps while the download cache can still be reused. CI's `rebuild_image` input refreshes the stages in order, preserving the newly tested Python layers when assembling runtime; this validates a rebuild without publishing.
-
 Run the locally built image. Restore ownership of the output directory if it was previously prepared for the published image's UID/GID 1000:
 
 ```sh
