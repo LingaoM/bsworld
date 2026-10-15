@@ -27,6 +27,8 @@ OUT_DIR=/path/to/artifacts pytest tests/
 
 在 GitHub Actions 中，打开 **Actions → CI → 对应运行记录** 查看步骤输出和 JUnit 摘要。下载 `bsworld-results-<run-id>-<attempt>` 附件，可获得已生成的 `unit.xml`、`integration.xml`、终端日志，以及 `unit/`、`integration/` 下的测试产物。如果已选择镜像，附件还包含镜像标签和信息。失败时也会上传报告与日志，保留 14 天。
 
+主线 push 的 CI 成功后，还会保存 `bsworld-image-<run-id>-<attempt>` 附件，保留 7 天。这个小型附件包含测试过的镜像 ID、本地标签、源码提交、CI 运行和 runner 信息，镜像保留在同一台 self-hosted runner 的 Docker daemon 中。独立的 **CD** workflow 读取元数据，在该提交仍为当前 `main` 时，将同一个镜像发布到 GHCR，标签为 `sha-<commit>` 和 `latest`。打开 **Actions → CD → 对应运行记录** 查看发布或跳过结果。PR 和手动 CI 运行都会构建并测试当前检出的代码，但不发布镜像。
+
 ## 目录结构
 
 下面是一项 NuttX 扫描测试的典型目录：

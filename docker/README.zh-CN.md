@@ -37,7 +37,7 @@ sudo docker run --rm \
   ghcr.io/xiaomi/bsworld:latest
 ```
 
-`latest` 指向最近从 `main` 发布且通过测试的环境。需要使用指定环境时，将它替换为对应 CI 运行摘要中的 `env-<hash>` 标签。
+`latest` 指向最近从 `main` 发布且通过测试的镜像。需要使用指定提交时，将它替换为对应 CD 运行摘要中的 `sha-<commit>` 标签。
 
 镜像已包含 Python、BSWorld、测试用例和编译好的固件。默认命令为 `pytest tests/integration -n 2 --out-dir /output --junitxml=/output/pytest.xml`。
 
@@ -135,6 +135,10 @@ sudo docker run --rm \
 上述命令把 `/output` 挂载到本机 `.cache/docker-results`。目录需要允许镜像内的 `bsworld` 用户写入；本地构建命令通过 UID/GID 参数保持一致，已发布镜像的示例则为 UID/GID 1000 准备目录权限。CI workflow 会自动准备其结果目录权限。
 
 pytest 的终端输出直接显示在 Docker 调用方的终端或 CI 步骤日志中。默认命令将 pytest 的退出码传递给 `docker run`，CI 据此判定测试成功或失败。workflow 在测试结束后上传结果目录，测试失败时也保留报告与日志。
+
+[CI](../.github/workflows/ci.yml) 先运行静态检查和单元测试，再使用 Docker 缓存构建当前提交，并使用该镜像运行集成测试。PR 和手动运行不发布镜像。推送到 `main` 的 CI 成功后，[CD](../.github/workflows/cd.yml) 将测试过的镜像发布为 `sha-<commit>` 和 `latest`；如果主线已更新，则跳过旧提交的发布。推送时 GHCR 会复用已有层。
+
+CI 和 CD 使用同一台 self-hosted Linux/x86_64 runner 及其 Docker daemon。CI 在本机保留测试过的镜像，只上传供 CD 使用的元数据。在 CD 完成前保留该镜像；如果镜像已被删除或 CD 被分配到其他 runner，发布会失败，需要重新运行主线 CI 来构建和测试。
 
 ### 容器终端
 
