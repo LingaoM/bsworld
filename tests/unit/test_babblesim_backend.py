@@ -434,7 +434,7 @@ def test_finish_skips_ellisys_conversion_when_disabled(tmp_path) -> None:
 def test_convert_ellisys_writes_trace_under_babblesim_log_dir(tmp_path, monkeypatch, image_script) -> None:
     env = _env(tmp_path)
     converter = (
-        env.babblesim_root
+        env.babblesim_components_dir
         / "ext_2G4_phy_v1"
         / "dump_post_process"
         / "convert_results_to_ellisysv2.sh"

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Xiaomi Corporation -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Validated BabbleSim revisions. Refresh with repo manifest -r after testing. -->
+<manifest>
+  <remote name="babblesim" fetch="https://github.com/BabbleSim"/>
+  <default remote="babblesim" sync-j="8"/>
+  <project name="base.git" path="components" revision="fd65faae944f7ea082163b3c663067d978d7d1b9">
+    <linkfile src="common/Makefile" dest="Makefile"/>
+  </project>
+  <project name="ext_2G4_channel_NtNcable.git" path="components/ext_2G4_channel_NtNcable" revision="20a38c997f507b0aa53817aab3d73a462fff7af1"/>
+  <project name="ext_2G4_channel_multiatt.git" path="components/ext_2G4_channel_multiatt" revision="bde72a57384dde7a4310bcf3843469401be93074"/>
+  <project name="ext_2G4_device_WLAN_actmod.git" path="components/ext_2G4_device_WLAN_actmod" revision="9cb6d8e72695f6b785e57443f0629a18069d6ce4"/>
+  <project name="ext_2G4_device_burst_interferer.git" path="components/ext_2G4_device_burst_interferer" revision="5b5339351d6e6a2368c686c734dc8b2fc65698fc"/>
+  <project name="ext_2G4_device_playback.git" path="components/ext_2G4_device_playback" revision="abb48cd71ddd4e2a9022f4bf49b2712524c483e8"/>
+  <project name="ext_2G4_device_playbackv2.git" path="components/ext_2G4_device_playbackv2" revision="0a3c28ecd59b5ee08ed4668446c243d3ffd98b46"/>
+  <project name="ext_2G4_libPhyComv1.git" path="components/ext_2G4_libPhyComv1" revision="15ae0f87fa049e04cbec48a866f3bc37d903f950"/>
+  <project name="ext_2G4_modem_BLE_simple.git" path="components/ext_2G4_modem_BLE_simple" revision="4d2379de510684cd4b1c3bbbb09bce7b5a20bc1f"/>
+  <project name="ext_2G4_modem_magic.git" path="components/ext_2G4_modem_magic" revision="edfcda2d3937a74be0a59d6cd47e0f50183453da"/>
+  <project name="ext_2G4_phy_v1.git" path="components/ext_2G4_phy_v1" revision="62e797b2c518e5bb6123a198382ed2b64b8c068e"/>
+</manifest>

@@ -9,12 +9,12 @@
 - 项目：BabbleSim
 - 源码：https://github.com/BabbleSim
 - 网站：https://babblesim.github.io/
-- 仓库内位置：`components/babblesim/` 下的 Git submodule
+- 源码工作区：`.cache/babblesim/components/`，通过 repo 按 `components/babblesim.xml` 获取
 - 许可证：Apache License 2.0；个别 BabbleSim 组件另有声明时，以组件自己的许可证为准
 
-BSWorld 通过 Git submodule 引用 BabbleSim 官方仓库，不会修改 `components/babblesim/` 中检出的上游源码。
+BSWorld 使用 repo 获取 BabbleSim 官方仓库，已验证的版本记录在 `components/babblesim.xml` 中。下载的源码保存在不纳入版本管理的工作区中，本仓库不修改上游源码。
 
-每个 BabbleSim 组件都在自己的 `docs/` 目录中保留许可证文件。打包或分发由这些 submodule 构建的产物时，需要同时检查相应许可证文件和本文档。
+每个 BabbleSim 组件都在自己的 `docs/` 目录中保留许可证文件。打包或分发 BabbleSim 构建产物时，需要同时检查相应许可证文件和本文档。
 
 ## Apache NuttX
 

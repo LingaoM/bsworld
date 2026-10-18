@@ -39,14 +39,9 @@ _OUTPUTS = (
 
 def _manual_setup_hint(env: Env) -> str:
     return (
-        "Run the manual BabbleSim setup steps before pytest:\n"
-        "    git submodule update --init --recursive components/babblesim\n"
-        f"    export BSIM_OUT_PATH={env.bsim_dir}\n"
-        f"    export BSIM_COMPONENTS_PATH={env.babblesim_components_dir}\n"
-        "    export BSIM_BASE_PATH=$BSIM_COMPONENTS_PATH\n"
-        "    export BSIM_BUILD_FAIL_ASAP=1\n"
-        "    make -C components/babblesim everything\n"
-        "    export BSWORLD_BSIM_DIR=\"$BSIM_OUT_PATH\"\n"
+        "Follow the repo-based BabbleSim setup in README.md#build-and-test, "
+        "then set BSWORLD_BSIM_DIR to the build output directory "
+        f"containing bin/ and lib/ (currently {env.bsim_dir}).\n"
     )
 
 

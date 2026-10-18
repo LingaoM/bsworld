@@ -95,6 +95,8 @@ sudo docker run --rm \
 
 ## Build
 
+BabbleSim is fetched with repo using the shared [babblesim.xml](../components/babblesim.xml) version snapshot. Docker prepares its source workspace during the build.
+
 Clone the repository with its tags and history, then run the remaining commands from its root:
 
 ```sh
