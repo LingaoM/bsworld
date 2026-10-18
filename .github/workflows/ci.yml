@@ -78,9 +78,9 @@ jobs:
           cache-binary: false
           buildkitd-config-inline: |
             [worker.oci]
-              reservedSpace = "10%"
-              maxUsedSpace = "80%"
-              minFreeSpace = 36000000000 # 36 GB
+              reservedSpace = 24000000000 # 24 GB
+              maxUsedSpace = 36000000000 # 36 GB
+              minFreeSpace = 24000000000 # 24 GB
 
       - name: Prepare Python tooling in Docker
         timeout-minutes: 30
