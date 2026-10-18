@@ -1,0 +1,95 @@
+# Copyright 2026 Xiaomi Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: BSController
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+    working-directory: components/bscontroller
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  PIP_NO_CACHE_DIR: '1'
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+
+jobs:
+  test:
+    name: BSController result
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the commit under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Install BSController and test dependencies
+        run: python -m pip install -e '.[test]'
+
+      - name: Lint BSController
+        run: python -m ruff check --no-cache src tests examples
+
+      - name: Run unit tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/bscontroller-results"
+          python -m pytest tests/bscontroller_tests/unit -q \
+            -p pytest_asyncio.plugin -p no:cacheprovider \
+            --junitxml="$RUNNER_TEMP/bscontroller-results/unit.xml"
+
+      - name: Install BabbleSim build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            repo build-essential gcc-multilib g++-multilib gawk
+
+      - name: Fetch and build BabbleSim
+        env:
+          BSIM_OUT_PATH: ${{ runner.temp }}/bscontroller-babblesim/build
+          BSIM_COMPONENTS_PATH: ${{ runner.temp }}/bscontroller-babblesim/components
+          BSIM_BASE_PATH: ${{ runner.temp }}/bscontroller-babblesim/components
+          BSIM_BUILD_FAIL_ASAP: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/bscontroller-babblesim"
+          cd "$RUNNER_TEMP/bscontroller-babblesim"
+          repo init --standalone-manifest --depth=1 \
+            -u "file://$GITHUB_WORKSPACE/components/babblesim.xml"
+          repo sync -c --no-tags
+          make -j2 ext_2G4_phy_v1 ext_2G4_modem_BLE_simple ext_2G4_channel_multiatt
+          test -x "$BSIM_OUT_PATH/bin/bs_2G4_phy_v1"
+
+      - name: Run HCI and Link Layer protocol tests
+        env:
+          BSCONTROLLER_BSIM_DIR: ${{ runner.temp }}/bscontroller-babblesim/build
+        run: |
+          python -m pytest tests/bscontroller_tests/qualification -q -rs \
+            -p pytest_asyncio.plugin -p no:cacheprovider \
+            --basetemp="$RUNNER_TEMP/bscontroller-results/qualification" \
+            --junitxml="$RUNNER_TEMP/bscontroller-results/qualification.xml"
+
+      - name: Run the H4 advertising and scanning example
+        run: |
+          python examples/advertise_scan.py \
+            --bsim-dir "$RUNNER_TEMP/bscontroller-babblesim/build"
+
+      - name: Upload test reports and protocol logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bscontroller-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bscontroller-results
+          if-no-files-found: warn
+          retention-days: 14
