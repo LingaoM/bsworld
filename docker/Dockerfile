@@ -67,25 +67,13 @@ USER root
 # binutils supplies ar/nm; the Makefiles also use standard file and text utilities.
 # GNU awk is needed for the default Ellisys trace conversion after simulation.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    binutils make gcc g++ gcc-multilib g++-multilib \
+    repo binutils make gcc g++ gcc-multilib g++-multilib \
     coreutils findutils grep sed gawk \
     && rm -rf /var/lib/apt/lists/*
 
 USER bsworld
 
-# These revisions match the BabbleSim submodules in the BSWorld checkout.
-# Fetch them in Docker so building the image also works before local submodule setup.
-ARG BABBLESIM_REVISIONS="base:fd65faae944f7ea082163b3c663067d978d7d1b9 \
-    ext_2G4_channel_NtNcable:20a38c997f507b0aa53817aab3d73a462fff7af1 \
-    ext_2G4_channel_multiatt:bde72a57384dde7a4310bcf3843469401be93074 \
-    ext_2G4_device_WLAN_actmod:9cb6d8e72695f6b785e57443f0629a18069d6ce4 \
-    ext_2G4_device_burst_interferer:5b5339351d6e6a2368c686c734dc8b2fc65698fc \
-    ext_2G4_device_playback:abb48cd71ddd4e2a9022f4bf49b2712524c483e8 \
-    ext_2G4_device_playbackv2:0a3c28ecd59b5ee08ed4668446c243d3ffd98b46 \
-    ext_2G4_libPhyComv1:15ae0f87fa049e04cbec48a866f3bc37d903f950 \
-    ext_2G4_modem_BLE_simple:4d2379de510684cd4b1c3bbbb09bce7b5a20bc1f \
-    ext_2G4_modem_magic:edfcda2d3937a74be0a59d6cd47e0f50183453da \
-    ext_2G4_phy_v1:62e797b2c518e5bb6123a198382ed2b64b8c068e"
+# Local and Docker builds use the same repo snapshot and upstream folder layout.
 ENV BSIM_OUT_PATH=/opt/babblesim/build \
     BSIM_COMPONENTS_PATH=/opt/babblesim/components \
     BSIM_BASE_PATH=/opt/babblesim/components \
@@ -93,25 +81,10 @@ ENV BSIM_OUT_PATH=/opt/babblesim/build \
 USER root
 RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/babblesim
 USER bsworld
-RUN mkdir -p "$BSIM_COMPONENTS_PATH" \
-    && for entry in $BABBLESIM_REVISIONS; do \
-        component="${entry%%:*}"; revision="${entry#*:}"; \
-        source_dir="/opt/babblesim/$component"; \
-        git init "$source_dir" \
-        && git -C "$source_dir" remote add origin "https://github.com/BabbleSim/$component.git" \
-        && git -C "$source_dir" fetch --progress --depth=1 origin "$revision" \
-        && git -C "$source_dir" checkout --detach FETCH_HEAD \
-        && git -C "$source_dir" submodule update --init --recursive \
-        && test "$(git -C "$source_dir" rev-parse HEAD)" = "$revision" || exit 1; \
-        if [ "$component" != base ]; then \
-            ln -s "../$component" "$BSIM_COMPONENTS_PATH/$component" || exit 1; \
-        fi; \
-    done \
-    && for component in common libPhyComv1 libRandv2 libUtilv1 \
-        device_empty device_handbrake device_pause_simu device_time_monitor; do \
-        ln -s "../base/$component" "$BSIM_COMPONENTS_PATH/$component" || exit 1; \
-    done \
-    && ln -s components/common/Makefile /opt/babblesim/Makefile
+COPY --chown=$BUILD_UID:$BUILD_GID components/babblesim.xml /opt/bsworld-build/babblesim.xml
+RUN cd /opt/babblesim \
+    && repo init --standalone-manifest --depth=1 -u file:///opt/bsworld-build/babblesim.xml \
+    && repo sync -c --no-tags
 # The bin directory also contains .Tsymbols text maps; strip only executables.
 RUN make -C /opt/babblesim everything \
     && find "$BSIM_OUT_PATH/bin" -maxdepth 1 -type f -executable \
@@ -384,7 +357,7 @@ COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/Image /opt/firm
 COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/rootfs.cpio /opt/firmware/qemu/rootfs.cpio
 
 ENV BSWORLD_BSIM_DIR=/opt/babblesim/build \
-    BSWORLD_BSIM_ELLISYS_SCRIPT=/opt/babblesim/ext_2G4_phy_v1/dump_post_process/convert_results_to_ellisysv2.sh \
+    BSWORLD_BSIM_ELLISYS_SCRIPT=/opt/babblesim/components/ext_2G4_phy_v1/dump_post_process/convert_results_to_ellisysv2.sh \
     BSWORLD_BT_VIRT_CONTROLLER_BIN=/opt/firmware/bt_virt_controller \
     BSWORLD_ZEPHYR_BROADCASTER_BIN=/opt/firmware/zephyr/broadcaster \
     BSWORLD_ZEPHYR_OBSERVER_BIN=/opt/firmware/zephyr/observer \

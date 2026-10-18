@@ -299,7 +299,7 @@ class BabbleSimBackend:
         if self.env.bsim_dir is None:
             return
         converter = self.env.bsim_ellisys_script or (
-            self.env.babblesim_root
+            self.env.babblesim_components_dir
             / "ext_2G4_phy_v1"
             / "dump_post_process"
             / "convert_results_to_ellisysv2.sh"

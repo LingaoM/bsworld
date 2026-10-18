@@ -8,6 +8,7 @@
 !tests/
 !tests/**
 !components/
+!components/babblesim.xml
 !components/bt_virt_controller/
 !components/bt_virt_controller/**
 **/.git

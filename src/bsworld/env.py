@@ -53,7 +53,7 @@ class Env:
     out_dir: Path
     log_dir: Path
 
-    # BabbleSim source submodules and default component workspace
+    # Default repo-managed BabbleSim source workspace
     babblesim_root: Path
 
     # Native artifacts are selected explicitly before pytest starts.
@@ -93,7 +93,7 @@ class Env:
             run_uid=uid,
             out_dir=out_dir,
             log_dir=log_dir,
-            babblesim_root=_REPO_ROOT / "components" / "babblesim",
+            babblesim_root=_REPO_ROOT / ".cache" / "babblesim",
             hci_virt_bin=env_path("BSWORLD_BT_VIRT_CONTROLLER_BIN"),
             bsim_dir=bsim_dir,
             bsim_bin_dir=bsim_dir / "bin" if bsim_dir else None,

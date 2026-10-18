@@ -26,9 +26,9 @@ def test_detect_uses_explicit_artifact_paths(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("BSWORLD_BT_VIRT_CONTROLLER_BIN", str(controller))
     env = Env.detect(out_tag="/tmp/out", now_tag="run-fixed", run_uid="uid")
 
-    assert env.babblesim_root == Path(__file__).parents[2] / "components" / "babblesim"
+    assert env.babblesim_root == Path(__file__).parents[2] / ".cache" / "babblesim"
     assert env.babblesim_components_dir == (
-        Path(__file__).parents[2] / "components" / "babblesim" / "components"
+        Path(__file__).parents[2] / ".cache" / "babblesim" / "components"
     )
     assert env.hci_virt_bin == controller
     assert env.bsim_dir == bsim_dir

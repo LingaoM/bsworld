@@ -9,12 +9,12 @@ Third-party components prepare the Docker build environment and test programs. N
 - Project: BabbleSim
 - Source: https://github.com/BabbleSim
 - Website: https://babblesim.github.io/
-- Repository copies: git submodules under `components/babblesim/`
+- Source workspace: `.cache/babblesim/components/`, fetched with repo using `components/babblesim.xml`
 - License: Apache License 2.0 unless otherwise stated by an individual BabbleSim component.
 
-BSWorld references official BabbleSim repositories as git submodules. The BabbleSim source checked out under `components/babblesim/` is not patched by this repository.
+BSWorld uses repo to fetch official BabbleSim repositories at the validated revisions recorded in `components/babblesim.xml`. Downloaded sources stay in an untracked workspace and are not patched by this repository.
 
-Each BabbleSim component keeps its own license file under that component's `docs/` directory. Review those files together with this notice when packaging or redistributing artifacts built from the submodules.
+Each BabbleSim component keeps its own license file under that component's `docs/` directory. Review those files together with this notice when packaging or redistributing BabbleSim build artifacts.
 
 ## Apache NuttX
 

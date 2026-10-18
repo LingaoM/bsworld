@@ -89,6 +89,8 @@ sudo docker run --rm \
 
 需要修改固件、编译配置或镜像依赖时，使用 Dockerfile 自行构建。首次构建会下载依赖并编译固件，后续构建会复用未受修改影响的 Docker 缓存。
 
+BabbleSim 通过 repo 按共用的 [babblesim.xml](../components/babblesim.xml) 版本快照下载，Docker 会在构建时准备源码工作区。
+
 先获取包含 tag 和提交历史的仓库。已有本地仓库时，直接进入仓库根目录：
 
 ```sh

@@ -151,7 +151,7 @@ sudo docker run --rm \
 ```sh
 sudo apt-get update
 sudo apt-get install -y \
-  bash ca-certificates curl git file make binutils build-essential \
+  bash ca-certificates curl git repo file make binutils build-essential \
   python3.12 python3.12-dev python3.12-venv python3-pip \
   gcc-multilib g++-multilib coreutils findutils grep sed gawk
 ```
@@ -181,17 +181,21 @@ pytest tests/unit -q
 
 #### 构建与测试
 
-先使用 BabbleSim 自带的 Makefile 构建：
+先通过 [repo](https://babblesim.github.io/fetching.html) 获取 BabbleSim 官方源码，再使用其自带的 Makefile 构建。本地和 Docker 共用 [components/babblesim.xml](../../components/babblesim.xml) 中已验证的版本，下载的工作区位于 `.cache/` 下。
 
 ```sh
-cd "$BSWORLD_ROOT"
-git submodule update --init --recursive components/babblesim
-export BSIM_OUT_PATH="$BSWORLD_ROOT/components/babblesim/build"
-export BSIM_COMPONENTS_PATH="$BSWORLD_ROOT/components/babblesim/components"
+mkdir -p "$BSWORLD_ROOT/.cache/babblesim"
+cd "$BSWORLD_ROOT/.cache/babblesim"
+repo init --standalone-manifest --depth=1 -u "file://$BSWORLD_ROOT/components/babblesim.xml"
+repo sync -c --no-tags
+export BSIM_OUT_PATH="$PWD/build"
+export BSIM_COMPONENTS_PATH="$PWD/components"
 export BSIM_BASE_PATH="$BSIM_COMPONENTS_PATH"
 export BSIM_BUILD_FAIL_ASAP=1
-make -C "$BSWORLD_ROOT/components/babblesim" everything
+make -j"$(nproc)" everything
 export BSWORLD_BSIM_DIR="$BSIM_OUT_PATH"
+export BSWORLD_BSIM_ELLISYS_SCRIPT="$BSIM_COMPONENTS_PATH/ext_2G4_phy_v1/dump_post_process/convert_results_to_ellisysv2.sh"
+cd "$BSWORLD_ROOT"
 ```
 
 然后按各目录 README 的命令配置和编译 [Controller](../../components/bt_virt_controller/README.zh-CN.md)、[Zephyr 示例](../../tests/integration/zephyr/samples/README.zh-CN.md)、[NuttX](../../tests/integration/nuttx/README.zh-CN.md)及 [QEMU / Buildroot](../../tests/integration/qemu/README.zh-CN.md)。
