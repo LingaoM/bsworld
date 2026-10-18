@@ -1,0 +1,14 @@
+BSController
+Copyright 2026 Xiaomi Corporation
+
+Protocol codecs and supporting utilities include code:
+Copyright 2021-2025 Google LLC
+
+The source files retain their individual copyright and license notices.
+The package namespace and runtime entry points have been adapted for this
+independent distribution. The LE radio execution path retains adapted HCI codecs and supporting
+utilities; the former LocalLink, BR/EDR/LMP, and pairing execution paths
+have been removed.
+
+The terminal color utility carries the ISC permission notice reproduced in
+LICENSE and src/bscontroller/colors.py.
