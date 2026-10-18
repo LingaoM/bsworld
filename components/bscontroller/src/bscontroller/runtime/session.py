@@ -1,0 +1,98 @@
+# Copyright 2026 Xiaomi Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Simulation session and optional caller clock ownership."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import TYPE_CHECKING
+
+from bscontroller.radio.babblesim import (
+    BSIM_IO_TIMEOUT_SECONDS,
+    NEVER,
+    PhyConnection,
+    simulation_directory,
+)
+
+if TYPE_CHECKING:
+    from bscontroller.runtime.worker import RadioControllerWorker
+
+
+class BabbleSimClock:
+    """The Host's blocking time endpoint, independent of Controller threads."""
+
+    def __init__(self, connection: PhyConnection, step_timeout: float = BSIM_IO_TIMEOUT_SECONDS):
+        self.connection = connection
+        self.now_us = 0
+        self.step_timeout = step_timeout
+        self.workers: list[RadioControllerWorker] = []
+
+    def advance_to_us(self, target_us: int) -> int:
+        for worker in self.workers:
+            worker.check()
+        if not self.now_us <= target_us < NEVER:
+            raise ValueError('clock target must be a finite, nondecreasing uint64 time')
+        self.connection.wait_sync(target_us, self.step_timeout)
+        self.now_us = target_us
+        return target_us
+
+
+class BabbleSimSession:
+    """Own radio worker threads and optionally bind a standalone Host clock."""
+
+    def __init__(
+        self,
+        sim_id: str,
+        controllers: list[tuple[int, RadioControllerWorker]],
+        *,
+        clock_dev_id: int | None = None,
+    ):
+        ids = [dev_id for dev_id, _ in controllers]
+        if not ids:
+            raise ValueError('a session requires at least one Controller')
+        all_ids = ids + ([clock_dev_id] if clock_dev_id is not None else [])
+        if len(set(all_ids)) != len(all_ids):
+            raise ValueError('Controller and clock device ids must be distinct')
+        self.sim_id = sim_id
+        self.controllers = list(controllers)
+        self.clock = (
+            BabbleSimClock(PhyConnection(simulation_directory(sim_id), clock_dev_id))
+            if clock_dev_id is not None
+            else None
+        )
+        if self.clock is not None:
+            self.clock.workers = [worker for _, worker in controllers]
+        self.loop = None
+
+    async def __aenter__(self):
+        loop = asyncio.get_running_loop()
+        try:
+            for dev_id, worker in self.controllers:
+                await worker.start(self.sim_id, dev_id)
+            if self.clock is not None:
+                await self.clock.connection.connect()
+                self.clock.advance_to_us(0)
+                loop.bind_clock(self.clock)
+                self.loop = loop
+            return self
+        except BaseException as error:
+            await self.__aexit__(type(error), error, error.__traceback__)
+            raise
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        if self.loop is not None:
+            self.loop.unbind_clock()
+            self.loop = None
+        try:
+            results = await asyncio.gather(
+                *(worker.close() for _, worker in self.controllers),
+                return_exceptions=True,
+            )
+        finally:
+            # Keep the Host's PHY grant until every radio has stopped submitting work.
+            if self.clock is not None:
+                self.clock.connection.close()
+        for result in results:
+            if isinstance(result, Exception):
+                raise result
