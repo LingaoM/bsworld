@@ -73,7 +73,7 @@ OUT_DIR=/path/to/artifacts pytest tests/
 | `bt_virt_controller/*.log` | 虚拟 Controller | Controller 启动信息、断言和内部诊断。 |
 | `<业务程序>/<名称>.log` | 业务程序 | 业务程序合并后的标准输出和标准错误，也是 `wait_log()` 的数据来源。 |
 | `<业务程序>/hciN.snoop` | 虚拟 Controller 的 BTSnoop socket | Host 与对应虚拟 Controller 之间的 HCI 命令、事件和 ACL 数据。 |
-| `babblesim/ellisys.bttrp` | BabbleSim 转换工具 | 同一个 PHY 中所有虚拟设备的 Bluetooth LE 空口交互。 |
+| `babblesim/ellisys.bttrp` | BSWorld Python 转换工具 | 同一个 PHY 中所有虚拟设备的 Bluetooth LE 空口交互。 |
 | `babblesim/att_matrix.txt` | BSWorld | 本测试实际传给 `multiatt` 信道模型的静态路径衰减矩阵。 |
 | `babblesim/timed_att_*.txt` | BSWorld | 时变路径的时间点和衰减值。 |
 
@@ -135,7 +135,7 @@ pytest tests/ --no-hci-dump
 
 ## Ellisys 空口跟踪文件
 
-启用 Ellisys 输出时，BabbleSim PHY 会在运行过程中生成每个 RF 设备的 CSV dump。teardown 阶段，BSWorld 调用 BabbleSim 转换工具，将同一仿真实例中的发送记录合并为 `babblesim/ellisys.bttrp`，然后删除临时 BabbleSim state、socket 和原始 results 目录。
+启用 Ellisys 输出时，BabbleSim PHY 会在运行过程中生成每个 RF 设备的 CSV dump。teardown 阶段，BSWorld 在 Python 进程内转换并合并发送记录，生成 `babblesim/ellisys.bttrp`，然后删除临时 BabbleSim state、socket 和原始 results 目录。
 
 在 [Ellisys](https://www.ellisys.com/products/bex400/) 软件中打开跟踪文件：选择 **File > Import**，选择 **Bluetooth packets**，点击 **Next**，再点击 **Browse** 并选择测试目录中的 `ellisys.bttrp` 文件。
 

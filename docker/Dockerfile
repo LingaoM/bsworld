@@ -65,10 +65,9 @@ USER root
 
 # Install multilib support before BabbleSim builds, as required by the README setup.
 # binutils supplies ar/nm; the Makefiles also use standard file and text utilities.
-# GNU awk is needed for the default Ellisys trace conversion after simulation.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     repo binutils make gcc g++ gcc-multilib g++-multilib \
-    coreutils findutils grep sed gawk \
+    coreutils findutils grep sed \
     && rm -rf /var/lib/apt/lists/*
 
 USER bsworld
@@ -331,7 +330,7 @@ FROM python-test AS runtime
 USER root
 # These are the runtime counterparts of the firmware stages' development packages.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    procps gawk \
+    procps \
     libc6-i386 lib32gcc-s1 lib32stdc++6 lib32z1 libstdc++6 \
     libglib2.0-0t64 libpixman-1-0 libfdt1 libffi8 zlib1g libsndio7.0 \
     libsdl2-2.0-0 libx11-6 libpulse0 \
@@ -357,7 +356,6 @@ COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/Image /opt/firm
 COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/rootfs.cpio /opt/firmware/qemu/rootfs.cpio
 
 ENV BSWORLD_BSIM_DIR=/opt/babblesim/build \
-    BSWORLD_BSIM_ELLISYS_SCRIPT=/opt/babblesim/components/ext_2G4_phy_v1/dump_post_process/convert_results_to_ellisysv2.sh \
     BSWORLD_BT_VIRT_CONTROLLER_BIN=/opt/firmware/bt_virt_controller \
     BSWORLD_ZEPHYR_BROADCASTER_BIN=/opt/firmware/zephyr/broadcaster \
     BSWORLD_ZEPHYR_OBSERVER_BIN=/opt/firmware/zephyr/observer \

@@ -66,7 +66,6 @@ class Env:
     bs_state_dir: Path
 
     bsim_ellisys: bool = True
-    bsim_ellisys_script: Path | None = None
 
     @classmethod
     def detect(
@@ -99,7 +98,6 @@ class Env:
             bsim_bin_dir=bsim_dir / "bin" if bsim_dir else None,
             bs_state_dir=Path("/tmp") / f"bs_{user}",
             bsim_ellisys=bsim_ellisys,
-            bsim_ellisys_script=env_path("BSWORLD_BSIM_ELLISYS_SCRIPT"),
         )
 
     def sim_dir(self, sim_id: str) -> Path:

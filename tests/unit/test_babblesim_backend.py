@@ -14,7 +14,6 @@
 #
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -430,38 +429,38 @@ def test_finish_skips_ellisys_conversion_when_disabled(tmp_path) -> None:
     assert calls == ["cleanup"]
 
 
-@pytest.mark.parametrize("image_script", [False, True])
-def test_convert_ellisys_writes_trace_under_babblesim_log_dir(tmp_path, monkeypatch, image_script) -> None:
+def test_convert_ellisys_writes_trace_without_a_subprocess(tmp_path, monkeypatch) -> None:
     env = _env(tmp_path)
-    converter = (
-        env.babblesim_components_dir
-        / "ext_2G4_phy_v1"
-        / "dump_post_process"
-        / "convert_results_to_ellisysv2.sh"
-    )
-    if image_script:
-        converter = tmp_path / "image" / "convert_results_to_ellisysv2.sh"
-        env = replace(env, bsim_ellisys_script=converter)
-    converter.parent.mkdir(parents=True)
-    converter.write_text("#!/bin/sh\n")
     results_dir = env.bsim_dir / "results" / "sim"
     results_dir.mkdir(parents=True)
     tx_file = results_dir / "d_2G4_0.Tx.csv"
-    tx_file.write_text("tx\n")
+    tx_file.write_text(
+        "start_time,end_time,center_freq,phy_address,modulation,power_level,"
+        "abort_time,recheck_time,packet_size,packet\n"
+        "100,139,2.000000,0x8E89BED6,16,0,0,0,5,01 00 00 00 00\n"
+    )
     backend = BabbleSimBackend(env, "sim")
 
-    def fake_run(cmd, *, cwd, stdout):
-        assert cmd == ["bash", str(converter), str(tx_file)]
-        assert cwd == str(converter.parent)
-        stdout.write("trace\n")
+    def unexpected_subprocess(*args, **kwargs):
+        pytest.fail("Ellisys conversion must run in process")
 
-        class Result:
-            returncode = 0
-
-        return Result()
-
-    monkeypatch.setattr(babblesim.subprocess, "run", fake_run)
+    monkeypatch.setattr(babblesim.subprocess, "run", unexpected_subprocess)
 
     backend.convert_ellisys(log_dir=tmp_path / "log")
 
-    assert (tmp_path / "log" / "babblesim" / "ellisys.bttrp").read_text() == "trace\n"
+    assert (tmp_path / "log" / "babblesim" / "ellisys.bttrp").read_text() == (
+        "FileFormat:Bluetooth\n                version=1.0\n\nItemFormat:LE version=1.1\n"
+        'Item time=100000 aa=0x8E89BED6 rssi=-40 rfchannel=0 phy=1Mbps rawdata="01 00 00 00 00"\n'
+    )
+
+
+def test_convert_ellisys_warns_when_dumps_are_missing(tmp_path, monkeypatch) -> None:
+    env = _env(tmp_path)
+    warnings = []
+    monkeypatch.setattr(babblesim, "warn", warnings.append)
+
+    BabbleSimBackend(env, "sim").convert_ellisys()
+
+    assert len(warnings) == 1
+    assert "no BabbleSim Tx CSV dumps" in warnings[0]
+    assert not (env.log_dir / "babblesim" / "ellisys.bttrp").exists()

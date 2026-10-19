@@ -73,7 +73,7 @@ A typical NuttX scanning test produces this layout:
 | `bt_virt_controller/*.log` | Virtual Controller | Controller startup output, assertions, and internal diagnostics. |
 | `<Application>/<name>.log` | Application | Combined Application stdout and stderr, also used as the source for `wait_log()`. |
 | `<Application>/hciN.snoop` | Virtual Controller BTSnoop socket | HCI commands, events, and ACL data between the Host and its Virtual Controller. |
-| `babblesim/ellisys.bttrp` | BabbleSim conversion tool | Bluetooth LE over-the-air activity for every virtual device on the shared PHY. |
+| `babblesim/ellisys.bttrp` | BSWorld Python converter | Bluetooth LE over-the-air activity for every virtual device on the shared PHY. |
 | `babblesim/att_matrix.txt` | BSWorld | Static path-attenuation matrix passed to the `multiatt` channel model. |
 | `babblesim/timed_att_*.txt` | BSWorld | Time points and attenuation values for time-varying paths. |
 
@@ -135,7 +135,7 @@ pytest tests/ --no-hci-dump
 
 ## Ellisys Over-the-Air Trace
 
-When Ellisys output is enabled, the BabbleSim PHY writes per-device CSV dumps during the test. During teardown, BSWorld runs the BabbleSim converter, merges transmission records from the simulation into `babblesim/ellisys.bttrp`, and then removes temporary BabbleSim state, sockets, and the raw results directory.
+When Ellisys output is enabled, the BabbleSim PHY writes per-device CSV dumps during the test. During teardown, BSWorld converts and merges transmission records in Python into `babblesim/ellisys.bttrp`, then removes temporary BabbleSim state, sockets, and the raw results directory.
 
 To open the trace in [Ellisys](https://www.ellisys.com/products/bex400/) software, select **File > Import**, choose **Bluetooth packets**, click **Next**, click **Browse**, and select the test's `ellisys.bttrp` file.
 

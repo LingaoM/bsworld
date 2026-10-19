@@ -35,17 +35,14 @@ def test_detect_uses_explicit_artifact_paths(monkeypatch, tmp_path) -> None:
     assert env.bsim_bin_dir == bsim_dir / "bin"
 
 
-def test_detect_selects_image_runtime_and_trace_script(monkeypatch, tmp_path) -> None:
+def test_detect_selects_image_runtime(monkeypatch, tmp_path) -> None:
     output = tmp_path / "image" / "babblesim"
-    converter = tmp_path / "image" / "convert_results_to_ellisysv2.sh"
-    monkeypatch.setenv("BSWORLD_BSIM_ELLISYS_SCRIPT", str(converter))
     monkeypatch.setenv("BSWORLD_BSIM_DIR", str(output))
 
     env = Env.detect()
 
     assert env.bsim_dir == output
     assert env.bsim_bin_dir == output / "bin"
-    assert env.bsim_ellisys_script == converter
 
 
 def test_detect_does_not_guess_missing_artifacts(monkeypatch) -> None:
