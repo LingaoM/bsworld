@@ -30,14 +30,15 @@ Bring-up shape:
 """
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..compile import bsim as bsim_build
-from ..compile import hci_virt as hci_virt_build
 from ..devices.controller import Controller
+from ..devices.zephyr import ZephyrController
 from ..env import Env
 from ..interference import (
     BurstInterference,
@@ -51,7 +52,7 @@ from ..interference import (
 from ..log import log, warn
 from ..runtime.proc import ProcessManager
 from ..runtime.scheduler import BsimClock
-from ..runtime.wait import wait_for_path, wait_for_paths
+from ..runtime.wait import wait_for_path, wait_for_paths, wait_for_paths_async
 from .ellisys import convert_tx_csv
 
 _RESIDUAL_PATTERNS = (
@@ -75,17 +76,23 @@ class BabbleSimBackend:
     _started: bool = False
     clock: BsimClock | None = None
 
-    def add_controller(self, *, public_address: str | None = None) -> Controller:
+    def add_controller(
+        self,
+        *,
+        controller_type: type[Controller] = ZephyrController,
+        public_address: str | None = None,
+        **options,
+    ) -> Controller:
         if self._started:
             raise RuntimeError("cannot add a Controller after BabbleSim has started")
         dev_id = len(self.controllers)
-        ctl = Controller(
+        ctl = controller_type(
             controller_dev_id=dev_id,
             sim_id=self.sim_id,
             phy_id=_PHY_ID,
             socket_dir=self.env.sim_dir(self.sim_id),
-            application_dev_id=None,
             public_address=public_address,
+            **options,
         )
         self.controllers.append(ctl)
         self._assign_application_dev_ids()
@@ -117,7 +124,6 @@ class BabbleSimBackend:
 
     def check_deps_ready(self) -> None:
         bsim_build.check_ready(self.env)
-        hci_virt_build.check_ready(self.env)
 
     def interference_dev_id(self, index: int) -> int:
         return len(self.controllers) + self._application_device_count() + 1 + index
@@ -144,7 +150,7 @@ class BabbleSimBackend:
                 log(f"removing stale {ctl.hci_sock}")
                 ctl.hci_sock.unlink()
 
-    def start(self, pm: ProcessManager, *, log_dir: Path | None = None, ready_timeout: float = 30.0) -> None:
+    async def start(self, pm: ProcessManager, *, log_dir: Path | None = None, ready_timeout: float = 30.0) -> None:
         log_dir = log_dir or self.env.log_dir
         bsim_log_dir = log_dir / "babblesim"
         if self._started:
@@ -156,7 +162,7 @@ class BabbleSimBackend:
         self.prepare()
 
         # dev_id layout:
-        #   [0 .. C-1]        bt_virt_controller processes
+        #   [0 .. C-1]        Controller processes or Python worker threads
         #   [C .. C+A-1]      Application processes that join BabbleSim directly
         #   [C+A]             Python test-framework clock device
         #   [C+A+1 ..]        interference devices
@@ -208,28 +214,8 @@ class BabbleSimBackend:
             phy_alive=phy_process.alive,
         )
 
-        virt_controller_log_dir = log_dir / "bt_virt_controller"
-        controller_bin = hci_virt_build.controller_bin(self.env)
         for ctl in self.controllers:
-            ctl.hci_snoop_file = (
-                ctl.hci_snoop_file or virt_controller_log_dir / f"hci{ctl.controller_dev_id}.snoop"
-            ).resolve()
-            ctl.hci_snoop_file.parent.mkdir(parents=True, exist_ok=True)
-            controller_argv = [
-                controller_bin,
-                f"-s={self.sim_id}",
-                f"-d={ctl.controller_dev_id}",
-                f"-hci-socket={ctl.hci_sock}",
-                f"-btsnoop-file={ctl.hci_snoop_file}",
-            ]
-            if ctl.public_address is not None:
-                controller_argv.append(f"-bd-addr={ctl.public_address}")
-            pm.spawn(
-                f"bt_virt_controller_hci{ctl.controller_dev_id}",
-                controller_argv,
-                cwd=controller_bin.parent,
-                log_dir=virt_controller_log_dir,
-            )
+            await ctl.start(pm, self.env, log_dir=log_dir)
 
         for i, src in enumerate(self.interference_sources):
             dev_id = interf_base + i
@@ -241,6 +227,13 @@ class BabbleSimBackend:
                 log_dir=bsim_log_dir,
             )
         self._started = True
+
+    async def stop_controllers(self) -> None:
+        """Release Controller runtimes before terminating the shared PHY."""
+        results = await asyncio.gather(*(ctl.stop() for ctl in self.controllers), return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
     def device_lock_paths(self) -> list[Path]:
         if not self.controllers:
@@ -259,12 +252,12 @@ class BabbleSimBackend:
         wait_for_paths(locks, timeout=timeout)
         log("all devices registered to phy")
 
-    def wait_for_hci_sockets(self, *, timeout: float = 30.0) -> None:
+    async def wait_for_hci_sockets(self, *, timeout: float = 30.0) -> None:
         socks = [ctl.hci_sock for ctl in self.controllers]
         if not socks:
             return
         log(f"waiting for {len(socks)} hci socket(s)")
-        wait_for_paths(socks, timeout=timeout)
+        await wait_for_paths_async(socks, timeout=timeout)
         log("hci socket(s) bound")
 
     def finish(self, *, log_dir: Path | None = None) -> None:

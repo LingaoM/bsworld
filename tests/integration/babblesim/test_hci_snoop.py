@@ -27,7 +27,7 @@ def _receive(sock: socket.socket, length: int) -> bytes:
     return bytes(data)
 
 
-def test_controller_snoop_preserves_h4_packets_and_controller_timestamps(tmp_path):
+async def test_controller_snoop_preserves_h4_packets_and_controller_timestamps(tmp_path):
     env = Env.detect()
     backend = BabbleSimBackend(env, f"hci_snoop_{uuid.uuid4().hex[:12]}")
     ctl = backend.add_controller(public_address="F0:F1:F2:F3:F4:01")
@@ -37,8 +37,8 @@ def test_controller_snoop_preserves_h4_packets_and_controller_timestamps(tmp_pat
     host.settimeout(5)
     packets = []
     try:
-        backend.start(pm, log_dir=tmp_path)
-        backend.wait_for_hci_sockets()
+        await backend.start(pm, log_dir=tmp_path)
+        await backend.wait_for_hci_sockets()
         assert ctl.socket_dir.is_dir()
         assert not list(ctl.socket_dir.glob("*.btsnoop.sock"))
         host.connect(str(ctl.hci_sock))

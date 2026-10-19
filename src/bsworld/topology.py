@@ -34,8 +34,9 @@ from pathlib import Path
 from bsworld.runtime.scheduler import BsimEventLoop
 
 from .backends.babblesim import BabbleSimBackend
-from .devices.controller import Controller, normalize_controller_address
+from .devices.controller import Controller
 from .devices.instance import ProcessInstance
+from .devices.zephyr import ZephyrController
 from .env import Env
 from .interference import (
     BurstInterference,
@@ -77,14 +78,16 @@ class BluetoothTopology:
     def add_controller(
         self,
         *,
+        controller_type: type[Controller] = ZephyrController,
         public_address: str | None = None,
         log_subdir: Path | str | None = None,
+        **options,
     ) -> Controller:
         """Allocate a Virtual Controller for one Bluetooth Host."""
         self._ensure_configurable()
-        if public_address is not None:
-            public_address = normalize_controller_address(public_address)
-        controller = self.bsim.add_controller(public_address=public_address)
+        controller = self.bsim.add_controller(
+            controller_type=controller_type, public_address=public_address, **options,
+        )
         log_path = (
             Path(log_subdir) if log_subdir is not None else Path("controllers") / f"hci{controller.controller_dev_id}"
         )
@@ -203,8 +206,8 @@ class BluetoothTopology:
         open_log_file(self.test_log_dir / "bsworld.log")
         self.pm.install_signal_handlers()
         self._resolve_channel_attenuation()
-        self.bsim.start(self.pm, log_dir=self.test_log_dir)
-        self.bsim.wait_for_hci_sockets()
+        await self.bsim.start(self.pm, log_dir=self.test_log_dir)
+        await self.bsim.wait_for_hci_sockets()
         for process in self.processes:
             process.start(self.pm, self.test_log_dir)
         await asyncio.to_thread(self.bsim.wait_for_devices_registered)
@@ -282,7 +285,10 @@ class BluetoothTopology:
             finally:
                 self._event_loop = None
         try:
-            await asyncio.to_thread(self.pm.cleanup)
+            try:
+                await self.bsim.stop_controllers()
+            finally:
+                await asyncio.to_thread(self.pm.cleanup)
         finally:
             self.pm.restore_signal_handlers()
             for process in self.processes:

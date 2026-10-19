@@ -7,6 +7,7 @@
 ## 快速索引
 
 - [测试生命周期](#测试生命周期)
+- [选择 Controller](#选择-controller)
 - [异步等待与仿真时间](#异步等待与仿真时间)
 - [接入业务程序进程](#接入业务程序进程)
 - [向进程发送 Shell 命令](#向进程发送-shell-命令)
@@ -22,9 +23,33 @@
 1. 测试目录的进程加载函数、`topo.add_controller()` 和 RF 配置接口记录预期拓扑，此时不会创建子进程或推进仿真时间。
 2. `await topo.start()` 确定 Controller、业务程序与 PHY 的设备标识，创建隔离的 socket 和日志路径，依次启动 PHY、虚拟 Controller、干扰源和业务程序，再将 pytest 注册为 BabbleSim 时钟设备。HCI socket 就绪且所有参与者完成注册后，pytest 在仿真时间零执行一次 WAIT/ACK 同步，确认各参与者已经提交初始请求，再将仿真时钟绑定到 event loop，随后 `start()` 返回。
 3. 测试通过 `ProcessInstance`、进程内 Host 协议栈接口、Shell 命令和标准 asyncio API 执行业务操作与断言。event loop 处理完当前时间戳上的回调和 I/O 后，才会推进共享仿真时间。
-4. fixture 清理阶段先将仿真时钟从 event loop 解绑，停止进程和抓包任务并写完日志，再由 BabbleSim 后端关闭时钟的 FIFO 连接、生成 Ellisys 跟踪文件并删除仿真临时文件。
+4. fixture 清理阶段先将仿真时钟从 event loop 解绑，停止 Controller 和进程、关闭抓包文件并写完日志，再由 BabbleSim 后端关闭时钟的 FIFO 连接、生成 Ellisys 跟踪文件并删除仿真临时文件。
 
 每个测试都有独立的仿真标识、Unix socket 目录和日志目录，因此多个虚拟测试可以并行运行，不会共享 Controller 状态、RF 状态或输出文件。
+
+## 选择 Controller
+
+每个 Host 可以独立选择 `ZephyrController`（默认，原生进程）或 `BSController`（Python Controller，运行在自己的 worker 线程中）。二者都提供相同的 H:4 Unix socket；Controller 的选择与 Host 运行在 Python 还是外部进程无关。
+
+本地使用 Python 实现时，执行 `python -m pip install -e components/bscontroller`；Docker 测试镜像已包含该组件。
+
+```python
+from bsworld.devices import BSController
+
+python_ctl = topo.add_controller(
+    controller_type=BSController,
+    public_address="F0:F1:F2:F3:F4:01",
+)
+zephyr_ctl = topo.add_controller(
+    public_address="F0:F1:F2:F3:F4:02",
+)
+await topo.start()
+# 将 Host 分别连接到 python_ctl.hci_sock 和 zephyr_ctl.hci_sock。
+```
+
+每个 Python Controller 独立拥有 worker、无线端点和地址。省略 `max_step_us` 时沿用 bscontroller 的默认值，仅在需要覆盖 worker 步长时传入。两种实现使用共享 PHY 和框架时钟。拓扑中只有 Python Controller 时，无需配置 `BSWORLD_BT_VIRT_CONTROLLER_BIN`。
+
+新增实现继承 `Controller`，实现异步的 `start(pm, env, *, log_dir)` 和 `stop()`；基类提供 HCI socket 路径和设备元数据。启动方法发起运行时启动，但不等待其他 PHY 参与者就绪，返回时也不保证 HCI socket 已就绪。后端统一等待 socket 就绪，拓扑启动 Host 后再完成注册。停止方法需要能够清理启动中途失败时已经创建的资源。
 
 ## 异步等待与仿真时间
 

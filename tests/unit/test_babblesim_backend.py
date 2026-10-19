@@ -21,6 +21,7 @@ import pytest
 
 from bsworld.backends import babblesim
 from bsworld.backends.babblesim import BabbleSimBackend
+from bsworld.devices import zephyr
 from bsworld.env import Env
 from bsworld.interference import (
     BurstInterference,
@@ -61,7 +62,7 @@ def _patch_controller_bin(monkeypatch, tmp_path: Path) -> Path:
     controller.parent.mkdir(parents=True, exist_ok=True)
     controller.write_text("#!/bin/sh\n")
     controller.chmod(0o755)
-    monkeypatch.setattr(babblesim.hci_virt_build, "controller_bin", lambda env: controller)
+    monkeypatch.setattr(zephyr.hci_virt, "controller_bin", lambda env: controller)
     return controller
 
 
@@ -151,22 +152,21 @@ def test_check_deps_ready_only_validates_built_artifacts(tmp_path, monkeypatch) 
     calls: list[str] = []
 
     monkeypatch.setattr(babblesim.bsim_build, "check_ready", lambda build_env: calls.append(f"bsim:{build_env is env}"))
-    monkeypatch.setattr(babblesim.hci_virt_build, "check_ready", lambda build_env: calls.append(f"hci:{build_env is env}"))
 
     backend.check_deps_ready()
 
-    assert calls == ["bsim:True", "hci:True"]
+    assert calls == ["bsim:True"]
 
 
-def test_add_controller_rejects_started_backend(tmp_path) -> None:
+async def test_add_controller_rejects_started_backend(tmp_path) -> None:
     backend = BabbleSimBackend(_env(tmp_path), "sim")
-    backend.start(_SpawnRecorder())
+    await backend.start(_SpawnRecorder())
 
     with pytest.raises(RuntimeError, match="after BabbleSim has started"):
         backend.add_controller()
 
 
-def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeypatch) -> None:
+async def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeypatch) -> None:
     env = _env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
@@ -180,7 +180,7 @@ def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeyp
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
     monkeypatch.setattr(babblesim, "wait_for_paths", lambda *args, **kwargs: None)
 
-    backend.start(recorder, log_dir=tmp_path / "log")
+    await backend.start(recorder, log_dir=tmp_path / "log")
 
     names = [name for name, _, _ in recorder.calls]
     assert names == [
@@ -212,7 +212,7 @@ def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeyp
     assert all("nice" not in kwargs for _, _, kwargs in recorder.calls)
 
 
-def test_start_passes_public_address_to_virtual_controller(tmp_path, monkeypatch) -> None:
+async def test_start_passes_public_address_to_virtual_controller(tmp_path, monkeypatch) -> None:
     env = _env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
@@ -224,13 +224,13 @@ def test_start_passes_public_address_to_virtual_controller(tmp_path, monkeypatch
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
 
-    backend.start(recorder, log_dir=tmp_path / "log")
+    await backend.start(recorder, log_dir=tmp_path / "log")
 
     controller_args = recorder.calls[1][1]
     assert "-bd-addr=C0:FF:EE:00:00:01" in controller_args
 
 
-def test_start_places_default_modem_before_channel_plugin_args(tmp_path, monkeypatch) -> None:
+async def test_start_places_default_modem_before_channel_plugin_args(tmp_path, monkeypatch) -> None:
     env = _env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
@@ -242,7 +242,7 @@ def test_start_places_default_modem_before_channel_plugin_args(tmp_path, monkeyp
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
 
-    backend.start(recorder, log_dir=tmp_path / "log")
+    await backend.start(recorder, log_dir=tmp_path / "log")
 
     phy_args = recorder.calls[0][1]
     assert phy_args.index("-defmodem=BLE_simple") < phy_args.index("-argschannel")

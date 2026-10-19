@@ -18,6 +18,7 @@ import asyncio
 import io
 import subprocess
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -210,10 +211,10 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkey
 
     topo.bsim.clock = FakeClock()
     monkeypatch.setattr(dev, "start", fake_start)
-    monkeypatch.setattr(topo.bsim, "wait_for_hci_sockets", lambda: None)
+    monkeypatch.setattr(topo.bsim, "wait_for_hci_sockets", AsyncMock())
     monkeypatch.setattr(topo.bsim, "wait_for_devices_registered", lambda: None)
 
-    def fake_backend_start(pm, *, log_dir):  # noqa: ANN001, ARG001
+    async def fake_backend_start(pm, *, log_dir):  # noqa: ANN001, ARG001
         seen_snoop_paths.append(dev.controller.hci_snoop_file)
 
     monkeypatch.setattr(topo.bsim, "start", fake_backend_start)

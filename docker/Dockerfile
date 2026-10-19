@@ -47,6 +47,8 @@ RUN python -c 'import subprocess, tomllib; \
 # Install the project once for early Python checks and the final runtime image.
 # Keep this branch separate from firmware so Python changes reuse compiled outputs.
 FROM bsworld AS python-test
+COPY --chown=$BUILD_UID:$BUILD_GID components/bscontroller /opt/bscontroller
+RUN python -m pip install --no-deps --no-build-isolation /opt/bscontroller
 ENV PYTHONPATH=/workspace \
     PYTHONUNBUFFERED=1 \
     BSWORLD_ROOT=/workspace

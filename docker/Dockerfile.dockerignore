@@ -1,4 +1,4 @@
-# Include only Python/tests and the local firmware build inputs.
+# Include Python packages, tests and local firmware build inputs.
 **
 !pyproject.toml
 !LICENSE
@@ -11,6 +11,12 @@
 !components/babblesim.xml
 !components/bt_virt_controller/
 !components/bt_virt_controller/**
+!components/bscontroller/
+!components/bscontroller/pyproject.toml
+!components/bscontroller/LICENSE
+!components/bscontroller/NOTICE
+!components/bscontroller/src/
+!components/bscontroller/src/**
 **/.git
 **/.cache
 **/build
@@ -19,4 +25,5 @@
 **/*.egg-info
 **/*.pyc
 **/README*
+!components/bscontroller/README.md
 **/.env*

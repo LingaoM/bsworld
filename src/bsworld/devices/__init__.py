@@ -15,10 +15,14 @@
 """Controller and Application process models."""
 from __future__ import annotations
 
+from .bscontroller import BSController
 from .controller import Controller
 from .instance import ProcessInstance
+from .zephyr import ZephyrController
 
 __all__ = [
     "Controller",
+    "BSController",
     "ProcessInstance",
+    "ZephyrController",
 ]

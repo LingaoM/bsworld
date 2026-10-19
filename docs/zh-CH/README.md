@@ -38,9 +38,9 @@ BSWorld 以同一条 HCI 边界作为虚拟化接口。业务程序与真实 Hos
 
 ### 虚拟 Controller
 
-每个 Host 实例通过 Unix socket 与一个独立的虚拟 Controller 进程交换标准 HCI 数据。虚拟 Controller 并非返回预设结果的模拟桩，而是执行完整的 Controller 数据路径：处理 HCI 命令、事件和 ACL 数据，运行 Link Layer 协议逻辑，并通过 BabbleSim PHY 完成无线数据收发与 RF 交互。因此，业务程序实际经历广播、扫描、建连、GATT 和 Mesh 等完整协议流程。
+每个 Host 实例通过 Unix socket 与一个独立的虚拟 Controller 交换标准 HCI 数据。Controller 可以使用 Zephyr 进程或 Python BSController worker 线程，两种实现可以在同一拓扑中混合使用，参见[选择 Controller](writing-tests.md#选择-controller)。虚拟 Controller 并非返回预设结果的模拟桩，而是执行完整的 Controller 数据路径：处理 HCI 命令、事件和 ACL 数据，运行 Link Layer 协议逻辑，并通过 BabbleSim PHY 完成无线数据收发与 RF 交互。因此，业务程序实际经历广播、扫描、建连、GATT 和 Mesh 等完整协议流程。
 
-图 3 对比了真实设备与 BSWorld 虚拟设备的协议路径。业务程序、Host 和 HCI 边界保持不变；物理 Controller 由功能完整的虚拟 Controller 进程承载，物理无线介质则由 BabbleSim 提供。
+图 3 对比了真实设备与 BSWorld 虚拟设备的协议路径。业务程序、Host 和 HCI 边界保持不变；物理 Controller 由虚拟 Controller 承载，物理无线介质则由 BabbleSim 提供。
 
 <div align="center"><img src="../images/real_vs_virtual_controller.svg" alt="虚拟 Controller 的完整协议链路" width="80%"><br><em>图 3：虚拟 Controller 的完整 HCI、Link Layer 与 RF 交互链路</em><br><br></div>
 
@@ -169,7 +169,7 @@ cd bsworld
 export BSWORLD_ROOT="$PWD"
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e . -e components/bscontroller
 ```
 
 开发检查：

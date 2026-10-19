@@ -15,6 +15,7 @@
 """Deadline-based condition-wait helpers."""
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Callable
@@ -47,3 +48,14 @@ def wait_for_paths(paths: list[Path], timeout: float = 10.0, *, poll: float = 0.
         poll=poll,
         desc=", ".join(str(p) for p in paths),
     )
+
+
+async def wait_for_paths_async(paths: list[Path], timeout: float = 10.0, *, poll: float = 0.05) -> None:
+    """Wait for startup paths while allowing other event-loop tasks to run."""
+    deadline = time.monotonic() + timeout
+    while not all(path.exists() or path.is_symlink() for path in paths):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            desc = ", ".join(str(path) for path in paths)
+            raise TimeoutError(f"timed out after {timeout:.1f}s waiting for {desc}")
+        await asyncio.sleep(min(poll, remaining))

@@ -34,6 +34,7 @@ Tests under `tests/unit/` are organized by subsystem. Each test should focus on 
 | `test_env.py` | Environment variables, artifact path resolution, and runtime environment detection |
 | `test_artifact_paths.py` | Environment-selected artifact paths for Zephyr, NuttX, and QEMU tests |
 | `test_dependency_readiness.py` | BabbleSim binaries/modules, Controller files, and executable permissions |
+| `test_controllers.py` | Controller configuration, H:4 transport, cancellation, and cleanup after worker failures |
 | `test_topology.py` | Topology lifecycle, Application registration, generic process management, and Controller allocation |
 | `test_babblesim_backend.py` | BabbleSim process arguments, device IDs and Controller setup, RF interference and attenuation, trace conversion, and cleanup |
 | `test_scheduler.py` | Discrete simulation time, standard asyncio primitives, callback and I/O ordering |

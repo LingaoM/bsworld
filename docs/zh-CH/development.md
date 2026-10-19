@@ -34,6 +34,7 @@ pytest tests/unit -q
 | `test_env.py` | 环境变量读取、产物路径解析和运行环境识别 |
 | `test_artifact_paths.py` | Zephyr、NuttX 和 QEMU 测试使用环境变量指定的产物路径 |
 | `test_dependency_readiness.py` | BabbleSim 程序与动态模型、Controller 文件和执行权限检查 |
+| `test_controllers.py` | Controller 配置、H:4 传输、取消及 worker 失败后的清理 |
 | `test_topology.py` | 测试拓扑生命周期、业务程序登记、通用进程管理和 Controller 分配 |
 | `test_babblesim_backend.py` | BabbleSim 进程参数、设备编号与 Controller 初始化、RF 干扰与路径衰减、跟踪文件转换和清理 |
 | `test_scheduler.py` | 离散仿真时间、标准 asyncio 原语、回调和 I/O 执行顺序 |

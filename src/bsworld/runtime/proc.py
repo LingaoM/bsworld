@@ -126,6 +126,34 @@ class ProcessManager:
     def alive_list(self) -> list[Proc]:
         return [p for p in self.procs if p.alive()]
 
+    def stop(self, proc: Proc) -> None:
+        """Stop one owned process while keeping other PHY participants alive."""
+        if proc not in self.procs:
+            return
+        self._report_exit(proc)
+        if proc.alive():
+            self._kill_session(proc.pid, signal.SIGKILL)
+        self._wait_and_close(proc)
+        self.procs.remove(proc)
+
+    def _report_exit(self, proc: Proc) -> None:
+        rc = proc.returncode()
+        if rc is not None and rc != 0:
+            warn(f"{proc.name}: exited unexpectedly (rc={rc})")
+            self._dump_tail(proc, lines=20)
+
+    @staticmethod
+    def _wait_and_close(proc: Proc) -> None:
+        try:
+            proc.popen.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            warn(f"{proc.name}: process did not exit after SIGKILL")
+        if proc.owns_log_fh:
+            try:
+                proc.log_fh.close()
+            except Exception as exc:
+                warn(f"{proc.name}: failed to close log file: {exc}")
+
     def _dump_tail(self, proc: Proc, *, lines: int) -> None:
         try:
             with open(proc.log_path, "r", errors="replace") as fh:
@@ -142,10 +170,7 @@ class ProcessManager:
         if not self.procs:
             return
         for proc in self.procs:
-            rc = proc.returncode()
-            if rc is not None and rc != 0:
-                warn(f"{proc.name}: exited unexpectedly (rc={rc})")
-                self._dump_tail(proc, lines=20)
+            self._report_exit(proc)
         living = self.alive_list()
         if living:
             log(f"stopping {len(living)} background process(es)")
@@ -154,15 +179,7 @@ class ProcessManager:
                 log(f"    kill {proc.name} (pid={proc.pid})")
                 self._kill_session(proc.pid, signal.SIGKILL)
         for proc in self.procs:
-            try:
-                proc.popen.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                warn(f"{proc.name}: process did not exit after SIGKILL")
-            if proc.owns_log_fh:
-                try:
-                    proc.log_fh.close()
-                except Exception as exc:
-                    warn(f"{proc.name}: failed to close log file: {exc}")
+            self._wait_and_close(proc)
         self.procs.clear()
 
     @staticmethod

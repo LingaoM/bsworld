@@ -38,9 +38,9 @@ BSWorld uses this same HCI boundary as its virtualization interface. The Applica
 
 ### Virtual Controller
 
-Each Host instance exchanges standard HCI traffic with an independent Virtual Controller process over a Unix socket. The Virtual Controller is not a mock that returns scripted responses. It runs the complete Controller data path: HCI commands, events, and ACL data; Link Layer protocol procedures; and radio transmission and reception through the BabbleSim PHY. The Application therefore exercises complete protocol flows such as advertising, scanning, connection establishment, GATT, and Mesh.
+Each Host instance exchanges standard HCI traffic with an independent Virtual Controller over a Unix socket. Controllers can use a Zephyr process or a Python BSController worker thread, and both implementations can share one topology. See [Choosing Controllers](docs/writing-tests.md#choosing-controllers). The Virtual Controller is not a mock that returns scripted responses. It runs the complete Controller data path: HCI commands, events, and ACL data; Link Layer protocol procedures; and radio transmission and reception through the BabbleSim PHY. The Application therefore exercises complete protocol flows such as advertising, scanning, connection establishment, GATT, and Mesh.
 
-Figure 3 compares the protocol path of a physical device with its BSWorld counterpart. The Application, Host, and HCI boundary remain unchanged. A complete Virtual Controller process replaces the physical Controller, while BabbleSim provides the radio medium.
+Figure 3 compares the protocol path of a physical device with its BSWorld counterpart. The Application, Host, and HCI boundary remain unchanged. A Virtual Controller replaces the physical Controller, while BabbleSim provides the radio medium.
 
 <div align="center"><img src="docs/images/real_vs_virtual_controller.svg" alt="Complete Virtual Controller protocol path" width="80%"><br><em>Figure 3: Complete HCI, Link Layer, and RF paths through the Virtual Controller</em><br><br></div>
 
@@ -169,7 +169,7 @@ From the repository root, create the project virtual environment and install BSW
 export BSWORLD_ROOT="$PWD"
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e . -e components/bscontroller
 ```
 
 For development checks:
