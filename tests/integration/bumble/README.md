@@ -13,7 +13,7 @@ The suite covers:
 
 We recommend the [published Docker image](../../../docker/README.md#run-tests). Select this suite with `pytest tests/integration/bumble`.
 
-Bumble is installed with BSWorld. For native Linux, follow the repository README's [local Linux setup](../../../README.md#local-linux) to prepare the environment and build BabbleSim and the Virtual Controller. Retain `BSWORLD_BSIM_DIR` and `BSWORLD_BT_VIRT_CONTROLLER_BIN`, then run:
+Bumble is installed with BSWorld. For native Linux, follow the repository README's [local Linux setup](../../../README.md#local-linux) to prepare the environment and build BabbleSim and the Virtual Controller. Retain `BSIM_OUT_PATH` and `BSWORLD_BT_VIRT_CONTROLLER_BIN`, then run:
 
 ```sh
 cd "$BSWORLD_ROOT"

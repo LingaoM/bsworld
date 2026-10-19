@@ -19,7 +19,7 @@
 
 先按照 [Zephyr 工作区说明](common/source/README.zh-CN.md)准备源码和 SDK，并按[README 构建说明](../../../../docs/zh-CH/README.md#构建与测试)编译 BabbleSim，再按[虚拟 Controller README](../../../../components/bt_virt_controller/README.zh-CN.md)编译 Controller。
 
-保留 `BSWORLD_ROOT`、`ZEPHYR_WORKSPACE`、`BSIM_OUT_PATH`、`BSIM_COMPONENTS_PATH` 和 `BSIM_BASE_PATH`，以及测试使用的 `BSWORLD_BSIM_DIR`、`BSWORLD_BT_VIRT_CONTROLLER_BIN`。将这些变量设为本机工作区的路径。
+保留 `BSWORLD_ROOT`、`ZEPHYR_WORKSPACE`、`BSIM_OUT_PATH` 和 `BSIM_COMPONENTS_PATH`，以及测试使用的 `BSWORLD_BT_VIRT_CONTROLLER_BIN`。将这些变量设为本机工作区的路径。
 
 ## 构建与运行
 

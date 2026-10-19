@@ -40,7 +40,7 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     for name, help_text in [('serve', 'serve H4 HCI over a Unix socket')]:
         command = commands.add_parser(name, help=help_text)
-        command.add_argument('--bsim-dir', type=Path)
+        command.add_argument('--bsim-dir', type=Path, help='BabbleSim build output (default: BSIM_OUT_PATH)')
         command.add_argument('--sim-id', default=None)
         command.add_argument('--log-dir', type=Path)
     server = commands.choices['serve']

@@ -191,11 +191,9 @@ repo sync -c --no-tags
 
 export BSIM_OUT_PATH="$PWD/build"
 export BSIM_COMPONENTS_PATH="$PWD/components"
-export BSIM_BASE_PATH="$BSIM_COMPONENTS_PATH"
 export BSIM_BUILD_FAIL_ASAP=1
 
 make -j"$(nproc)" everything
-export BSWORLD_BSIM_DIR="$BSIM_OUT_PATH"
 ```
 
 Then follow the README commands for the [Controller](components/bt_virt_controller/README.md), [Zephyr samples](tests/integration/zephyr/samples/README.md), [NuttX](tests/integration/nuttx/README.md), and [QEMU / Buildroot](tests/integration/qemu/README.md).

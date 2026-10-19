@@ -40,7 +40,7 @@ _OUTPUTS = (
 def _manual_setup_hint(env: Env) -> str:
     return (
         "Follow the repo-based BabbleSim setup in README.md#build-and-test, "
-        "then set BSWORLD_BSIM_DIR to the build output directory "
+        "then set BSIM_OUT_PATH to the build output directory "
         f"containing bin/ and lib/ (currently {env.bsim_dir}).\n"
     )
 
@@ -48,7 +48,7 @@ def _manual_setup_hint(env: Env) -> str:
 def check_ready(env: Env) -> None:
     """Validate BabbleSim runtime outputs before pytest."""
     if env.bsim_dir is None:
-        die("Set BSWORLD_BSIM_DIR to the BabbleSim output directory containing bin/ and lib/. "
+        die("Set BSIM_OUT_PATH to the BabbleSim output directory containing bin/ and lib/. "
             "See README.md.", code=15)
     missing_outputs = [
         str(env.bsim_dir / rel)

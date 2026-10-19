@@ -191,11 +191,9 @@ repo sync -c --no-tags
 
 export BSIM_OUT_PATH="$PWD/build"
 export BSIM_COMPONENTS_PATH="$PWD/components"
-export BSIM_BASE_PATH="$BSIM_COMPONENTS_PATH"
 export BSIM_BUILD_FAIL_ASAP=1
 
 make -j"$(nproc)" everything
-export BSWORLD_BSIM_DIR="$BSIM_OUT_PATH"
 ```
 
 然后按各目录 README 的命令配置和编译 [Controller](../../components/bt_virt_controller/README.zh-CN.md)、[Zephyr 示例](../../tests/integration/zephyr/samples/README.zh-CN.md)、[NuttX](../../tests/integration/nuttx/README.zh-CN.md)及 [QEMU / Buildroot](../../tests/integration/qemu/README.zh-CN.md)。

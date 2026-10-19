@@ -82,7 +82,7 @@ class Env:
         out_dir = base_dir / resolved_tag / uid
         log_dir = out_dir / "log"
 
-        bsim_dir = env_path("BSWORLD_BSIM_DIR")
+        bsim_dir = env_path("BSIM_OUT_PATH")
 
         import pwd
         user = pwd.getpwuid(os.getuid()).pw_name
@@ -105,4 +105,4 @@ class Env:
 
     @property
     def babblesim_components_dir(self) -> Path:
-        return self.babblesim_root / "components"
+        return env_path("BSIM_COMPONENTS_PATH") or self.babblesim_root / "components"

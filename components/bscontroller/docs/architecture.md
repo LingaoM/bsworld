@@ -71,4 +71,4 @@ All paths below are relative to `src/bscontroller/`.
 | `runtime/session.py` | Worker/session lifecycle and optional caller clock endpoint; runtime policy. |
 | `runtime/phy.py` | Locate, launch, and stop the BabbleSim PHY executable; runtime policy. |
 
-Unit test paths follow the source paths: `linklayer/bitstream.py` is tested in `unit/linklayer/bitstream_test.py`, and `runtime/session.py` in `unit/runtime/session_test.py`. Tests use fixtures and doubles from the test tree. HCI/LL procedure verdicts remain in the separate qualification suite.
+Unit test paths follow the source paths: `linklayer/bitstream.py` is tested in `tests/unit/linklayer/bitstream_test.py`, and `runtime/session.py` in `tests/unit/runtime/session_test.py`. Tests use fixtures and doubles from the test tree. HCI/LL procedure verdicts live in `tests/hci/` and `tests/ll/`.

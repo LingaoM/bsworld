@@ -69,13 +69,7 @@ class RadioControllerWorker:
         self.sink = sink
 
     def on_packet(self, packet: bytes) -> None:
-        self.check()
         self._input.put(bytes(packet))
-
-    def check(self) -> None:
-        if self._result.done():
-            self._result.result()
-            raise RuntimeError('Controller worker has stopped')
 
     async def start(self, sim_id: str, dev_id: int) -> None:
         if self._thread is not None:

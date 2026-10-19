@@ -19,7 +19,7 @@ We recommend the [published Docker image](../../../../docker/README.md#run-tests
 
 Prepare source and SDK from the [Zephyr workspace guide](common/source/README.md), compile BabbleSim from [README build instructions](../../../../README.md#build-and-test), then build the [Virtual Controller](../../../../components/bt_virt_controller/README.md).
 
-Retain `BSWORLD_ROOT`, `ZEPHYR_WORKSPACE`, `BSIM_OUT_PATH`, `BSIM_COMPONENTS_PATH`, and `BSIM_BASE_PATH`, plus the test variables `BSWORLD_BSIM_DIR` and `BSWORLD_BT_VIRT_CONTROLLER_BIN`. Set these variables to your local workspace paths.
+Retain `BSWORLD_ROOT`, `ZEPHYR_WORKSPACE`, `BSIM_OUT_PATH`, and `BSIM_COMPONENTS_PATH`, plus `BSWORLD_BT_VIRT_CONTROLLER_BIN`. Set these variables to your local workspace paths.
 
 ## Build and Run
 

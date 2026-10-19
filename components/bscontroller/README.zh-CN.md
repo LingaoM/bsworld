@@ -22,11 +22,14 @@ mkdir -p "$HOME/bsim"
 cd "$HOME/bsim"
 repo init -u https://github.com/BabbleSim/manifest.git -m everything.xml -b master
 repo sync
-export BSIM_OUT_PATH="$PWD"
+
+export BSIM_OUT_PATH="$PWD/build"
+export BSIM_COMPONENTS_PATH="$PWD/components"
+
 make -j"$(nproc)" ext_2G4_phy_v1 ext_2G4_modem_BLE_simple ext_2G4_channel_multiatt
 ```
 
-构建产物位于 `$BSIM_OUT_PATH/bin/` 和 `$BSIM_OUT_PATH/lib/`，后续运行命令使用该目录。更多构建选项见 [BabbleSim 官方编译说明](https://babblesim.github.io/building.html)。
+构建产物位于 `$BSIM_OUT_PATH/bin/` 和 `$BSIM_OUT_PATH/lib/`。运行 BSController 时保留上述环境变量，命令行、示例和 RF 测试直接使用 `BSIM_OUT_PATH`。更多构建选项见 [BabbleSim 官方编译说明](https://babblesim.github.io/building.html)。
 
 编译完成后，回到本模块的源码根目录安装 Python 包：
 
@@ -61,7 +64,7 @@ Controller 包含 HCI、Link Layer 和射频适配；运行时负责工作线程
 [examples/advertise_scan.py](examples/advertise_scan.py) 将扫描 Controller 暴露为标准 H4 HCI Unix socket，并实现一个仅通过 socket 收发 HCI 字节的 Mock Host。另一个 Controller 通过共享 PHY 发送广播，提供经过 PHY 传播的仿真射频输入。
 
 ```sh
-python examples/advertise_scan.py --bsim-dir "$BSIM_OUT_PATH"
+python examples/advertise_scan.py
 ```
 
 ```mermaid
@@ -98,7 +101,7 @@ sequenceDiagram
 向外部 Host 提供 H4 HCI 服务：
 
 ```sh
-bscontroller serve --bsim-dir "$BSIM_OUT_PATH" --hci-socket /tmp/radio.sock
+bscontroller serve --hci-socket /tmp/radio.sock
 ```
 
 Host 通过 Unix socket 收发 H4 HCI 字节流。服务接受一个 Host，Host 断开后退出；socket 路径必须尚未被占用。更多选项见 `bscontroller serve --help`。
@@ -160,24 +163,23 @@ with asyncio.Runner(loop_factory=RadioEventLoop) as runner:
 │   └── cli.py              # H4 服务入口
 ├── examples/
 │   └── advertise_scan.py   # H4 Controller 与 Mock Host 扫描示例
-└── tests/bscontroller_tests/
+└── tests/
     ├── unit/               # 与源码目录和模块名对应
     │   ├── hci/
     │   ├── linklayer/
     │   ├── radio/
     │   └── runtime/
-    └── qualification/
-        ├── hci/            # HCI 协议用例
-        └── ll/             # 链路层协议用例
+    ├── hci/                # HCI 协议用例
+    └── ll/                 # 链路层协议用例
 ```
 
 ```sh
 python -m pip install -e '.[test]'
-python -m pytest tests/bscontroller_tests/unit -q
-BSCONTROLLER_BSIM_DIR="$BSIM_OUT_PATH" python -m pytest tests/bscontroller_tests/qualification -n 4 -q
+python -m pytest tests/unit -q
+python -m pytest tests/hci tests/ll -n 4 -q
 python -m build
 ```
 
-协议测试包含 501 个选定 HCI/LL 用例，结果保留 `PASS`、`PARTIAL`、规范冲突跳过和不适用跳过的区别；受时间精度限制的用例使用各自注明的整数微秒近似，不代表正式蓝牙认证。测试范围和执行方式见 [tests/bscontroller_tests/README.md](tests/bscontroller_tests/README.md)。
+协议测试包含 501 个选定 HCI/LL 用例，结果保留 `PASS`、`PARTIAL`、规范冲突跳过和不适用跳过的区别；受时间精度限制的用例使用各自注明的整数微秒近似，不代表正式蓝牙认证。测试范围和执行方式见 [tests/README.md](tests/README.md)。
 
 构建产物位于 `dist/`。源码发行包包含运行时、示例及单元和协议测试；wheel 包含运行时与必要版权声明。许可证及第三方归属见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。

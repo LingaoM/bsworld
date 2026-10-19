@@ -26,11 +26,8 @@ class BabbleSimClock:
         self.connection = connection
         self.now_us = 0
         self.step_timeout = step_timeout
-        self.workers: list[RadioControllerWorker] = []
 
     def advance_to_us(self, target_us: int) -> int:
-        for worker in self.workers:
-            worker.check()
         if not self.now_us <= target_us < NEVER:
             raise ValueError('clock target must be a finite, nondecreasing uint64 time')
         self.connection.wait_sync(target_us, self.step_timeout)
@@ -61,8 +58,6 @@ class BabbleSimSession:
             if clock_dev_id is not None
             else None
         )
-        if self.clock is not None:
-            self.clock.workers = [worker for _, worker in controllers]
         self.loop = None
 
     async def __aenter__(self):
