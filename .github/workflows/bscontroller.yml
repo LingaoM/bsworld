@@ -75,7 +75,7 @@ jobs:
         env:
           BSCONTROLLER_BSIM_DIR: ${{ runner.temp }}/bscontroller-babblesim/build
         run: |
-          python -m pytest tests/bscontroller_tests/qualification -q -rs \
+          python -m pytest tests/bscontroller_tests/qualification -v -rs \
             -p pytest_asyncio.plugin -p no:cacheprovider \
             --basetemp="$RUNNER_TEMP/bscontroller-results/qualification" \
             --junitxml="$RUNNER_TEMP/bscontroller-results/qualification.xml"

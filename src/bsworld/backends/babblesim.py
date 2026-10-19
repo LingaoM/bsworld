@@ -30,7 +30,6 @@ Bring-up shape:
 """
 from __future__ import annotations
 
-import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -53,6 +52,7 @@ from ..log import log, warn
 from ..runtime.proc import ProcessManager
 from ..runtime.scheduler import BsimClock
 from ..runtime.wait import wait_for_path, wait_for_paths
+from .ellisys import convert_tx_csv
 
 _RESIDUAL_PATTERNS = (
     "bs_2G4_phy_v1",
@@ -298,17 +298,8 @@ class BabbleSimBackend:
     def convert_ellisys(self, *, log_dir: Path | None = None) -> None:
         if self.env.bsim_dir is None:
             return
-        converter = self.env.bsim_ellisys_script or (
-            self.env.babblesim_components_dir
-            / "ext_2G4_phy_v1"
-            / "dump_post_process"
-            / "convert_results_to_ellisysv2.sh"
-        )
         results_dir = self.env.bsim_dir / "results" / self.sim_id
         tx_files = sorted(results_dir.glob("d_2G4*.Tx.csv"))
-        if not converter.is_file():
-            warn(f"Ellisys converter not found: {converter}")
-            return
         if not tx_files:
             warn(f"no BabbleSim Tx CSV dumps found under {results_dir}")
             return
@@ -316,19 +307,12 @@ class BabbleSimBackend:
         out_dir = (log_dir or self.env.log_dir) / "babblesim"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / "ellisys.bttrp"
-        quoted_inputs = " ".join(shlex.quote(str(path)) for path in tx_files)
-        log(
-            "converting BabbleSim dump to Ellisys: "
-            f"bash {shlex.quote(str(converter))} {quoted_inputs} > {shlex.quote(str(out_path))}"
-        )
-        with open(out_path, "w") as out:
-            rc = subprocess.run(
-                ["bash", str(converter), *[str(path) for path in tx_files]],
-                cwd=str(converter.parent),
-                stdout=out,
-            ).returncode
-        if rc != 0:
-            warn(f"Ellisys conversion failed for {self.sim_id} (exit {rc})")
+        log(f"converting BabbleSim dump to Ellisys: {out_path}")
+        try:
+            with out_path.open("w") as out:
+                convert_tx_csv(tx_files, out)
+        except (OSError, ValueError) as exc:
+            warn(f"Ellisys conversion failed for {self.sim_id}: {exc}")
 
     def cleanup_sim_artifacts(self) -> None:
         sim_state_dir = self.env.sim_dir(self.sim_id)

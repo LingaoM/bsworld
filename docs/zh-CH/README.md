@@ -153,7 +153,7 @@ sudo apt-get update
 sudo apt-get install -y \
   bash ca-certificates curl git repo file make binutils build-essential \
   python3.12 python3.12-dev python3.12-venv python3-pip \
-  gcc-multilib g++-multilib coreutils findutils grep sed gawk
+  gcc-multilib g++-multilib coreutils findutils grep sed
 ```
 
 首次使用时，先获取仓库：
@@ -188,14 +188,14 @@ mkdir -p "$BSWORLD_ROOT/.cache/babblesim"
 cd "$BSWORLD_ROOT/.cache/babblesim"
 repo init --standalone-manifest --depth=1 -u "file://$BSWORLD_ROOT/components/babblesim.xml"
 repo sync -c --no-tags
+
 export BSIM_OUT_PATH="$PWD/build"
 export BSIM_COMPONENTS_PATH="$PWD/components"
 export BSIM_BASE_PATH="$BSIM_COMPONENTS_PATH"
 export BSIM_BUILD_FAIL_ASAP=1
+
 make -j"$(nproc)" everything
 export BSWORLD_BSIM_DIR="$BSIM_OUT_PATH"
-export BSWORLD_BSIM_ELLISYS_SCRIPT="$BSIM_COMPONENTS_PATH/ext_2G4_phy_v1/dump_post_process/convert_results_to_ellisysv2.sh"
-cd "$BSWORLD_ROOT"
 ```
 
 然后按各目录 README 的命令配置和编译 [Controller](../../components/bt_virt_controller/README.zh-CN.md)、[Zephyr 示例](../../tests/integration/zephyr/samples/README.zh-CN.md)、[NuttX](../../tests/integration/nuttx/README.zh-CN.md)及 [QEMU / Buildroot](../../tests/integration/qemu/README.zh-CN.md)。
