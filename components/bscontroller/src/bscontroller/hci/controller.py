@@ -39,6 +39,7 @@ from bscontroller.hci.transport import TransportSink
 if TYPE_CHECKING:
     from bscontroller.hci.backend import ControllerBackend
     from bscontroller.hci.le import LeControllerProcedures
+    from bscontroller.hci.snoop import BtsnoopWriter
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +62,11 @@ class Controller:
         public_address: bytes | str | hci.Address | None = None,
         *,
         backend: ControllerBackend,
+        snoop: BtsnoopWriter | None = None,
     ) -> None:
         self.name = name
         self.backend = backend
+        self._snoop = snoop
         self.le_procedures: LeControllerProcedures
         self.le_connections: dict[hci.Address, ConnectionRecord] = {}
         self.advertising_sets: dict[int, AdvertisingSet] = {}
@@ -123,6 +126,8 @@ class Controller:
         logger.debug(f'new random address: {address}')
 
     def on_packet(self, packet: bytes) -> None:
+        if self._snoop is not None:
+            self._snoop.capture(packet, received=False)
         if len(packet) >= 4 and packet[0] == hci.HCI_COMMAND_PACKET:
             opcode, size = struct.unpack_from('<HB', packet, 1)
             if opcode not in self.supported_commands and len(packet) == size + 4:
@@ -197,7 +202,10 @@ class Controller:
     def send_hci_packet(self, packet: hci.HCI_Packet) -> None:
         logger.debug(f'{color(">>>", "green")} [{self.name}] {color("CONTROLLER -> HOST", "green")}: {packet}')
         if self.host:
-            asyncio.get_running_loop().call_soon(self.host.on_packet, bytes(packet))
+            data = bytes(packet)
+            if self._snoop is not None:
+                self._snoop.capture(data, received=True)
+            asyncio.get_running_loop().call_soon(self.host.on_packet, data)
 
     def _send_hci_command_status(self, status: int, op_code: int) -> None:
         self.send_hci_packet(

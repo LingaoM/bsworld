@@ -107,6 +107,8 @@ async def test_python_controller_exposes_h4_and_releases_socket(tmp_path, worker
     assert instance.identity == ("sim", 0)
     assert instance.address == "C0:FF:EE:00:00:01"
     assert instance.max_step_us == 250
+    assert instance.options["hci_snoop_file"] == ctl.hci_snoop_file
+    assert ctl.hci_snoop_file == tmp_path / "bscontroller" / "hci0.snoop"
     reader, writer = await asyncio.open_unix_connection(ctl.hci_sock)
     try:
         # Fragmented H:4 input must become exactly one Controller packet.
@@ -130,7 +132,7 @@ async def test_python_controller_stop_before_worker_task_runs(tmp_path, worker):
     await ctl.start(ProcessManager(), SimpleNamespace(), log_dir=tmp_path)
     # There is no event-loop yield between task creation and cancellation.
     await ctl.stop()
-    assert worker.instances[0].options == {}
+    assert worker.instances[0].options == {"hci_snoop_file": ctl.hci_snoop_file}
     assert worker.instances[0].max_step_us == 1750
     assert worker.instances[0].closed
     assert not ctl.hci_sock.exists()
@@ -146,6 +148,16 @@ async def test_python_controller_propagates_worker_failure_during_cleanup(tmp_pa
     assert worker.instances[0].closed
     assert not ctl.hci_sock.exists()
     await ctl.stop()
+
+
+async def test_python_controller_passes_application_capture_path(tmp_path, worker):
+    path = tmp_path / "application" / "hci0.snoop"
+    ctl = _python_controller(tmp_path, hci_snoop_file=path)
+    try:
+        await ctl.start(ProcessManager(), SimpleNamespace(), log_dir=tmp_path)
+        assert worker.instances[0].options == {"hci_snoop_file": path}
+    finally:
+        await ctl.stop()
 
 
 async def test_python_controller_start_failure_preserves_existing_path(tmp_path, worker):

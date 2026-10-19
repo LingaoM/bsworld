@@ -5,6 +5,7 @@
 
 import asyncio
 import socket
+import struct
 import time
 from threading import Event, get_ident
 from types import SimpleNamespace
@@ -18,7 +19,8 @@ from bscontroller.runtime.worker import RadioControllerWorker
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('max_step_us', [1000, 250])
-async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step_us):
+@pytest.mark.parametrize('capture', [False, True], ids=['without-snoop', 'with-snoop'])
+async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step_us, tmp_path, capture):
     host_thread = get_ident()
     entered = Event()
     read, write = socket.socketpair()
@@ -58,7 +60,8 @@ async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step
         delivered.append((get_ident(), packet))
         received.set()
 
-    worker = RadioControllerWorker('test', max_step_us=max_step_us)
+    path = tmp_path / 'hci.snoop'
+    worker = RadioControllerWorker('test', max_step_us=max_step_us, hci_snoop_file=path if capture else None)
     worker.set_packet_sink(SimpleNamespace(on_packet=receive))
     try:
         await worker.start('test', 0)
@@ -71,6 +74,14 @@ async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step
         await asyncio.wait_for(received.wait(), 5)
         assert handled == [(worker._thread.ident, max_step_us)]
         assert delivered == [(host_thread, bytes.fromhex('040e0401030c00'))]
+        expected = bytes.fromhex('6274736e6f6f700000000001000003ea')
+        for direction, packet in enumerate((bytes.fromhex('01030c00'), bytes.fromhex('040e0401030c00'))):
+            expected += struct.pack('>IIIIQ', len(packet), len(packet), direction, 0, 0x00DCDDB30F2F8000 + max_step_us)
+            expected += packet
+        if capture:
+            assert path.read_bytes() == expected
+        else:
+            assert not path.exists()
         with pytest.raises(RuntimeError, match='attach the Host'):
             worker.set_packet_sink(None)
     finally:
@@ -80,6 +91,8 @@ async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step
     assert not worker._thread.is_alive()
     assert worker.terminated.done()
     radio.close.assert_called_once()
+    if capture:
+        assert path.read_bytes() == expected
 
 
 @pytest.mark.asyncio
@@ -118,20 +131,43 @@ async def test_deferred_hci_notifications_precede_next_phy_request(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_worker_start_failure_is_reported_and_thread_joined(monkeypatch):
+async def test_worker_start_failure_is_reported_and_thread_joined(monkeypatch, tmp_path):
     radio = SimpleNamespace(
         connect=AsyncMock(side_effect=RuntimeError('broken radio')), close=Mock()
     )
     monkeypatch.setattr(
         'bscontroller.runtime.worker.BabbleSimRadio', lambda: radio
     )
-    worker = RadioControllerWorker('test')
+    captures = []
+    from bscontroller.hci.snoop import BtsnoopWriter
+
+    def writer(*args):
+        capture = BtsnoopWriter(*args)
+        captures.append(capture)
+        return capture
+
+    monkeypatch.setattr('bscontroller.runtime.worker.BtsnoopWriter', writer)
+    worker = RadioControllerWorker('test', hci_snoop_file=tmp_path / 'hci.snoop')
     with pytest.raises(RuntimeError, match='broken radio'):
         await worker.start('test', 0)
     with pytest.raises(RuntimeError, match='broken radio'):
         await worker.close()
     assert not worker._thread.is_alive()
     assert worker.terminated.done()
+    radio.close.assert_called_once()
+    assert captures[0]._file.closed
+
+
+@pytest.mark.asyncio
+async def test_snoop_open_failure_releases_radio_and_worker(monkeypatch, tmp_path):
+    radio = SimpleNamespace(close=Mock())
+    monkeypatch.setattr('bscontroller.runtime.worker.BabbleSimRadio', lambda: radio)
+    worker = RadioControllerWorker('test', hci_snoop_file=tmp_path)
+    with pytest.raises(IsADirectoryError):
+        await worker.start('test', 0)
+    with pytest.raises(IsADirectoryError):
+        await worker.close()
+    assert not worker._thread.is_alive()
     radio.close.assert_called_once()
 
 

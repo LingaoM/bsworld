@@ -17,7 +17,7 @@ from .runtime import PhyProcess
 
 
 async def serve(args):
-    controller = RadioController('controller', args.address)
+    controller = RadioController('controller', args.address, hci_snoop_file=args.btsnoop_file)
     async with H4Server(controller, args.hci_socket) as endpoint:
         async with RadioSession(args.sim_id, [(args.dev_id, controller)], clock_dev_id=args.clock_id):
             print(f'HCI listening on {args.hci_socket}', flush=True)
@@ -45,6 +45,7 @@ def main():
         command.add_argument('--log-dir', type=Path)
     server = commands.choices['serve']
     server.add_argument('--hci-socket', type=Path, required=True)
+    server.add_argument('--btsnoop-file', type=Path, help='write HCI BTSnoop using the Controller simulation clock')
     server.add_argument('--address', default='F0:F1:F2:F3:F4:01')
     server.add_argument('--join', action='store_true', help='join a PHY managed by the caller')
     server.add_argument('--dev-id', type=int, default=0)

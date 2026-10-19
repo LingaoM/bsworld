@@ -51,6 +51,8 @@ await topo.start()
 
 新增实现继承 `Controller`，实现异步的 `start(pm, env, *, log_dir)` 和 `stop()`；基类提供 HCI socket 路径和设备元数据。启动方法发起运行时启动，但不等待其他 PHY 参与者就绪，返回时也不保证 HCI socket 已就绪。后端统一等待 socket 就绪，拓扑启动 Host 后再完成注册。停止方法需要能够清理启动中途失败时已经创建的资源。
 
+两种 Controller 都使用本地仿真时间戳生成自己的 `hciN.snoop`。Python Controller 在 worker 线程中记录 HCI，再将输出交给 Host event loop。共享 PHY 同时生成 `ellisys.bttrp`。
+
 ## 异步等待与仿真时间
 
 BSWorld 保留标准 asyncio 编程模型，测试无需改用专用的任务、I/O、sleep 或超时接口。pytest 使用的 `BsimEventLoop` 仍然管理 asyncio 的任务、Future、队列、Event、stream 和 socket；与普通 event loop 的区别只在于仿真启动后采用的时间来源和等待方式。

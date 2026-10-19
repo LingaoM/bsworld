@@ -33,6 +33,7 @@ All paths below are relative to `src/bscontroller/`.
 | `hci/__init__.py` | Public HCI codec and shared-type exports. |
 | `hci/packets.py` | HCI packet schemas, parsing, serialization, and event definitions; Vol 4, Part E, 5–7. No link execution or L2CAP reassembly. |
 | `hci/transport.py` | H4 framing from Vol 4, Part A and a Unix socket service. The Unix socket and queue limits are implementation choices. |
+| `hci/snoop.py` | BTSnoop v1 H4 capture with Controller-local simulation timestamps and unbuffered file writes; diagnostic support. |
 | `hci/controller.py` | Lower HCI dispatch, Controller identity, command responses, and connection-handle lookup; Vol 4, Part E, 1/4/7. |
 | `hci/backend.py` | Bind radio-backed LE execution and publish its supported commands/features; Vol 4, Part E, 6/7. Backend construction is an implementation interface. |
 | `hci/capabilities.py` | HCI buffer capacity, supported-state encoding, unavailable RSSI, and timeout field units; Vol 4, Part E, 7.3.93/94, 7.5.4, 7.8.2/27. |

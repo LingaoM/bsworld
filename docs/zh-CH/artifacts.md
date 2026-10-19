@@ -95,7 +95,7 @@ await device.wait_log(r"Bluetooth initialized", timeout=30)
 - 搜索过程中检查过的行会从内存队列中消费。后续等待不能再次匹配已经被前一次等待越过的旧行。
 - 没有换行符的末尾片段会立即写入 `.log` 文件，但只有收到换行符、形成完整一行后才会参与匹配。
 
-event loop 会先处理当前已经就绪的日志和 HCI FD，再推进下一个 BabbleSim 时间步。因此，日志匹配、协议抓包和测试回调共享同一个仿真时间同步边界。
+event loop 会先处理当前已经就绪的日志和 HCI FD，再推进下一个 BabbleSim 时间步。因此，日志匹配和测试回调共享框架时钟边界。Controller 则在向 Host 交付报文前，使用自己的本地仿真时钟记录 HCI。
 
 运行过程中可以直接查看业务程序日志：
 
@@ -118,7 +118,7 @@ tail -f /tmp/run-<timestamp>/<uid>/log/tests/.../nuttx_btsak_advertiser.log
 
 ## HCI BTSnoop 抓包
 
-BSWorld 通过 `-btsnoop-file` 将每个 Controller 的 `hciN.snoop` 输出路径传入。Controller 在自身 HCI 收发边界直接记录，时间戳来自其本地仿真时钟。Host 直接连接 HCI socket，数据路径没有中转或独立抓包 socket。文件保持 BTSnoop v1、H4 链路类型 1002、完整报文长度、方向标记和原有仿真时间基点；无用户态缓冲的文件写入确保 teardown 终止 Controller 时不丢失已完成的记录。
+BSWorld 向每个 Controller 传入 `hciN.snoop` 输出路径：Zephyr 使用 `-btsnoop-file`，Python `BSController` 使用 `hci_snoop_file`。Controller 在自身 HCI 收发边界直接记录，时间戳来自其本地仿真时钟。Host 直接连接 HCI socket，数据路径没有中转或独立抓包 socket。文件保持 BTSnoop v1、H4 链路类型 1002、完整报文长度、方向标记和原有仿真时间基点；无用户态缓冲的文件写入确保 teardown 终止 Controller 时不丢失已完成的记录。
 
 可以使用 [Wireshark](https://www.wireshark.org/) 或 `btmon` 查看：
 
@@ -127,7 +127,7 @@ wireshark /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 btmon -r /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 ```
 
-HCI 与 PHY 抓包默认始终开启。
+两种 Controller 的 HCI 抓包默认始终开启。Python Controller 在 worker 线程内写入抓包，再将输出交给 Host event loop；记录操作不推进仿真时间。绑定业务程序的 Controller 将抓包保存在业务程序目录，否则保存在 `bt_virt_controller/` 或 `bscontroller/` 下。两种实现的无线交互均记录在共享的 `ellisys.bttrp` 中。
 
 ## Ellisys 空口跟踪文件
 
@@ -148,7 +148,7 @@ BabbleSim PHY 会在运行过程中生成每个 RF 设备的 CSV dump。teardown
 - 路径衰减或干扰是否导致丢包。
 - 多个设备的无线事件是否发生碰撞。
 
-HCI 与 PHY 抓包默认始终开启。
+PHY dump 与 Ellisys 转换默认始终开启。
 
 ## 失败排查顺序
 

@@ -46,7 +46,7 @@ Figure 3 compares the protocol path of a physical device with its BSWorld counte
 
 For the Virtual Controller implementation, runtime contract, and build process, see [Virtual Controller](components/bt_virt_controller/README.md).
 
-The HCI and RF boundaries provide complementary diagnostics. Traffic on the HCI Unix socket is stored as `hciN.snoop` for analysis with [Wireshark](https://www.wireshark.org/) or another BTSnoop-capable tool. Radio activity on the BabbleSim PHY is stored as `babblesim/ellisys.bttrp` for over-the-air analysis with [Ellisys](https://www.ellisys.com/products/bex400/). The former identifies Host-to-Controller exchanges; the latter shows packet transmission, channel listening, interference, and collisions. Both are archived per test. See [Logs, traces, and captures](docs/artifacts.md) for file locations and generation details.
+The HCI and RF boundaries provide complementary diagnostics. Zephyr and Python Controller traffic on the HCI Unix socket is stored as `hciN.snoop` for analysis with [Wireshark](https://www.wireshark.org/) or another BTSnoop-capable tool. Radio activity on the BabbleSim PHY is stored as `babblesim/ellisys.bttrp` for over-the-air analysis with [Ellisys](https://www.ellisys.com/products/bex400/). The former identifies Host-to-Controller exchanges; the latter shows packet transmission, channel listening, interference, and collisions. Both are archived per test. See [Logs, traces, and captures](docs/artifacts.md) for file locations and generation details.
 
 Figure 4 demonstrates the packet-level workflow for importing an `ellisys.bttrp` trace into Ellisys.
 

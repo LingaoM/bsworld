@@ -49,7 +49,10 @@ class BSController(Controller):
 
         if self._worker is not None:
             raise RuntimeError("BSController is already started")
-        options = {}
+        self.hci_snoop_file = (
+            self.hci_snoop_file or log_dir / "bscontroller" / f"hci{self.controller_dev_id}.snoop"
+        ).resolve()
+        options = {"hci_snoop_file": self.hci_snoop_file}
         if self.max_step_us is not None:
             options["max_step_us"] = self.max_step_us
         self._worker = RadioController(

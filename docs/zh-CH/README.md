@@ -46,7 +46,7 @@ BSWorld 以同一条 HCI 边界作为虚拟化接口。业务程序与真实 Hos
 
 虚拟 Controller 的实现、运行接口和构建方式见 [虚拟 Controller](../../components/bt_virt_controller/README.zh-CN.md)。
 
-HCI 和 RF 两个边界提供互补的调试信息。Unix socket 上的 HCI 交互保存为 `hciN.snoop`，可使用 [Wireshark](https://www.wireshark.org/) 等支持 BTSnoop 的工具分析；BabbleSim PHY 上的无线交互保存为 `babblesim/ellisys.bttrp`，可使用 [Ellisys](https://www.ellisys.com/products/bex400/) 查看空口时间线。前者用于定位 Host 与 Controller 的交互，后者用于确认报文收发、信道监听、干扰和碰撞。两类文件均按测试归档，具体位置和生成机制见 [日志、跟踪文件与抓包](artifacts.md)。
+HCI 和 RF 两个边界提供互补的调试信息。Zephyr 和 Python Controller 的 Unix socket 上的 HCI 交互保存为 `hciN.snoop`，可使用 [Wireshark](https://www.wireshark.org/) 等支持 BTSnoop 的工具分析；BabbleSim PHY 上的无线交互保存为 `babblesim/ellisys.bttrp`，可使用 [Ellisys](https://www.ellisys.com/products/bex400/) 查看空口时间线。前者用于定位 Host 与 Controller 的交互，后者用于确认报文收发、信道监听、干扰和碰撞。两类文件均按测试归档，具体位置和生成机制见 [日志、跟踪文件与抓包](artifacts.md)。
 
 图 4 演示了将 `ellisys.bttrp` 导入 Ellisys 并进行报文级分析的过程。
 

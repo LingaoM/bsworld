@@ -5,11 +5,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import socket
 import struct
 import uuid
 
+import pytest
+
 from bsworld.backends.babblesim import BabbleSimBackend
+from bsworld.devices import BSController, ZephyrController
 from bsworld.env import Env
 from bsworld.runtime.proc import ProcessManager
 
@@ -75,3 +79,57 @@ async def test_controller_snoop_preserves_h4_packets_and_controller_timestamps(t
         assert before_stop[offset:offset + included] == packet
         offset += included
     assert offset == len(before_stop)
+
+
+@pytest.mark.parametrize("controller_type", [ZephyrController, BSController], ids=["zephyr", "python"])
+@pytest.mark.parametrize("custom_path", [False, True], ids=["default-path", "application-path"])
+async def test_snoop_matches_live_h4_traffic_without_host_relay(topo, tmp_path, controller_type, custom_path):
+    ctl = topo.add_controller(controller_type=controller_type, public_address="F0:F1:F2:F3:F4:01")
+    if custom_path:
+        ctl.hci_snoop_file = tmp_path / "application" / "hci0.snoop"
+    await topo.start()
+    reader, writer = await asyncio.open_unix_connection(ctl.hci_sock)
+    packets = []
+    try:
+        async with asyncio.timeout(5):
+            for command, response in (
+                ("01030c00", "040e0401030c00"),
+                ("01091000", "040e0a0109100001f4f3f2f1f0"),
+            ):
+                packet = bytes.fromhex(command)
+                # Fragmented socket writes must produce one captured H4 packet.
+                writer.write(packet[:2])
+                await writer.drain()
+                await asyncio.sleep(0)
+                writer.write(packet[2:])
+                await writer.drain()
+                header = await reader.readexactly(3)
+                event = header + await reader.readexactly(header[2])
+                assert event == bytes.fromhex(response)
+                packets.extend([packet, event])
+        before_stop = ctl.hci_snoop_file.read_bytes()
+        assert not list(ctl.socket_dir.glob("*.btsnoop.sock"))
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        await topo.stop()
+    assert ctl.hci_snoop_file.read_bytes() == before_stop
+    assert before_stop[:16] == _FILE_HEADER
+    offset = 16
+    timestamps = []
+    for index, packet in enumerate(packets):
+        length, included, flags, drops, timestamp = _RECORD.unpack_from(before_stop, offset)
+        offset += _RECORD.size
+        assert length == included == len(packet)
+        assert flags == index % 2
+        assert drops == 0
+        assert before_stop[offset:offset + included] == packet
+        timestamps.append(timestamp - _EPOCH_US)
+        offset += included
+    assert offset == len(before_stop)
+    assert timestamps == sorted(timestamps)
+    # Immediate HCI replies retain the command's local time even though socket
+    # delivery happens later in the Host/framework event loop.
+    assert timestamps[0] == timestamps[1]
+    assert timestamps[2] == timestamps[3]
+    assert all(timestamp >= 0 for timestamp in timestamps)

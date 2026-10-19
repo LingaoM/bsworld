@@ -9,12 +9,15 @@ from __future__ import annotations
 import asyncio
 import sys
 from concurrent.futures import Future
+from contextlib import ExitStack
 from functools import partial
+from pathlib import Path
 from queue import Empty, SimpleQueue
 from threading import Event, Thread
 
 from bscontroller.hci.backend import RadioBackend
 from bscontroller.hci.controller import Controller
+from bscontroller.hci.snoop import BtsnoopWriter
 from bscontroller.radio.babblesim import BabbleSimRadio
 from bscontroller.radio.base import PHY_TIME_UNITS_PER_SECOND
 from bscontroller.runtime.event_loop import DEFAULT_MAX_STEP_US, ControllerEventLoop
@@ -46,12 +49,14 @@ class RadioControllerWorker:
         public_address: str = '00:00:00:00:00:00',
         *,
         max_step_us: int = DEFAULT_MAX_STEP_US,
+        hci_snoop_file: Path | None = None,
     ):
         if max_step_us <= 0:
             raise ValueError('max_step_us must be positive')
         self.name = name
         self.public_address = public_address
         self.max_step_us = max_step_us
+        self.hci_snoop_file = hci_snoop_file
         self.sink = None
         self._input: SimpleQueue[bytes] = SimpleQueue()
         self._ready: Future[None] = Future()
@@ -122,31 +127,38 @@ class RadioControllerWorker:
         assert loop is not None
         self._task = asyncio.current_task()
         radio = BabbleSimRadio()
-        backend = RadioBackend(radio)
-        controller = Controller(
-            self.name,
-            backend=backend,
-            public_address=self.public_address,
-            host_sink=_ControllerOutput(self),
-        )
-        try:
-            if self._stopping.is_set():
-                raise asyncio.CancelledError
-            await radio.connect(sim_id, dev_id)
-            radio.bind_loop(loop)
-            self._ready.set_result(None)
-            async with asyncio.TaskGroup() as tasks:
-                input_task = tasks.create_task(self._receive_hci(controller))
-                try:
-                    while True:
-                        self._handle_input(controller)
-                        await backend.link.advance_to_us(radio.now_us + self.max_step_us)
-                finally:
-                    input_task.cancel()
-        finally:
-            if loop.radio_selector.clock is not None:
-                loop.unbind_clock()
-            radio.close()
+        with ExitStack() as resources:
+            resources.callback(radio.close)
+            snoop = (
+                resources.enter_context(BtsnoopWriter(self.hci_snoop_file, lambda: radio.now_us))
+                if self.hci_snoop_file is not None
+                else None
+            )
+            backend = RadioBackend(radio)
+            controller = Controller(
+                self.name,
+                backend=backend,
+                public_address=self.public_address,
+                host_sink=_ControllerOutput(self),
+                snoop=snoop,
+            )
+            try:
+                if self._stopping.is_set():
+                    raise asyncio.CancelledError
+                await radio.connect(sim_id, dev_id)
+                radio.bind_loop(loop)
+                self._ready.set_result(None)
+                async with asyncio.TaskGroup() as tasks:
+                    input_task = tasks.create_task(self._receive_hci(controller))
+                    try:
+                        while True:
+                            self._handle_input(controller)
+                            await backend.link.advance_to_us(radio.now_us + self.max_step_us)
+                    finally:
+                        input_task.cancel()
+            finally:
+                if loop.radio_selector.clock is not None:
+                    loop.unbind_clock()
 
     async def close(self) -> None:
         if self._thread is None:

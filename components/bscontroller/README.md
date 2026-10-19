@@ -48,7 +48,7 @@ Each Controller contains HCI, Link Layer, and radio adaptation; its runtime owns
 
 | Layer | Main implementation | Responsibility |
 | --- | --- | --- |
-| HCI interface | `hci/transport.py`, `hci/packets.py`, `hci/controller.py` | H4 framing, HCI serialization, command dispatch, events, and ACL data |
+| HCI interface | `hci/transport.py`, `hci/packets.py`, `hci/controller.py`, `hci/snoop.py` | H4 framing, HCI serialization, command dispatch, events, ACL data, and BTSnoop capture |
 | HCI commands and state | `hci/backend.py`, `hci/le.py`, `hci/events.py` | HCI validation, capabilities, advertising/scanning/connection state, and event conversion |
 | LE radio procedures | `linklayer/link.py`, `linklayer/primary.py`, `linklayer/extended.py`, `linklayer/periodic.py`, `linklayer/connection.py` | Advertising and scan windows, periodic synchronization, connection events, and on-air PDUs |
 | LL control procedures | `linklayer/control.py`, `linklayer/data_length.py`, `linklayer/encryption.py` | Connection control, data-length negotiation, encryption, and related state machines |
@@ -101,8 +101,10 @@ The example exercises the Host's H4 transport boundary, HCI command processing, 
 Expose H4 HCI to an external Host:
 
 ```sh
-bscontroller serve --hci-socket /tmp/radio.sock
+bscontroller serve --hci-socket /tmp/radio.sock --btsnoop-file /tmp/hci.snoop
 ```
+
+Use `hci_snoop_file=Path(...)` when constructing `RadioController`, or `--btsnoop-file` with the CLI, to write a BTSnoop v1 H4 capture. The worker records complete HCI packets with its local simulation timestamps before handing output to the Host loop. Records are written without user-space buffering; capture does not advance simulation time. BSWorld supplies this path automatically.
 
 The Host exchanges an H4 HCI byte stream over the Unix socket. The service accepts one Host and exits when it disconnects; the socket path must be unused. See `bscontroller serve --help` for more options.
 

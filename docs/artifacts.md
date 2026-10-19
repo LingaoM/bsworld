@@ -95,7 +95,7 @@ await device.wait_log(r"Bluetooth initialized", timeout=30)
 - Lines inspected while searching are consumed from the in-memory queue. A later wait cannot match an old line skipped by an earlier wait.
 - An unterminated fragment is written to the `.log` file immediately, but it becomes matchable only after a newline completes the line.
 
-The event loop processes ready log and HCI file descriptors before advancing the next BabbleSim time step. Log matching, protocol capture, and test callbacks therefore share the same simulation-time synchronization boundary.
+The event loop processes ready log and HCI file descriptors before advancing the next BabbleSim time step. Log matching and test callbacks therefore share the framework clock boundary. Controllers capture HCI using their own local simulation clocks before delivering packets to the Host.
 
 Tail an Application log while a test is running:
 
@@ -118,7 +118,7 @@ If a process exits with a nonzero status before teardown, BSWorld writes a warni
 
 ## HCI BTSnoop Capture
 
-BSWorld passes each Controller its `hciN.snoop` output path with `-btsnoop-file`. The Controller records HCI packets directly at its own transmit/receive boundaries, using its local simulation clock. The Host connects directly to the HCI socket; no relay or separate capture socket participates in the data path. Files use BTSnoop v1, H4 datalink type 1002, complete packet lengths, direction flags and the existing simulation-time epoch. Unbuffered file writes preserve completed records when teardown terminates the Controller.
+BSWorld passes each Controller its `hciN.snoop` output path: Zephyr receives `-btsnoop-file`, and Python `BSController` receives `hci_snoop_file`. The Controller records HCI packets directly at its own transmit/receive boundaries, using its local simulation clock. The Host connects directly to the HCI socket; no relay or separate capture socket participates in the data path. Files use BTSnoop v1, H4 datalink type 1002, complete packet lengths, direction flags and the existing simulation-time epoch. Unbuffered file writes preserve completed records when teardown terminates the Controller.
 
 Open a capture with [Wireshark](https://www.wireshark.org/) or `btmon`:
 
@@ -127,7 +127,7 @@ wireshark /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 btmon -r /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 ```
 
-HCI capture is always enabled.
+HCI capture is always enabled for both Controller implementations. Python Controllers write captures in their worker thread, before output reaches the Host event loop, without advancing simulation time. Application-bound Controllers save the capture under the Application directory; otherwise, captures are saved under `bt_virt_controller/` or `bscontroller/`. Radio traffic from both implementations is included in the shared `ellisys.bttrp` trace.
 
 ## Ellisys Over-the-Air Trace
 

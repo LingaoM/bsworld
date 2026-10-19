@@ -51,6 +51,8 @@ Each Python Controller owns its worker, radio endpoint and address. Omit `max_st
 
 New implementations subclass `Controller` and implement asynchronous `start(pm, env, *, log_dir)` and `stop()`. The base class provides the HCI socket path and device metadata. Startup launches the runtime without waiting for other PHY participants; returning does not guarantee that the HCI socket is ready. The backend waits for socket readiness, and the topology completes registration after launching the Hosts. Shutdown releases resources even after a partial startup failure.
 
+Both Controller implementations write their own `hciN.snoop` files using local simulation timestamps. Python Controllers capture HCI in their worker thread before handing output to the Host loop. The shared PHY also produces `ellisys.bttrp`.
+
 ## Async Waiting and Simulation Time
 
 BSWorld preserves the standard asyncio programming model. Tests do not need simulation-specific task, I/O, sleep, or timeout APIs. Pytest runs on a `BsimEventLoop`, which retains asyncio's tasks, futures, queues, events, streams, and sockets; only its source of time and blocking behavior change after simulation startup.
