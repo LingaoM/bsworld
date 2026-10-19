@@ -44,6 +44,18 @@ pytest tests/unit -q
 
 业务程序行为、RF 传播本身，以及端到端 Bluetooth LE 示例，由 `tests/integration/*` 下的仿真测试覆盖。
 
+Bumble、NuttX NimBLE、QEMU 和 Zephyr Host 套件中，每个业务场景都会分别以 `[zephyr]` 和 `[bscontroller]` 两个参数运行，复用同一份测试函数、Host 二进制、步骤和断言。NuttX BTSak 暂时只运行 `[zephyr]` 组合。`tests/integration/controllers.py` 中的共享 fixture 统一选择拓扑默认的 Controller；显式传入 `controller_type=` 仍可创建混合拓扑。参数 ID 同时区分仿真实例、报告、日志和抓包目录。
+
+```sh
+# 运行两种 Controller，同时保留已有的后端与混合拓扑检查。
+pytest tests/integration -v
+
+# 只运行使用 BSController 的 Host 业务场景。
+pytest tests/integration -k bscontroller -v
+```
+
+NuttX BTSak 通过套件目录下的 fixture 选择 Zephyr Controller，因为其初始化需要 BSController 尚未支持的 Host Buffer Size 和 Controller→Host 流控命令。NuttX NimBLE 已覆盖两种 Controller，包含广播、连接建立、GATT 服务发现和订阅。
+
 ## 静态检查
 
 使用 [Ruff](https://docs.astral.sh/ruff/) 执行 Python 静态检查：
