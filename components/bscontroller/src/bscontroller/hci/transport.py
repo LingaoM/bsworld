@@ -121,10 +121,11 @@ class H4Server:
     async def __aexit__(self, exc_type, exc, traceback):
         if self.server is not None:
             self.server.close()
-            await self.server.wait_closed()
-            self.path.unlink(missing_ok=True)
         if self.task is not None and not self.task.done():
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
+        if self.server is not None:
+            await self.server.wait_closed()
+            self.path.unlink(missing_ok=True)
         if self.finished.done() and not self.finished.cancelled():
             self.finished.exception()

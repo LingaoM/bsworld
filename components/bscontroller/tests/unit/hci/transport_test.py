@@ -53,3 +53,26 @@ async def test_existing_socket_path_is_preserved(tmp_path):
             async with H4Server(SimpleNamespace(set_packet_sink=lambda sink: None), path):
                 pass
     assert path.read_bytes() == b'owned by another process'
+
+
+async def test_server_shutdown_closes_a_connected_host(tmp_path):
+    received = asyncio.Event()
+    controller = SimpleNamespace(
+        set_packet_sink=lambda sink: None,
+        on_packet=lambda packet: received.set(),
+    )
+    path = tmp_path / 'hci.sock'
+    writer = None
+    try:
+        async with asyncio.timeout(1):
+            async with H4Server(controller, path):
+                reader, writer = await asyncio.open_unix_connection(path)
+                writer.write(bytes.fromhex('01030c00'))
+                await writer.drain()
+                await received.wait()
+            assert await reader.read(1) == b''
+            assert not path.exists()
+    finally:
+        if writer is not None:
+            writer.close()
+            await writer.wait_closed()
