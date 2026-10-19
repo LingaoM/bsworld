@@ -30,5 +30,5 @@ After compiling every group and exporting its variables, run all groups in the B
 ```sh
 cd "$BSWORLD_ROOT"
 source .venv/bin/activate
-pytest tests/integration/zephyr/samples -q --no-ellisys
+pytest tests/integration/zephyr/samples -q
 ```

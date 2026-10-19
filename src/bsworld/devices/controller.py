@@ -48,14 +48,11 @@ class Controller:
     socket_dir: Path
     application_dev_id: int | None
     public_address: str | None = None
+    hci_snoop_file: Path | None = None
 
     @property
     def hci_sock(self) -> Path:
         return self.socket_dir / f"hci{self.controller_dev_id}.sock"
-
-    @property
-    def hci_btsnoop_sock(self) -> Path:
-        return self.hci_sock.with_suffix(".btsnoop.sock")
 
     def __repr__(self) -> str:
         return f"<Controller dev{self.controller_dev_id}>"

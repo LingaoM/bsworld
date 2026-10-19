@@ -36,5 +36,5 @@ export BSWORLD_ZEPHYR_CENTRAL_HR_BIN="$ZEPHYR_WORKSPACE/build/bsworld_zephyr_cen
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"
 cd "$BSWORLD_ROOT"
-pytest tests/integration/zephyr/samples/heart_rate -q --no-ellisys
+pytest tests/integration/zephyr/samples/heart_rate -q
 ```

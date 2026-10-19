@@ -36,5 +36,5 @@ export BSWORLD_ZEPHYR_PERIODIC_SYNC_BIN="$ZEPHYR_WORKSPACE/build/bsworld_zephyr_
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"
 cd "$BSWORLD_ROOT"
-pytest tests/integration/zephyr/samples/periodic_advertising -q --no-ellisys
+pytest tests/integration/zephyr/samples/periodic_advertising -q
 ```

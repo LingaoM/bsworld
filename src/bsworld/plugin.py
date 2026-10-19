@@ -47,13 +47,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         except argparse.ArgumentError:
             pass
 
-    _add("--no-ellisys", action="store_true", help="disable BabbleSim PHY dumps and Ellisys .bttrp conversion")
     _add("--out-dir", default=None, help="base output directory; run-<timestamp>/<uid> is appended (default: /tmp)")
-    _add(
-        "--no-hci-dump",
-        action="store_true",
-        help="disable per-test HCI BTSnoop capture (hciN.snoop in each device log dir)",
-    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -99,7 +93,6 @@ def bsworld_session_env(request: pytest.FixtureRequest) -> Env:
         out_tag=cfg._bsworld_out_dir,
         now_tag=cfg._bsworld_now_tag,
         run_uid=cfg._bsworld_run_uid,
-        bsim_ellisys=not bool(cfg.getoption("no_ellisys")),
     )
 
 
@@ -132,11 +125,9 @@ def _test_log_dir_for_node(nodeid: str, log_dir: Path) -> Path:
 
 
 def create_topology_for_request(env: Env, request: pytest.FixtureRequest) -> BluetoothTopology:
-    cfg = request.config
     topology = BluetoothTopology(
         env,
         sim_id=_sim_id_for_node(request.node.nodeid, env.run_uid),
         test_log_dir=_test_log_dir_for_node(request.node.nodeid, env.log_dir),
-        hci_dump=not bool(cfg.getoption("no_hci_dump")),
     )
     return topology

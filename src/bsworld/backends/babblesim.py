@@ -68,7 +68,6 @@ _DEFAULT_MODEM = "BLE_simple"
 class BabbleSimBackend:
     env: Env
     sim_id: str
-    hci_dump: bool = True
     controllers: list[Controller] = field(default_factory=list)
     channel_attenuation: ChannelAttenuation | None = None
     interference_sources: list[InterferenceSource] = field(default_factory=list)
@@ -141,10 +140,9 @@ class BabbleSimBackend:
             stderr=subprocess.DEVNULL,
         )
         for ctl in self.controllers:
-            for sock in (ctl.hci_sock, ctl.hci_btsnoop_sock):
-                if sock.exists():
-                    log(f"removing stale {sock}")
-                    sock.unlink()
+            if ctl.hci_sock.exists():
+                log(f"removing stale {ctl.hci_sock}")
+                ctl.hci_sock.unlink()
 
     def start(self, pm: ProcessManager, *, log_dir: Path | None = None, ready_timeout: float = 30.0) -> None:
         log_dir = log_dir or self.env.log_dir
@@ -192,10 +190,7 @@ class BabbleSimBackend:
             # switch back to main phy args so subsequent flags (-dump etc.) are
             # not consumed by the channel plugin
             phy_argv.append("-argsmain")
-        if self.env.bsim_ellisys:
-            phy_argv.extend(["-dump", "-dump_imm"])
-        else:
-            phy_argv.append("-nodump")
+        phy_argv.extend(["-dump", "-dump_imm"])
         phy_process = pm.spawn(
             "bs_2G4_phy_v1",
             phy_argv,
@@ -216,16 +211,19 @@ class BabbleSimBackend:
         virt_controller_log_dir = log_dir / "bt_virt_controller"
         controller_bin = hci_virt_build.controller_bin(self.env)
         for ctl in self.controllers:
+            ctl.hci_snoop_file = (
+                ctl.hci_snoop_file or virt_controller_log_dir / f"hci{ctl.controller_dev_id}.snoop"
+            ).resolve()
+            ctl.hci_snoop_file.parent.mkdir(parents=True, exist_ok=True)
             controller_argv = [
                 controller_bin,
                 f"-s={self.sim_id}",
                 f"-d={ctl.controller_dev_id}",
                 f"-hci-socket={ctl.hci_sock}",
+                f"-btsnoop-file={ctl.hci_snoop_file}",
             ]
             if ctl.public_address is not None:
                 controller_argv.append(f"-bd-addr={ctl.public_address}")
-            if self.hci_dump:
-                controller_argv.append(f"-btsnoop-socket={ctl.hci_btsnoop_sock}")
             pm.spawn(
                 f"bt_virt_controller_hci{ctl.controller_dev_id}",
                 controller_argv,
@@ -269,16 +267,6 @@ class BabbleSimBackend:
         wait_for_paths(socks, timeout=timeout)
         log("hci socket(s) bound")
 
-    def wait_for_btsnoop_sockets(self, *, timeout: float = 30.0) -> None:
-        if not self.hci_dump:
-            return
-        socks = [ctl.hci_btsnoop_sock for ctl in self.controllers]
-        if not socks:
-            return
-        log(f"waiting for {len(socks)} HCI BTSnoop socket(s)")
-        wait_for_paths(socks, timeout=timeout)
-        log("HCI BTSnoop socket(s) bound")
-
     def finish(self, *, log_dir: Path | None = None) -> None:
         if self.clock is not None:
             try:
@@ -290,8 +278,7 @@ class BabbleSimBackend:
         if not self.controllers:
             return
         try:
-            if self.env.bsim_ellisys:
-                self.convert_ellisys(log_dir=log_dir)
+            self.convert_ellisys(log_dir=log_dir)
         finally:
             self.cleanup_sim_artifacts()
 
@@ -326,12 +313,7 @@ class BabbleSimBackend:
             shutil.rmtree(results_dir, ignore_errors=True)
 
         for ctl in self.controllers:
-            for sock in (ctl.hci_sock, ctl.hci_btsnoop_sock):
-                if sock.exists():
-                    try:
-                        sock.unlink()
-                    except FileNotFoundError:
-                        pass
+            ctl.hci_sock.unlink(missing_ok=True)
 
 
 def _write_attenuation_matrix(

@@ -28,5 +28,5 @@ The output is `$NUTTX_DIR/nuttx`. Keep its linked BabbleSim shared libraries ava
 ```sh
 cd "$BSWORLD_ROOT"
 source .venv/bin/activate
-pytest tests/integration/nuttx/btsak -q --no-ellisys
+pytest tests/integration/nuttx/btsak -q
 ```

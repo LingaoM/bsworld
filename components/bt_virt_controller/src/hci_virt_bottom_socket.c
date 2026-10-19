@@ -5,7 +5,7 @@
  * Built in native_simulator runner context.
  * Use -hci-socket=<path> on the command line to specify the socket path,
  * or defaults to /tmp/hci0.sock.
- * Use -btsnoop-socket=<path> to enable best-effort passive BTSnoop capture.
+ * Use -btsnoop-file=<path> to write BTSnoop capture directly to a file.
  * Use -bd-addr=<AA:BB:CC:DD:EE:FF> to set the controller public address.
  * Use -hci-poll-interval=<microseconds> to override the default 1 ms HCI poll
  * interval and PHY maximum resynchronization offset.
@@ -45,16 +45,11 @@
 #define BTSNOOP_RECORD_HEADER_LEN 24
 #define BTSNOOP_MAX_FRAME 2048
 
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0
-#endif
-
 static int listen_fd = -1;
 static int client_fd = -1;
-static int btsnoop_listen_fd = -1;
-static int btsnoop_client_fd = -1;
+static int btsnoop_fd = -1;
 static char *socket_path_arg;
-static char *btsnoop_socket_path_arg;
+static char *btsnoop_file_path_arg;
 static char *bd_addr_arg;
 static uint64_t hci_poll_interval_arg;
 static bs_time_t hci_poll_interval_us = DEFAULT_HCI_POLL_INTERVAL_US;
@@ -129,11 +124,11 @@ static void register_socket_args(void)
 				    "(default: " DEFAULT_SOCKET_PATH ")",
 		},
 		{
-			.option   = "btsnoop-socket",
+			.option   = "btsnoop-file",
 			.name     = "path",
 			.type     = 's',
-			.dest     = (void *)&btsnoop_socket_path_arg,
-			.descript = "Unix socket path for passive BTSnoop HCI capture "
+			.dest     = (void *)&btsnoop_file_path_arg,
+			.descript = "File path for BTSnoop HCI capture "
 				    "(disabled by default)",
 		},
 		{
@@ -180,42 +175,24 @@ const char *hci_virt_bd_addr(void)
 	return (bd_addr_arg && bd_addr_arg[0]) ? bd_addr_arg : NULL;
 }
 
-static bool btsnoop_enabled(void)
-{
-	return btsnoop_socket_path_arg && btsnoop_socket_path_arg[0];
-}
-
-static void close_btsnoop_client(void)
-{
-	if (btsnoop_client_fd >= 0) {
-		close(btsnoop_client_fd);
-		btsnoop_client_fd = -1;
-	}
-}
-
-static bool write_nonblocking_all(int fd, const uint8_t *buf, unsigned long len)
+static void write_btsnoop_all(const uint8_t *buf, unsigned long len)
 {
 	unsigned long total = 0;
 
 	while (total < len) {
-		long n = send(fd, buf + total, len - total, MSG_NOSIGNAL);
-
-		if (n > 0) {
-			total += n;
-			continue;
-		}
+		ssize_t n = write(btsnoop_fd, buf + total, len - total);
 
 		if (n < 0 && errno == EINTR) {
 			continue;
 		}
-
-		return false;
+		if (n <= 0) {
+			nsi_print_error_and_exit("btsnoop_file: write failed: %s\n", strerror(errno));
+		}
+		total += (unsigned long)n;
 	}
-
-	return true;
 }
 
-static bool write_btsnoop_file_header(void)
+static void write_btsnoop_file_header(void)
 {
 	uint8_t header[BTSNOOP_FILE_HEADER_LEN] = {
 		'b', 't', 's', 'n', 'o', 'o', 'p', '\0',
@@ -224,65 +201,23 @@ static bool write_btsnoop_file_header(void)
 	put_be32(&header[8], 1);
 	put_be32(&header[12], BTSNOOP_DATALINK_HCI_H4);
 
-	return write_nonblocking_all(btsnoop_client_fd, header, sizeof(header));
+	write_btsnoop_all(header, sizeof(header));
 }
 
-static void try_accept_btsnoop(void)
+static void open_btsnoop_file(void)
 {
-	int fd;
-
-	if (btsnoop_listen_fd < 0 || btsnoop_client_fd >= 0) {
+	if (!btsnoop_file_path_arg || !btsnoop_file_path_arg[0]) {
 		return;
 	}
 
-	fd = accept(btsnoop_listen_fd, NULL, NULL);
-	if (fd >= 0) {
-		set_nonblocking(fd);
-		btsnoop_client_fd = fd;
-		nsi_print_trace("btsnoop_socket: client connected\n");
-		if (!write_btsnoop_file_header()) {
-			nsi_print_trace("btsnoop_socket: failed to send file header, client disconnected\n");
-			close_btsnoop_client();
-		}
-		return;
+	/* Unbuffered writes preserve the last record even on SIGKILL teardown. */
+	btsnoop_fd = open(btsnoop_file_path_arg, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+	if (btsnoop_fd < 0) {
+		nsi_print_error_and_exit("btsnoop_file: open %s: %s\n",
+					btsnoop_file_path_arg, strerror(errno));
 	}
-
-	if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-		return;
-	}
-
-	nsi_print_trace("btsnoop_socket: accept failed: %s\n", strerror(errno));
-}
-
-static int open_btsnoop_socket(void)
-{
-	struct sockaddr_un addr = { .sun_family = AF_UNIX };
-
-	if (!btsnoop_enabled()) {
-		return 0;
-	}
-
-	unlink(btsnoop_socket_path_arg);
-
-	btsnoop_listen_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-	if (btsnoop_listen_fd < 0) {
-		nsi_print_error_and_exit("btsnoop_socket: socket: %s\n", strerror(errno));
-	}
-
-	strncpy(addr.sun_path, btsnoop_socket_path_arg, sizeof(addr.sun_path) - 1);
-	if (bind(btsnoop_listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-		nsi_print_error_and_exit("btsnoop_socket: bind %s: %s\n",
-					 btsnoop_socket_path_arg, strerror(errno));
-	}
-
-	if (listen(btsnoop_listen_fd, 1) < 0) {
-		nsi_print_error_and_exit("btsnoop_socket: listen: %s\n", strerror(errno));
-	}
-
-	set_nonblocking(btsnoop_listen_fd);
-	nsi_print_trace("btsnoop_socket: Unix socket = %s\n", btsnoop_socket_path_arg);
-
-	return 0;
+	write_btsnoop_file_header();
+	nsi_print_trace("btsnoop_file: %s\n", btsnoop_file_path_arg);
 }
 
 /* Non-blocking single attempt: returns 1 if accepted, 0 if no client yet */
@@ -330,7 +265,7 @@ int hci_virt_open(void)
 
 	set_nonblocking(listen_fd);
 	nsi_print_trace("hci_socket: Unix socket = %s\n", path);
-	open_btsnoop_socket();
+	open_btsnoop_file();
 	schedule_poll(hci_poll_interval_us);
 
 	return 0;
@@ -339,8 +274,6 @@ int hci_virt_open(void)
 /* Returns 1 if data available, 0 if not */
 int hci_virt_poll(void)
 {
-	try_accept_btsnoop();
-
 	if (client_fd < 0) {
 		/* Waiting for reconnect; non-blocking try each call */
 		try_accept();
@@ -418,12 +351,7 @@ void hci_virt_btsnoop_capture(const void *buf, unsigned long len, bool tx)
 	uint64_t timestamp_us;
 	uint32_t drops;
 
-	if (btsnoop_listen_fd < 0) {
-		return;
-	}
-
-	try_accept_btsnoop();
-	if (btsnoop_client_fd < 0) {
+	if (btsnoop_fd < 0) {
 		return;
 	}
 
@@ -442,13 +370,7 @@ void hci_virt_btsnoop_capture(const void *buf, unsigned long len, bool tx)
 	put_be64(&record[16], timestamp_us);
 	memcpy(&record[BTSNOOP_RECORD_HEADER_LEN], payload, len);
 
-	if (!write_nonblocking_all(btsnoop_client_fd, record,
-				   BTSNOOP_RECORD_HEADER_LEN + len)) {
-		btsnoop_drops++;
-		nsi_print_trace("btsnoop_socket: record write failed, client disconnected\n");
-		close_btsnoop_client();
-		return;
-	}
+	write_btsnoop_all(record, BTSNOOP_RECORD_HEADER_LEN + len);
 
 	btsnoop_drops = 0;
 }

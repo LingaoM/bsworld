@@ -36,5 +36,5 @@ Switch back to the BSWorld Python environment in the same shell, retaining the e
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"
 cd "$BSWORLD_ROOT"
-pytest tests/integration/zephyr/samples/broadcast_observe -q --no-ellisys
+pytest tests/integration/zephyr/samples/broadcast_observe -q
 ```

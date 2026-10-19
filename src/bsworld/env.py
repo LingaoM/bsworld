@@ -65,8 +65,6 @@ class Env:
 
     bs_state_dir: Path
 
-    bsim_ellisys: bool = True
-
     @classmethod
     def detect(
         cls,
@@ -74,7 +72,6 @@ class Env:
         out_tag: str | None = None,
         now_tag: str | None = None,
         run_uid: str | None = None,
-        bsim_ellisys: bool = True,
     ) -> "Env":
         base_dir = Path(out_tag or os.environ.get("OUT_DIR") or "/tmp")
         resolved_tag = now_tag or _now_tag()
@@ -97,7 +94,6 @@ class Env:
             bsim_dir=bsim_dir,
             bsim_bin_dir=bsim_dir / "bin" if bsim_dir else None,
             bs_state_dir=Path("/tmp") / f"bs_{user}",
-            bsim_ellisys=bsim_ellisys,
         )
 
     def sim_dir(self, sim_id: str) -> Path:

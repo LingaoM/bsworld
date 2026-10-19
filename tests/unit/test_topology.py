@@ -171,20 +171,6 @@ def test_add_wlan_interference_exposes_full_wlan_parameters(tmp_path) -> None:
     assert source.rand_seed == 7
 
 
-async def test_setup_hci_skips_capture_when_dump_disabled(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log", hci_dump=False)
-    exe = tmp_path / "firmware"
-    exe.write_text("")
-    ctl = _register_process(topo, exe=exe).controller
-    ctl.socket_dir.mkdir(parents=True)
-    ctl.hci_sock.write_text("")
-
-    await topo._setup_hci()
-
-    assert ctl.hci_sock.exists()
-    assert topo._btsnoop_captures == []
-
-
 async def test_start_keeps_wall_time_without_bsim_clock(tmp_path) -> None:
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
 
@@ -197,12 +183,12 @@ async def test_start_keeps_wall_time_without_bsim_clock(tmp_path) -> None:
         await topo.stop()
 
 
-async def test_start_configures_babblesim_hci_dump_before_backend_start(tmp_path, monkeypatch) -> None:
+async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkeypatch) -> None:
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
     exe = tmp_path / "firmware"
     exe.write_text("")
     dev = _register_process(topo, exe=exe, label="dev0")
-    seen_hci_dump: list[bool] = []
+    seen_snoop_paths: list[Path] = []
 
     class FakeClock:
         now_us = 0
@@ -223,18 +209,12 @@ async def test_start_configures_babblesim_hci_dump_before_backend_start(tmp_path
         return None
 
     topo.bsim.clock = FakeClock()
-    topo.hci_dump = False
     monkeypatch.setattr(dev, "start", fake_start)
     monkeypatch.setattr(topo.bsim, "wait_for_hci_sockets", lambda: None)
     monkeypatch.setattr(topo.bsim, "wait_for_devices_registered", lambda: None)
 
-    async def fake_setup_hci() -> None:
-        return None
-
-    monkeypatch.setattr(topo, "_setup_hci", fake_setup_hci)
-
     def fake_backend_start(pm, *, log_dir):  # noqa: ANN001, ARG001
-        seen_hci_dump.append(topo.bsim.hci_dump)
+        seen_snoop_paths.append(dev.controller.hci_snoop_file)
 
     monkeypatch.setattr(topo.bsim, "start", fake_backend_start)
     monkeypatch.setattr(topo.bsim, "finish", lambda *, log_dir: None)
@@ -243,7 +223,7 @@ async def test_start_configures_babblesim_hci_dump_before_backend_start(tmp_path
     assert isinstance(loop, BsimEventLoop)
     await topo.start()
     try:
-        assert seen_hci_dump == [False]
+        assert seen_snoop_paths == [tmp_path / "log" / "hci0.snoop"]
         assert loop.discrete_clock is topo.bsim.clock
         assert topo.bsim.clock.synchronized
     finally:
@@ -251,92 +231,17 @@ async def test_start_configures_babblesim_hci_dump_before_backend_start(tmp_path
     assert loop.discrete_clock is None
 
 
-async def test_setup_hci_uses_virtual_controller_btsnoop_socket_capture(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("application", [False, True])
+def test_snoop_path_uses_the_controller_or_application_log_directory(tmp_path, application):
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    exe = tmp_path / "firmware"
-    exe.write_text("")
-    ctl = _register_process(
-        topo,
-        exe=exe,
-        label="dev0",
-        log_subdir=Path("devices") / "dev0",
-    ).controller
-    ctl.socket_dir.mkdir(parents=True)
-    ctl.hci_btsnoop_sock.write_text("")
-    waited: list[str] = []
-    started: list[tuple[Path, Path, float]] = []
-
-    class FakeCapture:
-        def __init__(
-            self,
-            *,
-            socket_path,
-            output_path,
-        ) -> None:
-            self.socket_path = socket_path
-            self.output_path = output_path
-
-        async def start(self, *, timeout: float) -> None:
-            started.append((self.socket_path, self.output_path, timeout))
-
-        async def stop(self) -> None:
-            return None
-
-    monkeypatch.setattr(topo.bsim, "wait_for_btsnoop_sockets", lambda: waited.append("wait_btsnoop"))
-    monkeypatch.setattr("bsworld.topology.BtsnoopSocketCapture", FakeCapture)
-
-    await topo._setup_hci()
-
-    assert waited == ["wait_btsnoop"]
-    assert started == [
-        (
-            tmp_path / "state" / "sim0" / "hci0.btsnoop.sock",
-            tmp_path / "log" / "devices" / "dev0" / "hci0.snoop",
-            30.0,
-        )
-    ]
-    assert len(topo._btsnoop_captures) == 1
-
-
-async def test_setup_hci_captures_in_process_controller_btsnoop(tmp_path, monkeypatch) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    ctl = topo.add_controller(
-        public_address="C0:FF:EE:00:00:04",
-        log_subdir=Path("python") / "bumble",
-    )
-    ctl.socket_dir.mkdir(parents=True)
-    ctl.hci_btsnoop_sock.write_text("")
-    started: list[tuple[Path, Path, float]] = []
-
-    class FakeCapture:
-        def __init__(
-            self,
-            *,
-            socket_path,
-            output_path,
-        ) -> None:
-            self.socket_path = socket_path
-            self.output_path = output_path
-
-        async def start(self, *, timeout: float) -> None:
-            started.append((self.socket_path, self.output_path, timeout))
-
-        async def stop(self) -> None:
-            return None
-
-    monkeypatch.setattr(topo.bsim, "wait_for_btsnoop_sockets", lambda: None)
-    monkeypatch.setattr("bsworld.topology.BtsnoopSocketCapture", FakeCapture)
-
-    await topo._setup_hci()
-
-    assert started == [
-        (
-            tmp_path / "state" / "sim0" / "hci0.btsnoop.sock",
-            tmp_path / "log" / "python" / "bumble" / "hci0.snoop",
-            30.0,
-        )
-    ]
-    assert len(topo._btsnoop_captures) == 1
+    ctl = topo.add_controller(log_subdir="python/bumble")
+    assert ctl.hci_snoop_file == tmp_path / "log" / "python/bumble" / "hci0.snoop"
+    if application:
+        exe = tmp_path / "firmware"
+        exe.touch()
+        topo.add_process(ProcessInstance(command=[exe], controller=ctl, label="dev0", log_subdir="devices/dev0"))
+    subdir = "devices/dev0" if application else "python/bumble"
+    assert ctl.hci_snoop_file == tmp_path / "log" / subdir / "hci0.snoop"
 
 
 def test_process_command_resolves_after_all_device_ids_are_assigned(tmp_path) -> None:

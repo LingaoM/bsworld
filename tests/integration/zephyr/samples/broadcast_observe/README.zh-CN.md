@@ -36,5 +36,5 @@ export BSWORLD_ZEPHYR_OBSERVER_BIN="$ZEPHYR_WORKSPACE/build/bsworld_zephyr_obser
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"
 cd "$BSWORLD_ROOT"
-pytest tests/integration/zephyr/samples/broadcast_observe -q --no-ellisys
+pytest tests/integration/zephyr/samples/broadcast_observe -q
 ```
