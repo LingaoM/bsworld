@@ -17,20 +17,21 @@ BSWorld 为每个 HCI socket 启动一个虚拟 Controller：
   [-hci-poll-interval=<microseconds>] \
   -hci-socket=<hci_socket_path> \
   [-bd-addr=<AA:BB:CC:DD:EE:FF>] \
-  [-btsnoop-socket=<btsnoop_socket_path>]
+  [-btsnoop-file=<btsnoop_file_path>]
 ```
 
 - `-s` 和 `-d` 分别指定 BabbleSim 仿真标识和 Controller 设备编号。
 - `-hci-poll-interval` 设置 HCI socket 轮询周期，并将同一个值应用为 PHY 最大重同步间隔；默认值为 1,000 微秒（1 ms）。
 - `-hci-socket` 承载双向 H4 HCI 帧。
 - `-bd-addr` 用于在 Host 连接前初始化 Controller 的 public address。
-- `-btsnoop-socket` 开启独立抓包通道；即使抓包端处理不及时，也不会阻塞 HCI 数据路径。
+
+`-btsnoop-file` 使用 Controller 本地仿真时间戳，直接将 BTSnoop 记录写入指定文件。BSWorld 创建父目录并始终传入每个设备的输出路径，HCI 仍通过 Unix socket 直连。
 
 ## 构建
 
 推荐使用的 [Docker 测试镜像](../../docker/README.zh-CN.md#使用已发布镜像)已包含 Controller。以下命令用于本机 Linux 构建。
 
-先按照[README 构建说明](../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim，并保留 `BSWORLD_ROOT`、`BSIM_OUT_PATH`、`BSIM_COMPONENTS_PATH` 和 `BSIM_BASE_PATH`。本机请先按 [Zephyr 环境说明](../../tests/integration/zephyr/samples/common/source/README.zh-CN.md)设置 `ZEPHYR_WORKSPACE`。
+先按照[README 构建说明](../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim，并保留 `BSWORLD_ROOT`、`BSIM_OUT_PATH` 和 `BSIM_COMPONENTS_PATH`。本机请先按 [Zephyr 环境说明](../../tests/integration/zephyr/samples/common/source/README.zh-CN.md)设置 `ZEPHYR_WORKSPACE`。
 
 直接使用官方 [west build](https://docs.zephyrproject.org/latest/develop/west/build-flash-debug.html) 命令：
 

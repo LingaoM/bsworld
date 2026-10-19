@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import signal
+import subprocess
+from unittest.mock import Mock
 
 import pytest
 
@@ -173,4 +175,44 @@ def test_install_signal_handlers_is_idempotent(monkeypatch) -> None:
 def test_cleanup_is_noop_without_processes() -> None:
     pm = ProcessManager()
     pm.cleanup()  # should not raise
+    assert pm.procs == []
+
+
+def test_stop_releases_only_the_selected_process(tmp_path):
+    pm = ProcessManager()
+    first = pm.spawn("first", ["/bin/sleep", "30"], cwd=tmp_path, log_dir=tmp_path)
+    second = pm.spawn("second", ["/bin/sleep", "30"], cwd=tmp_path, log_dir=tmp_path)
+    try:
+        pm.stop(first)
+        pm.stop(first)
+        assert not first.alive()
+        assert first.log_fh.closed
+        assert second.alive()
+        assert pm.procs == [second]
+    finally:
+        pm.cleanup()
+
+
+@pytest.mark.parametrize("method", ["stop", "cleanup"])
+def test_process_reaping_reports_errors_and_releases_bookkeeping(tmp_path, monkeypatch, method):
+    warnings = []
+    monkeypatch.setattr(proc_mod, "warn", warnings.append)
+    popen = Mock()
+    popen.poll.return_value = 0
+    popen.wait.side_effect = subprocess.TimeoutExpired("child", 5)
+    log_fh = Mock()
+    log_fh.close.side_effect = OSError("log close failed")
+    proc = Proc("child", popen, tmp_path / "child.log", log_fh)
+    pm = ProcessManager(procs=[proc])
+
+    if method == "stop":
+        pm.stop(proc)
+    else:
+        pm.cleanup()
+
+    log_fh.close.assert_called_once()
+    assert warnings == [
+        "child: process did not exit after SIGKILL",
+        "child: failed to close log file: log close failed",
+    ]
     assert pm.procs == []

@@ -72,7 +72,7 @@ A typical NuttX scanning test produces this layout:
 | `babblesim/bs_2G4_phy_v1.log` | BabbleSim PHY | PHY process stdout and stderr. It can be empty during a normal run. |
 | `bt_virt_controller/*.log` | Virtual Controller | Controller startup output, assertions, and internal diagnostics. |
 | `<Application>/<name>.log` | Application | Combined Application stdout and stderr, also used as the source for `wait_log()`. |
-| `<Application>/hciN.snoop` | Virtual Controller BTSnoop socket | HCI commands, events, and ACL data between the Host and its Virtual Controller. |
+| `<Application>/hciN.snoop` | Controller BTSnoop file | HCI commands, events, and ACL data between the Host and its Virtual Controller. |
 | `babblesim/ellisys.bttrp` | BSWorld Python converter | Bluetooth LE over-the-air activity for every virtual device on the shared PHY. |
 | `babblesim/att_matrix.txt` | BSWorld | Static path-attenuation matrix passed to the `multiatt` channel model. |
 | `babblesim/timed_att_*.txt` | BSWorld | Time points and attenuation values for time-varying paths. |
@@ -95,7 +95,7 @@ await device.wait_log(r"Bluetooth initialized", timeout=30)
 - Lines inspected while searching are consumed from the in-memory queue. A later wait cannot match an old line skipped by an earlier wait.
 - An unterminated fragment is written to the `.log` file immediately, but it becomes matchable only after a newline completes the line.
 
-The event loop processes ready log and HCI file descriptors before advancing the next BabbleSim time step. Log matching, protocol capture, and test callbacks therefore share the same simulation-time synchronization boundary.
+The event loop processes ready log and HCI file descriptors before advancing the next BabbleSim time step. Log matching and test callbacks therefore share the framework clock boundary. Controllers capture HCI using their own local simulation clocks before delivering packets to the Host.
 
 Tail an Application log while a test is running:
 
@@ -110,7 +110,7 @@ Every test has one `bsworld.log`, beginning when `topo.start()` starts framework
 - The BabbleSim instance ID and device count.
 - Full commands for the PHY, Virtual Controllers, and Applications.
 - Working directory, log path, and PID for every process.
-- Startup barriers for HCI sockets, BTSnoop sockets, and BabbleSim device locks.
+- Startup barriers for Controller HCI sockets and BabbleSim device locks.
 - Processes still running during teardown and their cleanup order.
 - Inputs and output used for Ellisys conversion.
 
@@ -118,7 +118,7 @@ If a process exits with a nonzero status before teardown, BSWorld writes a warni
 
 ## HCI BTSnoop Capture
 
-The Virtual Controller emits HCI traffic through a separate BTSnoop Unix socket, which BSWorld saves as `hciN.snoop`.
+BSWorld passes each Controller its `hciN.snoop` output path: Zephyr receives `-btsnoop-file`, and Python `BSController` receives `hci_snoop_file`. The Controller records HCI packets directly at its own transmit/receive boundaries, using its local simulation clock. The Host connects directly to the HCI socket; no relay or separate capture socket participates in the data path. Files use BTSnoop v1, H4 datalink type 1002, complete packet lengths, direction flags and the existing simulation-time epoch. Unbuffered file writes preserve completed records when teardown terminates the Controller.
 
 Open a capture with [Wireshark](https://www.wireshark.org/) or `btmon`:
 
@@ -127,15 +127,11 @@ wireshark /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 btmon -r /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 ```
 
-Disable HCI capture when it is not needed:
-
-```sh
-pytest tests/ --no-hci-dump
-```
+HCI capture is always enabled for both Controller implementations. Python Controllers write captures in their worker thread, before output reaches the Host event loop, without advancing simulation time. Application-bound Controllers save the capture under the Application directory; otherwise, captures are saved under `bt_virt_controller/` or `bscontroller/`. Radio traffic from both implementations is included in the shared `ellisys.bttrp` trace.
 
 ## Ellisys Over-the-Air Trace
 
-When Ellisys output is enabled, the BabbleSim PHY writes per-device CSV dumps during the test. During teardown, BSWorld converts and merges transmission records in Python into `babblesim/ellisys.bttrp`, then removes temporary BabbleSim state, sockets, and the raw results directory.
+The BabbleSim PHY writes per-device CSV dumps during the test. During teardown, BSWorld converts and merges transmission records in Python into `babblesim/ellisys.bttrp`, then removes temporary BabbleSim state, sockets, and the raw results directory.
 
 To open the trace in [Ellisys](https://www.ellisys.com/products/bex400/) software, select **File > Import**, choose **Bluetooth packets**, click **Next**, click **Browse**, and select the test's `ellisys.bttrp` file.
 
@@ -152,11 +148,7 @@ The `.bttrp` trace represents PHY-side radio activity and is useful for determin
 - Attenuation or interference caused packet loss.
 - Radio events from multiple devices collided.
 
-Disable PHY dumps and Ellisys conversion:
-
-```sh
-pytest tests/ --no-ellisys
-```
+PHY dumps and Ellisys conversion are always enabled.
 
 ## Failure Investigation Order
 

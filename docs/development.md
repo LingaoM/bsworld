@@ -30,19 +30,31 @@ Tests under `tests/unit/` are organized by subsystem. Each test should focus on 
 
 | Test file | Coverage |
 |---|---|
-| `test_plugin.py` | pytest plugin options, output directories, xdist identity sharing, and `--no-hci-dump` |
+| `test_plugin.py` | pytest plugin output directories and xdist identity sharing |
 | `test_env.py` | Environment variables, artifact path resolution, and runtime environment detection |
 | `test_artifact_paths.py` | Environment-selected artifact paths for Zephyr, NuttX, and QEMU tests |
 | `test_dependency_readiness.py` | BabbleSim binaries/modules, Controller files, and executable permissions |
+| `test_controllers.py` | Controller configuration, H:4 transport, cancellation, and cleanup after worker failures |
 | `test_topology.py` | Topology lifecycle, Application registration, generic process management, and Controller allocation |
 | `test_babblesim_backend.py` | BabbleSim process arguments, device IDs and Controller setup, RF interference and attenuation, trace conversion, and cleanup |
-| `test_hci.py` | Virtual Controller BTSnoop socket capture |
 | `test_scheduler.py` | Discrete simulation time, standard asyncio primitives, callback and I/O ordering |
 | `test_bsim_clock.py` | FIFO registration, binary message encoding, connection and response timeouts, partial I/O, and disconnect handling |
 | `test_runtime.py` | FIFO log capture, complete-line matching, and `wait_log` |
 | `test_interference.py` | RF interference and attenuation configuration validation |
 
 Application behavior, RF propagation itself, and end-to-end Bluetooth LE examples are covered by the simulation suites under `tests/integration/*`.
+
+The Bumble, NuttX NimBLE, QEMU and Zephyr Host suites run each scenario twice, with `[zephyr]` and `[bscontroller]` IDs. NuttX BTSak currently runs only the `[zephyr]` variant. Both variants reuse the same test body, Host binaries, steps and assertions. The shared fixtures in `tests/integration/controllers.py` select the default Controller for the topology; explicit `controller_type=` arguments still allow mixed topologies. Parameter IDs also distinguish simulation identities, reports, logs and captures.
+
+```sh
+# Run both Controller variants, including the existing backend/interop checks.
+pytest tests/integration -v
+
+# Run only the BSController variants of the Host scenarios.
+pytest tests/integration -k bscontroller -v
+```
+
+NuttX BTSak uses a suite-local fixture to select Zephyr Controller because it requires Host Buffer Size and Controller-to-Host flow control commands that BSController does not yet support. NuttX NimBLE is covered with both Controller implementations, including advertising, connection establishment, GATT service discovery and subscription.
 
 ## Linting
 

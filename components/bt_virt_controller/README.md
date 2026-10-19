@@ -17,20 +17,21 @@ BSWorld starts one Virtual Controller per HCI socket:
   [-hci-poll-interval=<microseconds>] \
   -hci-socket=<hci_socket_path> \
   [-bd-addr=<AA:BB:CC:DD:EE:FF>] \
-  [-btsnoop-socket=<btsnoop_socket_path>]
+  [-btsnoop-file=<btsnoop_file_path>]
 ```
 
 - `-s` and `-d` identify the BabbleSim simulation and Controller device.
 - `-hci-poll-interval` sets the HCI socket poll interval and applies the same value to the PHY maximum resynchronization offset. It defaults to 1,000 microseconds (1 ms).
 - `-hci-socket` carries bidirectional H4 HCI frames.
 - `-bd-addr` optionally initializes the Controller public address before the Host connects.
-- `-btsnoop-socket` enables a best-effort capture channel that never blocks the HCI data path.
+
+`-btsnoop-file` writes BTSnoop records directly to the supplied file, using Controller-local simulation timestamps. BSWorld creates the parent directory and always supplies a per-device path. HCI transport remains a direct Unix socket connection.
 
 ## Build
 
 The recommended [Docker test image](../../docker/README.md#use-a-published-image) includes the Controller. The commands below are for native Linux builds.
 
-Build BabbleSim as described in [README build instructions](../../README.md#build-and-test), retaining `BSWORLD_ROOT`, `BSIM_OUT_PATH`, `BSIM_COMPONENTS_PATH`, and `BSIM_BASE_PATH`. For a native setup, see the [Zephyr environment guide](../../tests/integration/zephyr/samples/common/source/README.md) and set `ZEPHYR_WORKSPACE`.
+Build BabbleSim as described in [README build instructions](../../README.md#build-and-test), retaining `BSWORLD_ROOT`, `BSIM_OUT_PATH`, and `BSIM_COMPONENTS_PATH`. For a native setup, see the [Zephyr environment guide](../../tests/integration/zephyr/samples/common/source/README.md) and set `ZEPHYR_WORKSPACE`.
 
 Use the official [west build](https://docs.zephyrproject.org/latest/develop/west/build-flash-debug.html) command:
 

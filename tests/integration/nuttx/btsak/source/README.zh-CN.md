@@ -28,5 +28,5 @@ export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
 ```sh
 cd "$BSWORLD_ROOT"
 source .venv/bin/activate
-pytest tests/integration/nuttx/btsak -q --no-ellisys
+pytest tests/integration/nuttx/btsak -q
 ```

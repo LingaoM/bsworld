@@ -22,11 +22,14 @@ mkdir -p "$HOME/bsim"
 cd "$HOME/bsim"
 repo init -u https://github.com/BabbleSim/manifest.git -m everything.xml -b master
 repo sync
-export BSIM_OUT_PATH="$PWD"
+
+export BSIM_OUT_PATH="$PWD/build"
+export BSIM_COMPONENTS_PATH="$PWD/components"
+
 make -j"$(nproc)" ext_2G4_phy_v1 ext_2G4_modem_BLE_simple ext_2G4_channel_multiatt
 ```
 
-Build outputs are placed in `$BSIM_OUT_PATH/bin/` and `$BSIM_OUT_PATH/lib/`; the commands below use this build directory. See the [official BabbleSim build instructions](https://babblesim.github.io/building.html) for more options.
+Build outputs are placed in `$BSIM_OUT_PATH/bin/` and `$BSIM_OUT_PATH/lib/`. Retain these exports when running BSController; the CLI, examples, and RF tests use `BSIM_OUT_PATH` directly. See the [official BabbleSim build instructions](https://babblesim.github.io/building.html) for more options.
 
 After building BabbleSim, return to this module's source root and install the Python package:
 
@@ -45,7 +48,7 @@ Each Controller contains HCI, Link Layer, and radio adaptation; its runtime owns
 
 | Layer | Main implementation | Responsibility |
 | --- | --- | --- |
-| HCI interface | `hci/transport.py`, `hci/packets.py`, `hci/controller.py` | H4 framing, HCI serialization, command dispatch, events, and ACL data |
+| HCI interface | `hci/transport.py`, `hci/packets.py`, `hci/controller.py`, `hci/snoop.py` | H4 framing, HCI serialization, command dispatch, events, ACL data, and BTSnoop capture |
 | HCI commands and state | `hci/backend.py`, `hci/le.py`, `hci/events.py` | HCI validation, capabilities, advertising/scanning/connection state, and event conversion |
 | LE radio procedures | `linklayer/link.py`, `linklayer/primary.py`, `linklayer/extended.py`, `linklayer/periodic.py`, `linklayer/connection.py` | Advertising and scan windows, periodic synchronization, connection events, and on-air PDUs |
 | LL control procedures | `linklayer/control.py`, `linklayer/data_length.py`, `linklayer/encryption.py` | Connection control, data-length negotiation, encryption, and related state machines |
@@ -61,7 +64,7 @@ The source responsibilities follow Bluetooth Core 6.3. See the [per-file archite
 [examples/advertise_scan.py](examples/advertise_scan.py) exposes a scanning Controller through a standard H4 HCI Unix socket and implements a Mock Host that only exchanges HCI bytes over that socket. A second Controller transmits advertisements through the shared PHY, providing simulated RF input.
 
 ```sh
-python examples/advertise_scan.py --bsim-dir "$BSIM_OUT_PATH"
+python examples/advertise_scan.py
 ```
 
 ```mermaid
@@ -98,8 +101,10 @@ The example exercises the Host's H4 transport boundary, HCI command processing, 
 Expose H4 HCI to an external Host:
 
 ```sh
-bscontroller serve --bsim-dir "$BSIM_OUT_PATH" --hci-socket /tmp/radio.sock
+bscontroller serve --hci-socket /tmp/radio.sock --btsnoop-file /tmp/hci.snoop
 ```
+
+Use `hci_snoop_file=Path(...)` when constructing `RadioController`, or `--btsnoop-file` with the CLI, to write a BTSnoop v1 H4 capture. The worker records complete HCI packets with its local simulation timestamps before handing output to the Host loop. Records are written without user-space buffering; capture does not advance simulation time. BSWorld supplies this path automatically.
 
 The Host exchanges an H4 HCI byte stream over the Unix socket. The service accepts one Host and exits when it disconnects; the socket path must be unused. See `bscontroller serve --help` for more options.
 
@@ -160,24 +165,23 @@ with asyncio.Runner(loop_factory=RadioEventLoop) as runner:
 │   └── cli.py              # H4 service entry point
 ├── examples/
 │   └── advertise_scan.py   # H4 Controller and scanning Mock Host
-└── tests/bscontroller_tests/
+└── tests/
     ├── unit/               # Mirrors source directories and module names
     │   ├── hci/
     │   ├── linklayer/
     │   ├── radio/
     │   └── runtime/
-    └── qualification/
-        ├── hci/            # HCI protocol cases
-        └── ll/             # Link-layer protocol cases
+    ├── hci/                # HCI protocol cases
+    └── ll/                 # Link-layer protocol cases
 ```
 
 ```sh
 python -m pip install -e '.[test]'
-python -m pytest tests/bscontroller_tests/unit -q
-BSCONTROLLER_BSIM_DIR="$BSIM_OUT_PATH" python -m pytest tests/bscontroller_tests/qualification -n 4 -q
+python -m pytest tests/unit -q
+python -m pytest tests/hci tests/ll -n 4 -q
 python -m build
 ```
 
-The protocol suite contains 501 selected HCI/LL cases, retaining distinct `PASS`, `PARTIAL`, source-conflict skips, and applicability skips. Timing-limited cases use their documented integer-microsecond approximation. These results are not a Bluetooth qualification claim. See [tests/bscontroller_tests/README.md](tests/bscontroller_tests/README.md) for test scope and execution details.
+The protocol suite contains 501 selected HCI/LL cases, retaining distinct `PASS`, `PARTIAL`, source-conflict skips, and applicability skips. Timing-limited cases use their documented integer-microsecond approximation. These results are not a Bluetooth qualification claim. See [tests/README.md](tests/README.md) for test scope and execution details.
 
 Build artifacts are written to `dist/`. The source distribution includes the runtime, examples, and unit and protocol tests; the wheel contains the runtime and required license notices. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for licensing and third-party attribution.

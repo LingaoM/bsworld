@@ -21,15 +21,15 @@ from bsworld.env import Env, env_path
 
 def test_detect_uses_explicit_artifact_paths(monkeypatch, tmp_path) -> None:
     bsim_dir = tmp_path / "BabbleSim output"
+    components_dir = tmp_path / "BabbleSim sources" / "components"
     controller = tmp_path / "Zephyr build" / "zephyr.exe"
-    monkeypatch.setenv("BSWORLD_BSIM_DIR", str(bsim_dir))
+    monkeypatch.setenv("BSIM_OUT_PATH", str(bsim_dir))
+    monkeypatch.setenv("BSIM_COMPONENTS_PATH", str(components_dir))
     monkeypatch.setenv("BSWORLD_BT_VIRT_CONTROLLER_BIN", str(controller))
     env = Env.detect(out_tag="/tmp/out", now_tag="run-fixed", run_uid="uid")
 
     assert env.babblesim_root == Path(__file__).parents[2] / ".cache" / "babblesim"
-    assert env.babblesim_components_dir == (
-        Path(__file__).parents[2] / ".cache" / "babblesim" / "components"
-    )
+    assert env.babblesim_components_dir == components_dir
     assert env.hci_virt_bin == controller
     assert env.bsim_dir == bsim_dir
     assert env.bsim_bin_dir == bsim_dir / "bin"
@@ -37,7 +37,7 @@ def test_detect_uses_explicit_artifact_paths(monkeypatch, tmp_path) -> None:
 
 def test_detect_selects_image_runtime(monkeypatch, tmp_path) -> None:
     output = tmp_path / "image" / "babblesim"
-    monkeypatch.setenv("BSWORLD_BSIM_DIR", str(output))
+    monkeypatch.setenv("BSIM_OUT_PATH", str(output))
 
     env = Env.detect()
 
@@ -46,13 +46,15 @@ def test_detect_selects_image_runtime(monkeypatch, tmp_path) -> None:
 
 
 def test_detect_does_not_guess_missing_artifacts(monkeypatch) -> None:
-    monkeypatch.delenv("BSWORLD_BSIM_DIR", raising=False)
+    monkeypatch.delenv("BSIM_OUT_PATH", raising=False)
+    monkeypatch.delenv("BSIM_COMPONENTS_PATH", raising=False)
     monkeypatch.setenv("BSWORLD_BT_VIRT_CONTROLLER_BIN", "")
     env = Env.detect()
 
     assert env.bsim_dir is None
     assert env.bsim_bin_dir is None
     assert env.hci_virt_bin is None
+    assert env.babblesim_components_dir == env.babblesim_root / "components"
 
 
 def test_env_path_expands_home_and_resolves_relative_paths(monkeypatch, tmp_path) -> None:

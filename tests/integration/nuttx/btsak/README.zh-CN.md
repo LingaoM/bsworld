@@ -54,5 +54,5 @@ bt bnep0 scan get
 source "$BSWORLD_ROOT/.venv/bin/activate"
 export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
 cd "$BSWORLD_ROOT"
-pytest tests/integration/nuttx/btsak -q --no-ellisys
+pytest tests/integration/nuttx/btsak -q
 ```

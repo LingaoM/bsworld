@@ -30,19 +30,31 @@ pytest tests/unit -q
 
 | 测试文件 | 覆盖内容 |
 |---|---|
-| `test_plugin.py` | pytest 插件参数、输出目录、xdist 运行标识共享和 `--no-hci-dump` |
+| `test_plugin.py` | pytest 插件输出目录和 xdist 运行标识共享 |
 | `test_env.py` | 环境变量读取、产物路径解析和运行环境识别 |
 | `test_artifact_paths.py` | Zephyr、NuttX 和 QEMU 测试使用环境变量指定的产物路径 |
 | `test_dependency_readiness.py` | BabbleSim 程序与动态模型、Controller 文件和执行权限检查 |
+| `test_controllers.py` | Controller 配置、H:4 传输、取消及 worker 失败后的清理 |
 | `test_topology.py` | 测试拓扑生命周期、业务程序登记、通用进程管理和 Controller 分配 |
 | `test_babblesim_backend.py` | BabbleSim 进程参数、设备编号与 Controller 初始化、RF 干扰与路径衰减、跟踪文件转换和清理 |
-| `test_hci.py` | 虚拟 Controller BTSnoop socket 抓包 |
 | `test_scheduler.py` | 离散仿真时间、标准 asyncio 原语、回调和 I/O 执行顺序 |
 | `test_bsim_clock.py` | FIFO 注册、二进制消息编码、连接与应答超时、不完整读写和断连处理 |
 | `test_runtime.py` | FIFO 日志采集、完整行匹配和 `wait_log` |
 | `test_interference.py` | RF 干扰与路径衰减配置校验 |
 
 业务程序行为、RF 传播本身，以及端到端 Bluetooth LE 示例，由 `tests/integration/*` 下的仿真测试覆盖。
+
+Bumble、NuttX NimBLE、QEMU 和 Zephyr Host 套件中，每个业务场景都会分别以 `[zephyr]` 和 `[bscontroller]` 两个参数运行，复用同一份测试函数、Host 二进制、步骤和断言。NuttX BTSak 暂时只运行 `[zephyr]` 组合。`tests/integration/controllers.py` 中的共享 fixture 统一选择拓扑默认的 Controller；显式传入 `controller_type=` 仍可创建混合拓扑。参数 ID 同时区分仿真实例、报告、日志和抓包目录。
+
+```sh
+# 运行两种 Controller，同时保留已有的后端与混合拓扑检查。
+pytest tests/integration -v
+
+# 只运行使用 BSController 的 Host 业务场景。
+pytest tests/integration -k bscontroller -v
+```
+
+NuttX BTSak 通过套件目录下的 fixture 选择 Zephyr Controller，因为其初始化需要 BSController 尚未支持的 Host Buffer Size 和 Controller→Host 流控命令。NuttX NimBLE 已覆盖两种 Controller，包含广播、连接建立、GATT 服务发现和订阅。
 
 ## 静态检查
 

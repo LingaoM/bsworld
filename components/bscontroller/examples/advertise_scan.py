@@ -171,7 +171,7 @@ async def run(sim_id, hci_socket):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--bsim-dir', type=Path, required=True)
+    parser.add_argument('--bsim-dir', type=Path, help='BabbleSim build output (default: BSIM_OUT_PATH)')
     args = parser.parse_args()
     sim_id = 'bscontroller_example_' + uuid.uuid4().hex[:12]
     with TemporaryDirectory(prefix='bscontroller_example_') as directory:

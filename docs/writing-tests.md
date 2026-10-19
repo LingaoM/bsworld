@@ -7,6 +7,7 @@ The repository [README](../README.md#technical-architecture) introduces the Virt
 ## Quick Index
 
 - [Test Lifecycle](#test-lifecycle)
+- [Choosing Controllers](#choosing-controllers)
 - [Async Waiting and Simulation Time](#async-waiting-and-simulation-time)
 - [Integrating Application Processes](#integrating-application-processes)
 - [Process Shell Commands](#process-shell-commands)
@@ -22,9 +23,35 @@ The topology moves through four phases:
 1. Suite-local process loaders, `topo.add_controller()`, and RF configuration methods record the intended topology without spawning processes or advancing simulation time.
 2. `await topo.start()` assigns Controller, Application, and PHY device identities; prepares isolated socket and log paths; and starts the PHY, Virtual Controllers, interference sources, and Application processes. It then connects pytest's clock client to the PHY. Once the HCI sockets are ready and all participants have registered, a WAIT/ACK exchange at simulation time zero ensures they have submitted their initial requests. Only then does `start()` bind the simulation clock to the event loop and return.
 3. Tests drive behavior and evaluate results through `ProcessInstance`, in-process Host stack APIs, shell commands, and standard asyncio APIs. The event loop advances shared simulation time only after all callbacks and I/O at the current timestamp have been processed.
-4. Fixture teardown unbinds the simulation clock from the event loop, stops processes and capture tasks, and flushes logs. The BabbleSim backend then closes its FIFO clock connection, generates the Ellisys trace, and removes temporary simulation files.
+4. Fixture teardown unbinds the simulation clock from the event loop, stops Controllers and processes, closes capture files, and flushes logs. The BabbleSim backend then closes its FIFO clock connection, generates the Ellisys trace, and removes temporary simulation files.
 
 Every test receives its own simulation ID, Unix socket directory, and log directory. Virtual tests can therefore run concurrently without sharing Controller state, RF state, or output files.
+
+## Choosing Controllers
+
+Each Host can use either `ZephyrController` (the default native process) or `BSController` (a Python Controller running in its own worker thread). Both expose the same H:4 Unix socket. Controller choice is independent of whether the Host runs in Python or an external process.
+
+Install the Python implementation locally with `python -m pip install -e components/bscontroller`; the Docker test image includes it.
+
+```python
+from bsworld.devices import BSController
+
+python_ctl = topo.add_controller(
+    controller_type=BSController,
+    public_address="F0:F1:F2:F3:F4:01",
+)
+zephyr_ctl = topo.add_controller(
+    public_address="F0:F1:F2:F3:F4:02",
+)
+await topo.start()
+# Connect Hosts to python_ctl.hci_sock and zephyr_ctl.hci_sock.
+```
+
+Each Python Controller owns its worker, radio endpoint and address. Omit `max_step_us` to use bscontroller's default; pass it only to override the worker's step size. Both implementations use the shared PHY and framework clock. A topology containing only Python Controllers does not require `BSWORLD_BT_VIRT_CONTROLLER_BIN`.
+
+New implementations subclass `Controller` and implement asynchronous `start(pm, env, *, log_dir)` and `stop()`. The base class provides the HCI socket path and device metadata. Startup launches the runtime without waiting for other PHY participants; returning does not guarantee that the HCI socket is ready. The backend waits for socket readiness, and the topology completes registration after launching the Hosts. Shutdown releases resources even after a partial startup failure.
+
+Both Controller implementations write their own `hciN.snoop` files using local simulation timestamps. Python Controllers capture HCI in their worker thread before handing output to the Host loop. The shared PHY also produces `ellisys.bttrp`.
 
 ## Async Waiting and Simulation Time
 

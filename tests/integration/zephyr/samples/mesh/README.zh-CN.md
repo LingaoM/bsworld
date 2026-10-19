@@ -36,5 +36,5 @@ export BSWORLD_ZEPHYR_MESH_PROVISIONER_BIN="$ZEPHYR_WORKSPACE/build/bsworld_zeph
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"
 cd "$BSWORLD_ROOT"
-pytest tests/integration/zephyr/samples/mesh -q --no-ellisys
+pytest tests/integration/zephyr/samples/mesh -q
 ```

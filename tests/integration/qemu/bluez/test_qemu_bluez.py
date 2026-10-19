@@ -57,17 +57,17 @@ async def _initialize_bluez(guest: ProcessInstance) -> None:
     await guest.wait_log(r"Agent registered", timeout=10)
     await guest.shell.run("list")
     await guest.wait_log(rf"Controller {_CONTROLLER_ADDRESS} BlueZ \d+\.\d+ \[default\]", timeout=10)
-    await guest.wait_log(
-        rf"Controller {_CONTROLLER_ADDRESS} Powered: yes$",
-        timeout=10,
-    )
-
+    # The adapter may already be powered when bluetoothctl discovers it, so
+    # query its state rather than requiring a power-change notification.
     await guest.shell.run("show")
     await guest.wait_log(
         rf"^Controller {_CONTROLLER_ADDRESS} \(public\)$",
         timeout=10,
     )
-    await guest.wait_log(r"^\s*Powered: yes$", timeout=10)
+    await guest.wait_log(
+        rf"(?:^\s*Powered: yes|Controller {_CONTROLLER_ADDRESS} Powered: yes)$",
+        timeout=10,
+    )
 
 
 async def test_qemu_bluez_initializes_virtual_controller(topo: BluetoothTopology) -> None:

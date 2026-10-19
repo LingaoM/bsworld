@@ -14,9 +14,9 @@ from bscontroller.radio.babblesim import simulation_directory
 
 
 def find_phy(directory: Path | str | None = None) -> Path:
-    configured = directory or os.environ.get('BSCONTROLLER_BSIM_DIR') or os.environ.get('BSIM_OUT_PATH')
+    configured = directory or os.environ.get('BSIM_OUT_PATH')
     if not configured:
-        raise ValueError('set BSCONTROLLER_BSIM_DIR or pass --bsim-dir to select a BabbleSim build')
+        raise ValueError('set BSIM_OUT_PATH or pass --bsim-dir to select a BabbleSim build')
     binary = Path(configured).expanduser().resolve() / 'bin' / 'bs_2G4_phy_v1'
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise ValueError(f'BabbleSim PHY executable missing: {binary}')

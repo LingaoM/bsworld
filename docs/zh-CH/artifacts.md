@@ -72,7 +72,7 @@ OUT_DIR=/path/to/artifacts pytest tests/
 | `babblesim/bs_2G4_phy_v1.log` | BabbleSim PHY | PHY 进程的标准输出和标准错误。正常运行时可能为空。 |
 | `bt_virt_controller/*.log` | 虚拟 Controller | Controller 启动信息、断言和内部诊断。 |
 | `<业务程序>/<名称>.log` | 业务程序 | 业务程序合并后的标准输出和标准错误，也是 `wait_log()` 的数据来源。 |
-| `<业务程序>/hciN.snoop` | 虚拟 Controller 的 BTSnoop socket | Host 与对应虚拟 Controller 之间的 HCI 命令、事件和 ACL 数据。 |
+| `<业务程序>/hciN.snoop` | Controller BTSnoop 文件 | Host 与对应虚拟 Controller 之间的 HCI 命令、事件和 ACL 数据。 |
 | `babblesim/ellisys.bttrp` | BSWorld Python 转换工具 | 同一个 PHY 中所有虚拟设备的 Bluetooth LE 空口交互。 |
 | `babblesim/att_matrix.txt` | BSWorld | 本测试实际传给 `multiatt` 信道模型的静态路径衰减矩阵。 |
 | `babblesim/timed_att_*.txt` | BSWorld | 时变路径的时间点和衰减值。 |
@@ -95,7 +95,7 @@ await device.wait_log(r"Bluetooth initialized", timeout=30)
 - 搜索过程中检查过的行会从内存队列中消费。后续等待不能再次匹配已经被前一次等待越过的旧行。
 - 没有换行符的末尾片段会立即写入 `.log` 文件，但只有收到换行符、形成完整一行后才会参与匹配。
 
-event loop 会先处理当前已经就绪的日志和 HCI FD，再推进下一个 BabbleSim 时间步。因此，日志匹配、协议抓包和测试回调共享同一个仿真时间同步边界。
+event loop 会先处理当前已经就绪的日志和 HCI FD，再推进下一个 BabbleSim 时间步。因此，日志匹配和测试回调共享框架时钟边界。Controller 则在向 Host 交付报文前，使用自己的本地仿真时钟记录 HCI。
 
 运行过程中可以直接查看业务程序日志：
 
@@ -110,7 +110,7 @@ tail -f /tmp/run-<timestamp>/<uid>/log/tests/.../nuttx_btsak_advertiser.log
 - BabbleSim 实例标识和设备数量。
 - PHY、虚拟 Controller 和业务程序的完整启动命令。
 - 每个进程的工作目录、日志路径和 PID。
-- HCI socket、BTSnoop socket 和 BabbleSim 设备锁的启动屏障。
+- Controller HCI socket 和 BabbleSim 设备锁的启动屏障。
 - teardown 时仍在运行的进程及其清理顺序。
 - Ellisys 转换使用的输入文件和输出位置。
 
@@ -118,7 +118,7 @@ tail -f /tmp/run-<timestamp>/<uid>/log/tests/.../nuttx_btsak_advertiser.log
 
 ## HCI BTSnoop 抓包
 
-虚拟 Controller 通过独立的 BTSnoop Unix socket 输出 HCI 数据，BSWorld 将其保存为 `hciN.snoop`。
+BSWorld 向每个 Controller 传入 `hciN.snoop` 输出路径：Zephyr 使用 `-btsnoop-file`，Python `BSController` 使用 `hci_snoop_file`。Controller 在自身 HCI 收发边界直接记录，时间戳来自其本地仿真时钟。Host 直接连接 HCI socket，数据路径没有中转或独立抓包 socket。文件保持 BTSnoop v1、H4 链路类型 1002、完整报文长度、方向标记和原有仿真时间基点；无用户态缓冲的文件写入确保 teardown 终止 Controller 时不丢失已完成的记录。
 
 可以使用 [Wireshark](https://www.wireshark.org/) 或 `btmon` 查看：
 
@@ -127,15 +127,11 @@ wireshark /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 btmon -r /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 ```
 
-不需要 HCI 抓包时可以关闭：
-
-```sh
-pytest tests/ --no-hci-dump
-```
+两种 Controller 的 HCI 抓包默认始终开启。Python Controller 在 worker 线程内写入抓包，再将输出交给 Host event loop；记录操作不推进仿真时间。绑定业务程序的 Controller 将抓包保存在业务程序目录，否则保存在 `bt_virt_controller/` 或 `bscontroller/` 下。两种实现的无线交互均记录在共享的 `ellisys.bttrp` 中。
 
 ## Ellisys 空口跟踪文件
 
-启用 Ellisys 输出时，BabbleSim PHY 会在运行过程中生成每个 RF 设备的 CSV dump。teardown 阶段，BSWorld 在 Python 进程内转换并合并发送记录，生成 `babblesim/ellisys.bttrp`，然后删除临时 BabbleSim state、socket 和原始 results 目录。
+BabbleSim PHY 会在运行过程中生成每个 RF 设备的 CSV dump。teardown 阶段，BSWorld 在 Python 进程内转换并合并发送记录，生成 `babblesim/ellisys.bttrp`，然后删除临时 BabbleSim state、socket 和原始 results 目录。
 
 在 [Ellisys](https://www.ellisys.com/products/bex400/) 软件中打开跟踪文件：选择 **File > Import**，选择 **Bluetooth packets**，点击 **Next**，再点击 **Browse** 并选择测试目录中的 `ellisys.bttrp` 文件。
 
@@ -152,11 +148,7 @@ pytest tests/ --no-hci-dump
 - 路径衰减或干扰是否导致丢包。
 - 多个设备的无线事件是否发生碰撞。
 
-不生成 PHY dump 和 Ellisys 文件：
-
-```sh
-pytest tests/ --no-ellisys
-```
+PHY dump 与 Ellisys 转换默认始终开启。
 
 ## 失败排查顺序
 

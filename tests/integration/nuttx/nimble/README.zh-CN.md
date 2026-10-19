@@ -49,5 +49,5 @@ blecent
 source "$BSWORLD_ROOT/.venv/bin/activate"
 export BSWORLD_NUTTX_NIMBLE_BIN="$NUTTX_NIMBLE_DIR/nuttx"
 cd "$BSWORLD_ROOT"
-pytest tests/integration/nuttx/nimble -q --no-ellisys
+pytest tests/integration/nuttx/nimble -q
 ```

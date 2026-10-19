@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from bsworld.devices import ProcessInstance
+from bsworld.devices import Controller, ProcessInstance
 from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
@@ -51,9 +51,11 @@ def load_nuttx_profile(
     profile: NuttXProcessProfile,
     *,
     log_subdir: Path | str | None = None,
+    controller_type: type[Controller] | None = None,
 ) -> ProcessInstance:
     require_binaries([profile])
-    controller = topo.add_controller(public_address=profile.controller_address)
+    options = {"controller_type": controller_type} if controller_type is not None else {}
+    controller = topo.add_controller(public_address=profile.controller_address, **options)
     binary = profile.path.absolute()
 
     def command() -> list[str | Path]:

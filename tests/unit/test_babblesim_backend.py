@@ -21,6 +21,7 @@ import pytest
 
 from bsworld.backends import babblesim
 from bsworld.backends.babblesim import BabbleSimBackend
+from bsworld.devices import zephyr
 from bsworld.env import Env
 from bsworld.interference import (
     BurstInterference,
@@ -61,7 +62,7 @@ def _patch_controller_bin(monkeypatch, tmp_path: Path) -> Path:
     controller.parent.mkdir(parents=True, exist_ok=True)
     controller.write_text("#!/bin/sh\n")
     controller.chmod(0o755)
-    monkeypatch.setattr(babblesim.hci_virt_build, "controller_bin", lambda env: controller)
+    monkeypatch.setattr(zephyr.hci_virt, "controller_bin", lambda env: controller)
     return controller
 
 
@@ -151,22 +152,21 @@ def test_check_deps_ready_only_validates_built_artifacts(tmp_path, monkeypatch) 
     calls: list[str] = []
 
     monkeypatch.setattr(babblesim.bsim_build, "check_ready", lambda build_env: calls.append(f"bsim:{build_env is env}"))
-    monkeypatch.setattr(babblesim.hci_virt_build, "check_ready", lambda build_env: calls.append(f"hci:{build_env is env}"))
 
     backend.check_deps_ready()
 
-    assert calls == ["bsim:True", "hci:True"]
+    assert calls == ["bsim:True"]
 
 
-def test_add_controller_rejects_started_backend(tmp_path) -> None:
+async def test_add_controller_rejects_started_backend(tmp_path) -> None:
     backend = BabbleSimBackend(_env(tmp_path), "sim")
-    backend.start(_SpawnRecorder())
+    await backend.start(_SpawnRecorder())
 
     with pytest.raises(RuntimeError, match="after BabbleSim has started"):
         backend.add_controller()
 
 
-def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeypatch) -> None:
+async def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeypatch) -> None:
     env = _env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
@@ -180,7 +180,7 @@ def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeyp
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
     monkeypatch.setattr(babblesim, "wait_for_paths", lambda *args, **kwargs: None)
 
-    backend.start(recorder, log_dir=tmp_path / "log")
+    await backend.start(recorder, log_dir=tmp_path / "log")
 
     names = [name for name, _, _ in recorder.calls]
     assert names == [
@@ -191,16 +191,18 @@ def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeyp
     ]
     assert "-D=6" in recorder.calls[0][1]
     assert "-defmodem=BLE_simple" in recorder.calls[0][1]
+    assert "-dump" in recorder.calls[0][1]
+    assert "-dump_imm" in recorder.calls[0][1]
     assert backend.clock is not None
     assert backend.clock.dev_id == 4
     assert backend.clock.sim_dir == env.sim_dir("sim")
     assert backend.clock.phy_alive()
     assert "-d=0" in recorder.calls[1][1]
     assert f"-hci-socket={tmp_path / 'state' / 'sim' / 'hci0.sock'}" in recorder.calls[1][1]
-    assert f"-btsnoop-socket={tmp_path / 'state' / 'sim' / 'hci0.btsnoop.sock'}" in recorder.calls[1][1]
+    assert f"-btsnoop-file={tmp_path / 'log' / 'bt_virt_controller' / 'hci0.snoop'}" in recorder.calls[1][1]
     assert "-d=1" in recorder.calls[2][1]
     assert f"-hci-socket={tmp_path / 'state' / 'sim' / 'hci1.sock'}" in recorder.calls[2][1]
-    assert f"-btsnoop-socket={tmp_path / 'state' / 'sim' / 'hci1.btsnoop.sock'}" in recorder.calls[2][1]
+    assert f"-btsnoop-file={tmp_path / 'log' / 'bt_virt_controller' / 'hci1.snoop'}" in recorder.calls[2][1]
     assert "-d=5" in recorder.calls[3][1]
     log_dirs = {name: kwargs["log_dir"] for name, _, kwargs in recorder.calls}
     assert log_dirs["bs_2G4_phy_v1"] == tmp_path / "log" / "babblesim"
@@ -210,7 +212,7 @@ def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeyp
     assert all("nice" not in kwargs for _, _, kwargs in recorder.calls)
 
 
-def test_start_passes_public_address_to_virtual_controller(tmp_path, monkeypatch) -> None:
+async def test_start_passes_public_address_to_virtual_controller(tmp_path, monkeypatch) -> None:
     env = _env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
@@ -222,13 +224,13 @@ def test_start_passes_public_address_to_virtual_controller(tmp_path, monkeypatch
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
 
-    backend.start(recorder, log_dir=tmp_path / "log")
+    await backend.start(recorder, log_dir=tmp_path / "log")
 
     controller_args = recorder.calls[1][1]
     assert "-bd-addr=C0:FF:EE:00:00:01" in controller_args
 
 
-def test_start_places_default_modem_before_channel_plugin_args(tmp_path, monkeypatch) -> None:
+async def test_start_places_default_modem_before_channel_plugin_args(tmp_path, monkeypatch) -> None:
     env = _env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
@@ -240,33 +242,12 @@ def test_start_places_default_modem_before_channel_plugin_args(tmp_path, monkeyp
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
 
-    backend.start(recorder, log_dir=tmp_path / "log")
+    await backend.start(recorder, log_dir=tmp_path / "log")
 
     phy_args = recorder.calls[0][1]
     assert phy_args.index("-defmodem=BLE_simple") < phy_args.index("-argschannel")
     assert "-channel=multiatt" in phy_args
     assert "-argsmain" in phy_args
-
-
-def test_start_omits_virtual_controller_btsnoop_socket_when_hci_dump_disabled(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    env = _env(tmp_path)
-    backend = BabbleSimBackend(env, "sim", hci_dump=False)
-    backend.check_deps_ready = lambda: None
-    backend.prepare = lambda: None
-    backend.add_controller()
-    recorder = _SpawnRecorder()
-
-    _patch_controller_bin(monkeypatch, tmp_path)
-    monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
-
-    backend.start(recorder, log_dir=tmp_path / "log")
-
-    controller_args = recorder.calls[1][1]
-    assert f"-hci-socket={tmp_path / 'state' / 'sim' / 'hci0.sock'}" in controller_args
-    assert not any(arg.startswith("-btsnoop-socket=") for arg in controller_args)
 
 
 def test_device_lock_paths_cover_applications_and_interference_devices(tmp_path) -> None:
@@ -402,31 +383,6 @@ def test_finish_releases_clock_after_partial_start_without_controllers(tmp_path)
     backend.finish()
     assert calls == ["close"]
     assert backend.clock is None
-
-
-def test_finish_skips_ellisys_conversion_when_disabled(tmp_path) -> None:
-    env = _env(tmp_path)
-    env = Env(
-        out_tag=env.out_tag,
-        run_uid=env.run_uid,
-        out_dir=env.out_dir,
-        log_dir=env.log_dir,
-        babblesim_root=env.babblesim_root,
-        hci_virt_bin=env.hci_virt_bin,
-        bsim_dir=env.bsim_dir,
-        bsim_bin_dir=env.bsim_bin_dir,
-        bs_state_dir=env.bs_state_dir,
-        bsim_ellisys=False,
-    )
-    backend = BabbleSimBackend(env, "sim")
-    backend.add_controller()
-    calls: list[str] = []
-    backend.convert_ellisys = lambda **kwargs: calls.append("convert")
-    backend.cleanup_sim_artifacts = lambda: calls.append("cleanup")
-
-    backend.finish(log_dir=tmp_path / "log")
-
-    assert calls == ["cleanup"]
 
 
 def test_convert_ellisys_writes_trace_without_a_subprocess(tmp_path, monkeypatch) -> None:

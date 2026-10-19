@@ -31,5 +31,5 @@ The output is `$NUTTX_NIMBLE_DIR/nuttx`. Keep its linked BabbleSim shared librar
 ```sh
 cd "$BSWORLD_ROOT"
 source .venv/bin/activate
-pytest tests/integration/nuttx/nimble -q --no-ellisys
+pytest tests/integration/nuttx/nimble -q
 ```

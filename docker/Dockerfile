@@ -47,6 +47,8 @@ RUN python -c 'import subprocess, tomllib; \
 # Install the project once for early Python checks and the final runtime image.
 # Keep this branch separate from firmware so Python changes reuse compiled outputs.
 FROM bsworld AS python-test
+COPY --chown=$BUILD_UID:$BUILD_GID components/bscontroller /opt/bscontroller
+RUN python -m pip install --no-deps --no-build-isolation /opt/bscontroller
 ENV PYTHONPATH=/workspace \
     PYTHONUNBUFFERED=1 \
     BSWORLD_ROOT=/workspace
@@ -75,7 +77,6 @@ USER bsworld
 # Local and Docker builds use the same repo snapshot and upstream folder layout.
 ENV BSIM_OUT_PATH=/opt/babblesim/build \
     BSIM_COMPONENTS_PATH=/opt/babblesim/components \
-    BSIM_BASE_PATH=/opt/babblesim/components \
     BSIM_BUILD_FAIL_ASAP=1
 USER root
 RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/babblesim
@@ -355,7 +356,8 @@ COPY --from=qemu /opt/qemu/build/bsworld/qemu-system-aarch64 /opt/firmware/qemu/
 COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/Image /opt/firmware/qemu/Image
 COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/rootfs.cpio /opt/firmware/qemu/rootfs.cpio
 
-ENV BSWORLD_BSIM_DIR=/opt/babblesim/build \
+ENV BSIM_OUT_PATH=/opt/babblesim/build \
+    BSIM_COMPONENTS_PATH=/opt/babblesim/components \
     BSWORLD_BT_VIRT_CONTROLLER_BIN=/opt/firmware/bt_virt_controller \
     BSWORLD_ZEPHYR_BROADCASTER_BIN=/opt/firmware/zephyr/broadcaster \
     BSWORLD_ZEPHYR_OBSERVER_BIN=/opt/firmware/zephyr/observer \

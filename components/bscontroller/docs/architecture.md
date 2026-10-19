@@ -33,6 +33,7 @@ All paths below are relative to `src/bscontroller/`.
 | `hci/__init__.py` | Public HCI codec and shared-type exports. |
 | `hci/packets.py` | HCI packet schemas, parsing, serialization, and event definitions; Vol 4, Part E, 5–7. No link execution or L2CAP reassembly. |
 | `hci/transport.py` | H4 framing from Vol 4, Part A and a Unix socket service. The Unix socket and queue limits are implementation choices. |
+| `hci/snoop.py` | BTSnoop v1 H4 capture with Controller-local simulation timestamps and unbuffered file writes; diagnostic support. |
 | `hci/controller.py` | Lower HCI dispatch, Controller identity, command responses, and connection-handle lookup; Vol 4, Part E, 1/4/7. |
 | `hci/backend.py` | Bind radio-backed LE execution and publish its supported commands/features; Vol 4, Part E, 6/7. Backend construction is an implementation interface. |
 | `hci/capabilities.py` | HCI buffer capacity, supported-state encoding, unavailable RSSI, and timeout field units; Vol 4, Part E, 7.3.93/94, 7.5.4, 7.8.2/27. |
@@ -71,4 +72,4 @@ All paths below are relative to `src/bscontroller/`.
 | `runtime/session.py` | Worker/session lifecycle and optional caller clock endpoint; runtime policy. |
 | `runtime/phy.py` | Locate, launch, and stop the BabbleSim PHY executable; runtime policy. |
 
-Unit test paths follow the source paths: `linklayer/bitstream.py` is tested in `unit/linklayer/bitstream_test.py`, and `runtime/session.py` in `unit/runtime/session_test.py`. Tests use fixtures and doubles from the test tree. HCI/LL procedure verdicts remain in the separate qualification suite.
+Unit test paths follow the source paths: `linklayer/bitstream.py` is tested in `tests/unit/linklayer/bitstream_test.py`, and `runtime/session.py` in `tests/unit/runtime/session_test.py`. Tests use fixtures and doubles from the test tree. HCI/LL procedure verdicts live in `tests/hci/` and `tests/ll/`.

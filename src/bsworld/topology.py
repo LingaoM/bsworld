@@ -34,10 +34,10 @@ from pathlib import Path
 from bsworld.runtime.scheduler import BsimEventLoop
 
 from .backends.babblesim import BabbleSimBackend
-from .devices.controller import Controller, normalize_controller_address
+from .devices.controller import Controller
 from .devices.instance import ProcessInstance
+from .devices.zephyr import ZephyrController
 from .env import Env
-from .hci.socket_capture import BtsnoopSocketCapture
 from .interference import (
     BurstInterference,
     ChannelAttenuation,
@@ -52,20 +52,15 @@ from .interference import (
 from .log import close_log_file, open_log_file, warn
 from .runtime.proc import ProcessManager
 
-_HCI_CONNECT_TIMEOUT_S = 30.0
-
 
 @dataclass
 class BluetoothTopology:
     env: Env
     sim_id: str
     test_log_dir: Path
-    hci_dump: bool = True
     pm: ProcessManager = field(default_factory=ProcessManager)
     bsim: BabbleSimBackend = field(init=False)
     processes: list[ProcessInstance] = field(default_factory=list)
-    _controller_log_dirs: list[tuple[Controller, Path]] = field(default_factory=list, init=False, repr=False)
-    _btsnoop_captures: list[BtsnoopSocketCapture] = field(default_factory=list, init=False, repr=False)
     _event_loop: BsimEventLoop | None = field(default=None, init=False, repr=False)
     _started: bool = False
 
@@ -83,18 +78,22 @@ class BluetoothTopology:
     def add_controller(
         self,
         *,
+        controller_type: type[Controller] = ZephyrController,
         public_address: str | None = None,
         log_subdir: Path | str | None = None,
+        **options,
     ) -> Controller:
         """Allocate a Virtual Controller for one Bluetooth Host."""
         self._ensure_configurable()
-        if public_address is not None:
-            public_address = normalize_controller_address(public_address)
-        controller = self.bsim.add_controller(public_address=public_address)
+        controller = self.bsim.add_controller(
+            controller_type=controller_type, public_address=public_address, **options,
+        )
         log_path = (
             Path(log_subdir) if log_subdir is not None else Path("controllers") / f"hci{controller.controller_dev_id}"
         )
-        self._controller_log_dirs.append((controller, log_path))
+        controller.hci_snoop_file = (
+            self.test_log_dir / log_path / f"hci{controller.controller_dev_id}.snoop"
+        ).resolve()
         return controller
 
     def add_process(self, process: ProcessInstance) -> ProcessInstance:
@@ -105,12 +104,9 @@ class BluetoothTopology:
         if any(existing.controller is process.controller for existing in self.processes):
             raise ValueError("a Virtual Controller can only be attached to one Application process")
         self.bsim.reserve_application_device(process.controller)
-        for index, (controller, _) in enumerate(self._controller_log_dirs):
-            if controller is process.controller:
-                self._controller_log_dirs[index] = (controller, process.log_subdir)
-                break
-        else:
-            self._controller_log_dirs.append((process.controller, process.log_subdir))
+        process.controller.hci_snoop_file = (
+            self.test_log_dir / process.log_subdir / f"hci{process.controller.controller_dev_id}.snoop"
+        ).resolve()
         self.processes.append(process)
         return process
 
@@ -209,11 +205,9 @@ class BluetoothTopology:
             return
         open_log_file(self.test_log_dir / "bsworld.log")
         self.pm.install_signal_handlers()
-        self.bsim.hci_dump = self.hci_dump
         self._resolve_channel_attenuation()
-        self.bsim.start(self.pm, log_dir=self.test_log_dir)
-        self.bsim.wait_for_hci_sockets()
-        await self._setup_hci()
+        await self.bsim.start(self.pm, log_dir=self.test_log_dir)
+        await self.bsim.wait_for_hci_sockets()
         for process in self.processes:
             process.start(self.pm, self.test_log_dir)
         await asyncio.to_thread(self.bsim.wait_for_devices_registered)
@@ -226,20 +220,6 @@ class BluetoothTopology:
             self._event_loop = loop
             self._event_loop.bind_clock(self.bsim.clock)
         self._started = True
-
-    async def _setup_hci(self) -> None:
-        if not self.hci_dump:
-            return
-
-        self.bsim.wait_for_btsnoop_sockets()
-        for ctl, log_subdir in self._controller_log_dirs:
-            btsnoop_dir = self.test_log_dir / log_subdir
-            capture = BtsnoopSocketCapture(
-                socket_path=ctl.hci_btsnoop_sock,
-                output_path=btsnoop_dir / f"hci{ctl.controller_dev_id}.snoop",
-            )
-            await capture.start(timeout=_HCI_CONNECT_TIMEOUT_S)
-            self._btsnoop_captures.append(capture)
 
     def _resolve_channel_attenuation(self) -> None:
         ca = self.bsim.channel_attenuation
@@ -305,10 +285,12 @@ class BluetoothTopology:
             finally:
                 self._event_loop = None
         try:
-            await asyncio.to_thread(self.pm.cleanup)
+            try:
+                await self.bsim.stop_controllers()
+            finally:
+                await asyncio.to_thread(self.pm.cleanup)
         finally:
             self.pm.restore_signal_handlers()
-            await self._stop_btsnoop_captures()
             for process in self.processes:
                 try:
                     process.stop_capture()
@@ -318,11 +300,3 @@ class BluetoothTopology:
                 self.bsim.finish(log_dir=self.test_log_dir)
             finally:
                 close_log_file()
-
-    async def _stop_btsnoop_captures(self) -> None:
-        for capture in self._btsnoop_captures:
-            try:
-                await capture.stop()
-            except Exception as exc:
-                warn(f"BTSnoop socket capture stop failed: {exc}")
-        self._btsnoop_captures.clear()

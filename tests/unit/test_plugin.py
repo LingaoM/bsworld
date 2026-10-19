@@ -50,13 +50,11 @@ class _Config:
     def __init__(
         self,
         *,
-        no_hci_dump: bool = False,
         workerinput=None,
     ) -> None:
         self.workerinput = workerinput
         self._options = {
             "--out-dir": None,
-            "no_hci_dump": no_hci_dump,
         }
         self._markers: list[str] = []
 
@@ -67,23 +65,11 @@ class _Config:
         self._markers.append(f"{name}:{value}")
 
 
-def test_bsim_cli_options_include_trace_toggle() -> None:
+def test_bsim_cli_options_only_configure_output_directory() -> None:
     parser = _Parser()
-
     plugin.pytest_addoption(parser)
+    assert set(parser.group.options) == {"--out-dir"}
 
-    for option in (
-        "--no-ellisys",
-        "--out-dir",
-        "--no-hci-dump",
-    ):
-        assert option in parser.group.options
-
-    assert parser.group.options["--no-ellisys"]["action"] == "store_true"
-    assert parser.group.options["--no-hci-dump"]["action"] == "store_true"
-    assert "--bsim-pp" not in parser.group.options
-    assert "--bsim-mro" not in parser.group.options
-    assert "--bsim-hb-verbose" not in parser.group.options
 
 def test_configure_worker_reuses_controller_run_identity() -> None:
     cfg = _Config(
@@ -146,31 +132,6 @@ def test_create_topology_for_request_uses_request_options(tmp_path) -> None:
         / "test_btsak_scan_advertise"
         / "test_nuttx_btsak_scanner_finds_advertiser"
     )
-    assert topo.hci_dump is True
-
-
-def test_create_topology_for_request_honors_no_hci_dump(tmp_path) -> None:
-    env = plugin.Env(
-        out_tag="run-test",
-        run_uid="abc123",
-        out_dir=tmp_path / "out",
-        log_dir=tmp_path / "out" / "log",
-        babblesim_root=tmp_path / "components" / "babblesim",
-        hci_virt_bin=tmp_path / "components" / "hci",
-        bsim_dir=tmp_path / "build" / "babblesim" / "bsim",
-        bsim_bin_dir=tmp_path / "build" / "babblesim" / "bsim" / "bin",
-        bs_state_dir=tmp_path / "state",
-    )
-    request = SimpleNamespace(
-        config=_Config(no_hci_dump=True),
-        node=SimpleNamespace(
-            nodeid="tests/integration/nuttx/btsak/test_btsak_scan_advertise.py::test_nuttx_btsak_scanner_finds_advertiser"
-        ),
-    )
-
-    topo = plugin.create_topology_for_request(env, request)
-
-    assert topo.hci_dump is False
 
 
 def test_topo_fixture_works_in_pytest_asyncio_strict_mode(

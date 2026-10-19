@@ -46,7 +46,7 @@ jobs:
       - name: Run unit tests
         run: |
           mkdir -p "$RUNNER_TEMP/bscontroller-results"
-          python -m pytest tests/bscontroller_tests/unit -q \
+          python -m pytest tests/unit -q \
             -p pytest_asyncio.plugin -p no:cacheprovider \
             --junitxml="$RUNNER_TEMP/bscontroller-results/unit.xml"
 
@@ -60,7 +60,6 @@ jobs:
         env:
           BSIM_OUT_PATH: ${{ runner.temp }}/bscontroller-babblesim/build
           BSIM_COMPONENTS_PATH: ${{ runner.temp }}/bscontroller-babblesim/components
-          BSIM_BASE_PATH: ${{ runner.temp }}/bscontroller-babblesim/components
           BSIM_BUILD_FAIL_ASAP: '1'
         run: |
           mkdir -p "$RUNNER_TEMP/bscontroller-babblesim"
@@ -70,20 +69,18 @@ jobs:
           repo sync -c --no-tags
           make -j2 ext_2G4_phy_v1 ext_2G4_modem_BLE_simple ext_2G4_channel_multiatt
           test -x "$BSIM_OUT_PATH/bin/bs_2G4_phy_v1"
+          printf 'BSIM_OUT_PATH=%s\nBSIM_COMPONENTS_PATH=%s\n' \
+            "$BSIM_OUT_PATH" "$BSIM_COMPONENTS_PATH" >> "$GITHUB_ENV"
 
       - name: Run HCI and Link Layer protocol tests
-        env:
-          BSCONTROLLER_BSIM_DIR: ${{ runner.temp }}/bscontroller-babblesim/build
         run: |
-          python -m pytest tests/bscontroller_tests/qualification -v -rs \
+          python -m pytest tests/hci tests/ll -v -rs \
             -p pytest_asyncio.plugin -p no:cacheprovider \
-            --basetemp="$RUNNER_TEMP/bscontroller-results/qualification" \
-            --junitxml="$RUNNER_TEMP/bscontroller-results/qualification.xml"
+            --basetemp="$RUNNER_TEMP/bscontroller-results/protocol" \
+            --junitxml="$RUNNER_TEMP/bscontroller-results/protocol.xml"
 
       - name: Run the H4 advertising and scanning example
-        run: |
-          python examples/advertise_scan.py \
-            --bsim-dir "$RUNNER_TEMP/bscontroller-babblesim/build"
+        run: python examples/advertise_scan.py
 
       - name: Upload test reports and protocol logs
         if: ${{ always() }}

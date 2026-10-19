@@ -31,5 +31,5 @@ export BSWORLD_NUTTX_NIMBLE_BIN="$NUTTX_NIMBLE_DIR/nuttx"
 ```sh
 cd "$BSWORLD_ROOT"
 source .venv/bin/activate
-pytest tests/integration/nuttx/nimble -q --no-ellisys
+pytest tests/integration/nuttx/nimble -q
 ```
