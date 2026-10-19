@@ -22,38 +22,22 @@ BSWorld 因此定位为真实硬件测试的补充：将高频回归、长时间
 
 BSWorld 不重新实现 Bluetooth LE 协议栈或 RF 仿真器，而是以标准 HCI 为边界，将真实业务程序及 Host 协议栈、功能完整的虚拟 Controller、BabbleSim 无线环境和 pytest 测试编排组合成端到端系统。
 
-### Application、Host 与 Controller
-
-一个典型的 Bluetooth LE 设备包含三个与系统测试直接相关的层次：
-
-- **Application** 负责实现产品功能并调用 Host API。
-- **Host** 负责实现 GAP、GATT、L2CAP、SMP 和 Mesh 等协议。
-- **Controller** 负责实现 Link Layer 及无线侧处理逻辑。
-
-HCI 是 Host 与 Controller 之间的标准接口。Host 既可以连接片内 Controller，也可以通过 UART、USB 或其他传输方式连接符合 HCI 规范的 Controller。图 2 展示了一个常见的双芯片结构，其中 Host 与 Controller 的边界清晰可见。
-
-<div align="center"><img src="../images/zephyr-bluetooth-dual-chip.png" alt="Bluetooth LE Host 与 Controller 的双芯片结构" width="75%"><br><em>图 2：Bluetooth LE Host-only 与 Controller-only 结构（来源：Zephyr Project，Apache-2.0）</em><br><br></div>
-
-BSWorld 以同一条 HCI 边界作为虚拟化接口。业务程序与真实 Host 协议栈保留在被测环境中，框架既不以测试桩替换 Host API，也不要求业务程序改用仿真专用的 Bluetooth LE 接口。
-
 ### 虚拟 Controller
 
-每个 Host 实例通过 Unix socket 与一个独立的虚拟 Controller 交换标准 HCI 数据。Controller 可以使用 Zephyr 进程或 Python BSController worker 线程，两种实现可以在同一拓扑中混合使用，参见[选择 Controller](writing-tests.md#选择-controller)。虚拟 Controller 并非返回预设结果的模拟桩，而是执行完整的 Controller 数据路径：处理 HCI 命令、事件和 ACL 数据，运行 Link Layer 协议逻辑，并通过 BabbleSim PHY 完成无线数据收发与 RF 交互。因此，业务程序实际经历广播、扫描、建连、GATT 和 Mesh 等完整协议流程。
+图 2 对比了真实 Bluetooth LE 设备与 BSWorld 虚拟设备的协议路径。业务程序与真实 Host 协议栈保留原生接口，HCI 是 Host 与 Controller 之间的标准边界。真实设备使用 UART、USB 等传输方式；在 BSWorld 中，每个 Host 通过 H:4 Unix socket 连接各自独立的 Zephyr Controller 进程或 Python BSController worker。同一拓扑中可以混用两种实现，并共享 BabbleSim 无线介质。
 
-图 3 对比了真实设备与 BSWorld 虚拟设备的协议路径。业务程序、Host 和 HCI 边界保持不变；物理 Controller 由虚拟 Controller 承载，物理无线介质则由 BabbleSim 提供。
+<div align="center"><img src="../images/real_vs_virtual_controller.svg" alt="真实与虚拟蓝牙协议路径，每个 Host 均可选择 Zephyr 或 Python Controller" width="100%"><br><em>图 2：通过统一的 HCI 边界选择 Zephyr 或 Python Controller</em><br><br></div>
 
-<div align="center"><img src="../images/real_vs_virtual_controller.svg" alt="虚拟 Controller 的完整协议链路" width="80%"><br><em>图 3：虚拟 Controller 的完整 HCI、Link Layer 与 RF 交互链路</em><br><br></div>
-
-虚拟 Controller 的实现、运行接口和构建方式见 [虚拟 Controller](../../components/bt_virt_controller/README.zh-CN.md)。
+两种虚拟 Controller 都实现 HCI 命令、事件和 ACL 数据处理、Link Layer 协议流程，以及通过 BabbleSim PHY 完成的无线收发。因此，业务程序可以通过真实 Host 协议栈经历广播、扫描、建连、GATT 和 Mesh 等完整流程。如何为每个 Host 选择实现，参见[选择 Controller](writing-tests.md#选择-controller)；实现与运行接口见 [Zephyr Controller](../../components/bt_virt_controller/README.zh-CN.md) 和 [BSController](../../components/bscontroller/README.zh-CN.md)。
 
 HCI 和 RF 两个边界提供互补的调试信息。Zephyr 和 Python Controller 的 Unix socket 上的 HCI 交互保存为 `hciN.snoop`，可使用 [Wireshark](https://www.wireshark.org/) 等支持 BTSnoop 的工具分析；BabbleSim PHY 上的无线交互保存为 `babblesim/ellisys.bttrp`，可使用 [Ellisys](https://www.ellisys.com/products/bex400/) 查看空口时间线。前者用于定位 Host 与 Controller 的交互，后者用于确认报文收发、信道监听、干扰和碰撞。两类文件均按测试归档，具体位置和生成机制见 [日志、跟踪文件与抓包](artifacts.md)。
 
-图 4 演示了将 `ellisys.bttrp` 导入 Ellisys 并进行报文级分析的过程。
+图 3 演示了将 `ellisys.bttrp` 导入 Ellisys 并进行报文级分析的过程。
 
 <div align="center">
   <img src="../images/ellisys-trace-import.gif" alt="导入 BSWorld Ellisys 跟踪文件" width="760">
   <br>
-  <em>图 4：在 Ellisys 中打开 BSWorld 空口跟踪文件进行报文级调试</em>
+  <em>图 3：在 Ellisys 中打开 BSWorld 空口跟踪文件进行报文级调试</em>
   <br><br>
 </div>
 
@@ -66,12 +50,12 @@ BSWorld 明确区分两种时间基准：
 | **离散时间（仿真时间）** | 由仿真时间戳表示的逻辑时间，仅在所有参与者完成同步后推进。 | 决定协议定时器、报文时序、RF 事件、异步等待和测试超时。 |
 | **墙钟时间** | 主机实际经过的时间，其中包含 Linux 进程调度、CPU 负载、进程启动和文件 I/O 等真实执行开销。 | 决定用户等待一次测试完成所需的实际时长，但不决定 BabbleSim 测试中的协议时序。 |
 
-两者不存在固定换算关系。Linux 进程可能消耗 100 ms 墙钟时间等待调度，而仿真时间保持不变；一次时间推进也可以跨过没有事件的仿真区间。处理同一段仿真时间所需的墙钟时间取决于事件密度和主机计算性能。图 5 展示了这种差异：墙钟时间连续流动，离散时间在同步边界之间推进，并在处理同一时间戳上的回调、I/O 和断言时保持不变。
+两者不存在固定换算关系。Linux 进程可能消耗 100 ms 墙钟时间等待调度，而仿真时间保持不变；一次时间推进也可以跨过没有事件的仿真区间。处理同一段仿真时间所需的墙钟时间取决于事件密度和主机计算性能。图 4 展示了这种差异：墙钟时间连续流动，离散时间在同步边界之间推进，并在处理同一时间戳上的回调、I/O 和断言时保持不变。
 
 <div align="center">
   <img src="../images/discrete-vs-wall-time.gif" alt="离散仿真时间与墙钟时间对比" width="760">
   <br>
-  <em>图 5：墙钟时间连续流动，离散仿真时间在事件时间戳之间跳跃</em>
+  <em>图 4：墙钟时间连续流动，离散仿真时间在事件时间戳之间跳跃</em>
   <br><br>
 </div>
 

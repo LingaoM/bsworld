@@ -22,38 +22,22 @@ BSWorld therefore complements hardware testing by moving frequent regression, lo
 
 BSWorld does not reimplement a Bluetooth LE stack or RF simulator. Instead, it composes real Applications and Host stacks, a complete Virtual Controller, the BabbleSim radio environment, and pytest orchestration into an end-to-end system built around the standard HCI boundary.
 
-### Application, Host, and Controller
-
-A typical Bluetooth LE device contains three layers relevant to system testing:
-
-- The **Application** implements product behavior and uses Host APIs.
-- The **Host** implements protocols such as GAP, GATT, L2CAP, SMP, and Mesh.
-- The **Controller** implements the Link Layer and radio-facing logic.
-
-HCI is the standard contract between the Host and Controller. The Host may communicate with an integrated Controller, a Controller connected over UART or USB, or any other Controller that implements the required HCI behavior. Figure 2 shows a common dual-chip arrangement in which this boundary is explicit.
-
-<div align="center"><img src="docs/images/zephyr-bluetooth-dual-chip.png" alt="Bluetooth LE Host and Controller in a dual-chip configuration" width="75%"><br><em>Figure 2: Host-only and Controller-only Bluetooth LE configurations (source: Zephyr Project, Apache-2.0)</em><br><br></div>
-
-BSWorld uses this same HCI boundary as its virtualization interface. The Application and real Host stack remain in the environment under test; BSWorld neither replaces Host APIs with test doubles nor requires simulation-specific Bluetooth LE interfaces.
-
 ### Virtual Controller
 
-Each Host instance exchanges standard HCI traffic with an independent Virtual Controller over a Unix socket. Controllers can use a Zephyr process or a Python BSController worker thread, and both implementations can share one topology. See [Choosing Controllers](docs/writing-tests.md#choosing-controllers). The Virtual Controller is not a mock that returns scripted responses. It runs the complete Controller data path: HCI commands, events, and ACL data; Link Layer protocol procedures; and radio transmission and reception through the BabbleSim PHY. The Application therefore exercises complete protocol flows such as advertising, scanning, connection establishment, GATT, and Mesh.
+Figure 2 compares a physical Bluetooth LE device with its BSWorld counterpart. The Application and real Host stack keep their native interfaces, with HCI as the standard boundary between the Host and Controller. Physical devices use transports such as UART or USB; in BSWorld, each Host connects over an H:4 Unix socket to its own Zephyr Controller process or Python BSController worker. A topology can mix both implementations, which share the BabbleSim radio medium.
 
-Figure 3 compares the protocol path of a physical device with its BSWorld counterpart. The Application, Host, and HCI boundary remain unchanged. A Virtual Controller replaces the physical Controller, while BabbleSim provides the radio medium.
+<div align="center"><img src="docs/images/real_vs_virtual_controller.svg" alt="Physical and virtual Bluetooth paths, with each Host choosing a Zephyr or Python Controller" width="80%"><br><em>Figure 2: A shared HCI boundary with a choice of Zephyr or Python Controller</em><br><br></div>
 
-<div align="center"><img src="docs/images/real_vs_virtual_controller.svg" alt="Complete Virtual Controller protocol path" width="80%"><br><em>Figure 3: Complete HCI, Link Layer, and RF paths through the Virtual Controller</em><br><br></div>
-
-For the Virtual Controller implementation, runtime contract, and build process, see [Virtual Controller](components/bt_virt_controller/README.md).
+Both Virtual Controllers implement HCI commands, events, and ACL data; Link Layer procedures; and radio transmission and reception through the BabbleSim PHY. The Application therefore exercises complete protocol flows such as advertising, scanning, connection establishment, GATT, and Mesh through the real Host stack. See [Choosing Controllers](docs/writing-tests.md#choosing-controllers) for per-Host selection, and the [Zephyr Controller](components/bt_virt_controller/README.md) and [BSController](components/bscontroller/README.md) documentation for implementation and runtime details.
 
 The HCI and RF boundaries provide complementary diagnostics. Zephyr and Python Controller traffic on the HCI Unix socket is stored as `hciN.snoop` for analysis with [Wireshark](https://www.wireshark.org/) or another BTSnoop-capable tool. Radio activity on the BabbleSim PHY is stored as `babblesim/ellisys.bttrp` for over-the-air analysis with [Ellisys](https://www.ellisys.com/products/bex400/). The former identifies Host-to-Controller exchanges; the latter shows packet transmission, channel listening, interference, and collisions. Both are archived per test. See [Logs, traces, and captures](docs/artifacts.md) for file locations and generation details.
 
-Figure 4 demonstrates the packet-level workflow for importing an `ellisys.bttrp` trace into Ellisys.
+Figure 3 demonstrates the packet-level workflow for importing an `ellisys.bttrp` trace into Ellisys.
 
 <div align="center">
   <img src="docs/images/ellisys-trace-import.gif" alt="Import a BSWorld Ellisys trace" width="760">
   <br>
-  <em>Figure 4: Opening a BSWorld RF trace in Ellisys for packet-level debugging</em>
+  <em>Figure 3: Opening a BSWorld RF trace in Ellisys for packet-level debugging</em>
   <br><br>
 </div>
 
@@ -66,12 +50,12 @@ BSWorld distinguishes two time bases:
 | **Discrete simulation time** | A logical timeline represented by simulation timestamps. It advances only after all participants synchronize. | Defines protocol timers, packet timing, RF events, asynchronous waits, and test timeouts. |
 | **Wall-clock time** | The actual elapsed time on the host, including Linux scheduling, CPU load, process startup, and file I/O. | Determines how long a test takes for the user, but does not define protocol timing in a BabbleSim run. |
 
-There is no fixed conversion between them. A Linux process may spend 100 ms of wall-clock time waiting to run while simulation time remains unchanged; a simulation step may also cross an interval with no pending events. The wall-clock cost of processing a given simulation interval depends on event density and host performance. Figure 5 illustrates the distinction: wall-clock time flows continuously, whereas discrete time advances between synchronization boundaries and remains fixed while callbacks, I/O, and assertions at a timestamp are processed.
+There is no fixed conversion between them. A Linux process may spend 100 ms of wall-clock time waiting to run while simulation time remains unchanged; a simulation step may also cross an interval with no pending events. The wall-clock cost of processing a given simulation interval depends on event density and host performance. Figure 4 illustrates the distinction: wall-clock time flows continuously, whereas discrete time advances between synchronization boundaries and remains fixed while callbacks, I/O, and assertions at a timestamp are processed.
 
 <div align="center">
   <img src="docs/images/discrete-vs-wall-time.gif" alt="Discrete simulation time compared with wall-clock time" width="760">
   <br>
-  <em>Figure 5: Wall-clock time flows continuously, while discrete simulation time jumps between event timestamps</em>
+  <em>Figure 4: Wall-clock time flows continuously, while discrete simulation time jumps between event timestamps</em>
   <br><br>
 </div>
 
