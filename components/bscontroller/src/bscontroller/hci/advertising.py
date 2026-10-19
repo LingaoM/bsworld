@@ -102,6 +102,12 @@ LEGACY_ADVERTISING_PROPERTIES: dict[int, AdvertisingPduType] = {
 
 
 class LeAdvertisingCommands(LeControllerContext):
+    def on_hci_le_read_advertising_physical_channel_tx_power_command(self, _command):
+        # Core Vol 4, Part E, 7.8.6: report the power used by legacy advertising.
+        return hci.HCI_LE_Read_Advertising_Physical_Channel_Tx_Power_ReturnParameters(
+            status=SUCCESS, tx_power_level=self._legacy().tx_power_dbm
+        )
+
     def _legacy(self) -> Advertising:
         advertiser = self.controller.le_legacy_advertiser
         item = self.link.advertisers.get(-1)

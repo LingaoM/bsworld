@@ -29,6 +29,50 @@ def radio_backend():
     return RadioBackend(SimpleNamespace(now_us=0))
 
 
+@pytest.mark.asyncio
+async def test_read_advertising_power_is_advertised_and_returns_default_power():
+    controller = Controller('test', backend=radio_backend())
+    events = []
+    controller.send_hci_packet = events.append
+    controller.on_packet(bytes(hci.HCI_Read_Local_Supported_Commands_Command()))
+    mask = hci.HCI_SUPPORTED_COMMANDS_MASKS[hci.HCI_LE_READ_ADVERTISING_PHYSICAL_CHANNEL_TX_POWER_COMMAND]
+    assert int.from_bytes(events.pop().return_parameters.supported_commands, 'little') & mask
+    controller.on_packet(bytes.fromhex('01072000'))
+    assert bytes(events.pop()) == bytes.fromhex('040e050107200000')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('power_dbm', [-127, -20, 0, 20])
+async def test_read_advertising_power_uses_legacy_radio_state_and_signed_encoding(power_dbm):
+    controller = Controller('test', backend=radio_backend())
+    controller.le_procedures._legacy().tx_power_dbm = power_dbm
+    events = []
+    controller.send_hci_packet = events.append
+    controller.on_packet(bytes.fromhex('01072000'))
+    assert len(events) == 1
+    event = events[0]
+    assert event.return_parameters.status == ErrorCode.SUCCESS
+    assert event.return_parameters.tx_power_level == power_dbm
+    assert bytes(event) == bytes.fromhex('040e0501072000') + power_dbm.to_bytes(1, 'little', signed=True)
+
+
+@pytest.mark.asyncio
+async def test_read_advertising_power_obeys_legacy_extended_family_and_reset():
+    controller = Controller('test', backend=radio_backend())
+    events = []
+    controller.send_hci_packet = events.append
+    controller.on_packet(bytes(extended_parameters()))
+    assert events.pop().return_parameters.status == ErrorCode.SUCCESS
+    controller.on_packet(bytes.fromhex('01072000'))
+    assert events.pop().return_parameters.status == ErrorCode.COMMAND_DISALLOWED_ERROR
+    controller.on_packet(bytes(hci.HCI_Reset_Command()))
+    assert events.pop().return_parameters.status == ErrorCode.SUCCESS
+    controller.on_packet(bytes.fromhex('01072000'))
+    assert events.pop().return_parameters.tx_power_level == 0
+    controller.on_packet(bytes(extended_parameters()))
+    assert events.pop().return_parameters.status == ErrorCode.COMMAND_DISALLOWED_ERROR
+
+
 @pytest.mark.parametrize('phy', list(Phy))
 def test_periodic_maximum_chain_budget(connection, phy):
     p = connection.link.listener
