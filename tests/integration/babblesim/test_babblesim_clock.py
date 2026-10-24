@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import uuid
@@ -45,6 +46,7 @@ def phy_clock(tmp_path):
             if phy.poll() is None:
                 phy.terminate()
             phy.wait(timeout=5)
+            shutil.rmtree(clock.sim_dir, ignore_errors=True)
 
 
 def test_clock_advances_and_releases_device_resources(phy_clock) -> None:
@@ -110,6 +112,4 @@ def test_clock_connection_is_bounded_if_phy_dies_after_creating_fifos(tmp_path, 
             if phy.poll() is None:
                 phy.kill()
             phy.wait(timeout=5)
-            for path in clock.sim_dir.iterdir():
-                path.unlink()
-            clock.sim_dir.rmdir()
+            shutil.rmtree(clock.sim_dir, ignore_errors=True)
