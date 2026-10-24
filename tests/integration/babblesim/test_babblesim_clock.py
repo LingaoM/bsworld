@@ -12,7 +12,7 @@ import uuid
 
 import pytest
 
-from bsworld.compile import bsim
+from bsworld.deps import check_babblesim_ready
 from bsworld.env import Env
 from bsworld.runtime.scheduler import BsimClock
 from bsworld.runtime.wait import wait_for_path
@@ -21,7 +21,7 @@ from bsworld.runtime.wait import wait_for_path
 @pytest.fixture
 def phy_clock(tmp_path):
     env = Env.detect()
-    bsim.check_ready(env)
+    check_babblesim_ready(env)
     sim_id = f"bsw_clock_{uuid.uuid4().hex[:12]}"
     with (tmp_path / "phy.log").open("wb") as output:
         phy = subprocess.Popen(
@@ -86,7 +86,7 @@ def test_clock_bounds_wall_time_wait_for_unresponsive_phy(phy_clock) -> None:
 @pytest.mark.parametrize("monitor_phy", [False, True])
 def test_clock_connection_is_bounded_if_phy_dies_after_creating_fifos(tmp_path, monitor_phy) -> None:
     env = Env.detect()
-    bsim.check_ready(env)
+    check_babblesim_ready(env)
     sim_id = f"bsw_clock_{uuid.uuid4().hex[:12]}"
     with (tmp_path / "phy.log").open("wb") as output:
         phy = subprocess.Popen(

@@ -36,7 +36,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..compile import bsim as bsim_build
+from ..deps import check_babblesim_ready
 from ..devices.controller import Controller
 from ..devices.layout import DeviceLayout, build_device_layout
 from ..devices.zephyr import ZephyrController
@@ -141,7 +141,7 @@ class BabbleSimBackend:
         return self._layout
 
     def check_deps_ready(self) -> None:
-        bsim_build.check_ready(self.env)
+        check_babblesim_ready(self.env)
 
     def prepare(self) -> None:
         log(f"preparing bsim sim_id={self.sim_id}")

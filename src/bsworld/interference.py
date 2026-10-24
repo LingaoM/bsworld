@@ -24,7 +24,7 @@ import math
 from dataclasses import dataclass, field
 from numbers import Real
 from pathlib import Path
-from typing import Final, Literal
+from typing import Final, Literal, get_args
 
 from .devices import Controller, ProcessInstance
 
@@ -59,44 +59,9 @@ WlanConfigSet = Literal[
     "5",
 ]
 
-SUPPORTED_INTERF_TYPES: Final[tuple[str, ...]] = (
-    "CW",
-    "WLAN",
-    "BLE",
-    "WN1",
-    "WN2",
-    "WN4",
-    "WN8",
-    "WN16",
-    "WN20",
-    "WN40",
-    "WN80",
-)
-SUPPORTED_WLAN_CONFIG_SETS: Final[tuple[str, ...]] = (
-    "VoIP",
-    "VideoConf",
-    "FileDownload",
-    "FileDownload_24M",
-    "FileDownload_12M",
-    "FileDownload_6M",
-    "100",
-    "100_24M",
-    "100_12M",
-    "100_6M",
-    "50",
-    "50_24M",
-    "50_12M",
-    "50_6M",
-    "25",
-    "25_24M",
-    "25_12M",
-    "25_6M",
-    "10",
-    "10_24M",
-    "10_12M",
-    "10_6M",
-    "5",
-)
+# Derived from the annotations above so the accepted values are declared once.
+SUPPORTED_INTERF_TYPES: Final[tuple[str, ...]] = get_args(InterfType)
+SUPPORTED_WLAN_CONFIG_SETS: Final[tuple[str, ...]] = get_args(WlanConfigSet)
 BSIM_CENTER_FREQ_MIN_MHZ: Final = 2273.0
 BSIM_CENTER_FREQ_MAX_MHZ: Final = 2527.0
 BSIM_POWER_MIN_DBM: Final = -128.0
@@ -354,15 +319,9 @@ __all__ = [
     "WlanConfigSet",
     "SUPPORTED_INTERF_TYPES",
     "SUPPORTED_WLAN_CONFIG_SETS",
-    "BSIM_CENTER_FREQ_MIN_MHZ",
-    "BSIM_CENTER_FREQ_MAX_MHZ",
-    "BSIM_POWER_MIN_DBM",
-    "BSIM_POWER_MAX_DBM",
+    # The remaining BSIM_* limits stay module-private; they exist to build the
+    # validation messages below rather than to be imported by tests.
     "BSIM_INTERFERENCE_MAX_WINDOWS",
-    "BSIM_WLAN_CHANNEL_MIN",
-    "BSIM_WLAN_CHANNEL_MAX",
-    "BSIM_CHANNEL_ATTENUATION_MIN_DB",
-    "BSIM_CHANNEL_ATTENUATION_MAX_DB",
     "BurstInterference",
     "WlanInterference",
     "PlaybackInterference",

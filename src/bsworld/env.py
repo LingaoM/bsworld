@@ -48,6 +48,22 @@ def _run_uid() -> str:
     return uuid.uuid4().hex[:8]
 
 
+def resolve_run_identity(
+    *,
+    out_dir: str | None = None,
+    now_tag: str | None = None,
+    run_uid: str | None = None,
+) -> tuple[str, str, str]:
+    """Resolve (base output dir, run tag, run uid) for one test session.
+
+    Explicit arguments win, then OUT_DIR and RUN_UID, then freshly generated
+    values. Resolved in one place so the plugin and Env cannot disagree about
+    where a run writes its artifacts.
+    """
+    base_dir = out_dir or os.environ.get("OUT_DIR") or "/tmp"
+    return base_dir, now_tag or _now_tag(), run_uid or os.environ.get("RUN_UID") or _run_uid()
+
+
 @dataclass(frozen=True)
 class Env:
     out_tag: str
@@ -75,10 +91,15 @@ class Env:
         now_tag: str | None = None,
         run_uid: str | None = None,
     ) -> "Env":
-        base_dir = Path(out_tag or os.environ.get("OUT_DIR") or "/tmp")
-        resolved_tag = now_tag or _now_tag()
-        uid = run_uid or os.environ.get("RUN_UID") or _run_uid()
-        out_dir = base_dir / resolved_tag / uid
+        """Resolve an environment, defaulting the run identity from os.environ.
+
+        The pytest plugin resolves the identity once per session and passes it
+        in, so every xdist worker shares one output directory.
+        """
+        base_dir, resolved_tag, uid = resolve_run_identity(
+            out_dir=out_tag, now_tag=now_tag, run_uid=run_uid
+        )
+        out_dir = Path(base_dir) / resolved_tag / uid
         log_dir = out_dir / "log"
 
         bsim_dir = env_path("BSIM_OUT_PATH")

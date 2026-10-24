@@ -17,8 +17,30 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Callable
+
+
+def _present(paths: Sequence[Path]) -> bool:
+    return all(path.exists() or path.is_symlink() for path in paths)
+
+
+def _describe(paths: Sequence[Path]) -> str:
+    return ", ".join(str(path) for path in paths)
+
+
+def _remaining(pred: Callable[[], bool], deadline: float, timeout: float, desc: str) -> float:
+    """Time left before the deadline, or 0.0 once the predicate holds.
+
+    Raises TimeoutError when the deadline passes without the predicate
+    becoming true, so the sync and async loops share one expiry rule.
+    """
+    if pred():
+        return 0.0
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise TimeoutError(f"timed out after {timeout:.1f}s waiting for {desc}")
+    return left
 
 
 def wait_for(
@@ -29,33 +51,28 @@ def wait_for(
     desc: str = "",
 ) -> None:
     deadline = time.monotonic() + timeout
+    described = desc or str(pred)
     while True:
-        if pred():
+        left = _remaining(pred, deadline, timeout, described)
+        if left == 0.0:
             return
-        if time.monotonic() >= deadline:
-            raise TimeoutError(f"timed out after {timeout:.1f}s waiting for {desc or pred}")
-        time.sleep(poll)
+        time.sleep(min(poll, left))
+
+
+def wait_for_paths(paths: Sequence[Path], timeout: float = 10.0, *, poll: float = 0.05) -> None:
+    wait_for(lambda: _present(paths), timeout=timeout, poll=poll, desc=_describe(paths))
 
 
 def wait_for_path(path: Path, timeout: float = 10.0, *, poll: float = 0.05) -> None:
-    wait_for(lambda: path.exists() or path.is_symlink(), timeout=timeout, poll=poll, desc=str(path))
+    wait_for_paths([path], timeout=timeout, poll=poll)
 
 
-def wait_for_paths(paths: list[Path], timeout: float = 10.0, *, poll: float = 0.05) -> None:
-    wait_for(
-        lambda: all(p.exists() or p.is_symlink() for p in paths),
-        timeout=timeout,
-        poll=poll,
-        desc=", ".join(str(p) for p in paths),
-    )
-
-
-async def wait_for_paths_async(paths: list[Path], timeout: float = 10.0, *, poll: float = 0.05) -> None:
+async def wait_for_paths_async(paths: Sequence[Path], timeout: float = 10.0, *, poll: float = 0.05) -> None:
     """Wait for startup paths while allowing other event-loop tasks to run."""
     deadline = time.monotonic() + timeout
-    while not all(path.exists() or path.is_symlink() for path in paths):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            desc = ", ".join(str(path) for path in paths)
-            raise TimeoutError(f"timed out after {timeout:.1f}s waiting for {desc}")
-        await asyncio.sleep(min(poll, remaining))
+    described = _describe(paths)
+    while True:
+        left = _remaining(lambda: _present(paths), deadline, timeout, described)
+        if left == 0.0:
+            return
+        await asyncio.sleep(min(poll, left))

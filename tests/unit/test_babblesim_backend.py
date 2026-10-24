@@ -65,7 +65,7 @@ def _patch_controller_bin(monkeypatch, tmp_path: Path) -> Path:
     controller.parent.mkdir(parents=True, exist_ok=True)
     controller.write_text("#!/bin/sh\n")
     controller.chmod(0o755)
-    monkeypatch.setattr(zephyr.hci_virt, "controller_bin", lambda env: controller)
+    monkeypatch.setattr(zephyr, "controller_bin", lambda env: controller)
     return controller
 
 
@@ -154,7 +154,7 @@ def test_check_deps_ready_only_validates_built_artifacts(tmp_path, monkeypatch) 
     backend = BabbleSimBackend(env, "sim")
     calls: list[str] = []
 
-    monkeypatch.setattr(babblesim.bsim_build, "check_ready", lambda build_env: calls.append(f"bsim:{build_env is env}"))
+    monkeypatch.setattr(babblesim, "check_babblesim_ready", lambda build_env: calls.append(f"bsim:{build_env is env}"))
 
     backend.check_deps_ready()
 

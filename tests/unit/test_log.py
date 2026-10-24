@@ -41,8 +41,8 @@ def test_log_writes_to_stdout_and_file_sink(capsys, tmp_path) -> None:
     assert "[bsworld] hello" in log_path.read_text()
 
 
-def test_info_uses_custom_tag(capsys) -> None:
-    log_mod.info("mydev", "started")
+def test_log_uses_a_custom_tag(capsys) -> None:
+    log_mod.log("started", tag="mydev")
     out = capsys.readouterr().out
     assert "[mydev] started" in out
 
@@ -86,14 +86,9 @@ def test_wrap_adds_ansi_only_when_enabled(monkeypatch) -> None:
     assert log_mod._wrap("31", "x") == "x"
 
 
-def test_die_raises_systemexit_with_code_and_logs(capsys) -> None:
-    with pytest.raises(SystemExit) as exc:
-        log_mod.die("fatal thing", code=7)
-    assert exc.value.code == 7
+def test_err_reports_without_exiting_the_interpreter(capsys) -> None:
+    # Setup failures raise BSWorldSetupError; logging never terminates pytest.
+    log_mod.err("fatal thing")
     assert "fatal thing" in capsys.readouterr().err
-
-
-def test_die_defaults_to_exit_code_1() -> None:
-    with pytest.raises(SystemExit) as exc:
-        log_mod.die("boom")
-    assert exc.value.code == 1
+    assert not hasattr(log_mod, "die")
+    assert not hasattr(log_mod, "Die")

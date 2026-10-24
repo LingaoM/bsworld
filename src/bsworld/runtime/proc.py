@@ -26,7 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import FrameType
 
-from ..log import die, info, log, warn
+from ..deps import BSWorldSetupError
+from ..log import log, warn
 
 SignalHandler = signal.Handlers | Callable[[int, FrameType | None], None]
 
@@ -74,9 +75,9 @@ class ProcessManager:
         if omitted, stdout+stderr are redirected into log_fh directly.
         """
         if not Path(cmd[0]).exists():
-            die(f"missing executable: {cmd[0]}", code=25)
+            raise BSWorldSetupError(f"missing executable: {cmd[0]}")
         if not cwd.exists() or not cwd.is_dir():
-            die(f"spawn {name}: cwd not found: {cwd}", code=21)
+            raise BSWorldSetupError(f"spawn {name}: cwd not found: {cwd}")
 
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"{name}.log"
@@ -162,9 +163,9 @@ class ProcessManager:
             return
         if not tail:
             return
-        info(proc.name, f"--- last {len(tail)} log line(s) ---")
+        log(f"--- last {len(tail)} log line(s) ---", tag=proc.name)
         for line in tail:
-            info(proc.name, line.rstrip("\n"))
+            log(line.rstrip("\n"), tag=proc.name)
 
     def cleanup(self) -> None:
         if not self.procs:

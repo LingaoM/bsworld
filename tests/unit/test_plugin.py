@@ -14,10 +14,7 @@
 #
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from bsworld import plugin
-from bsworld.devices import BSController, ZephyrController
 
 pytest_plugins = ("pytester",)
 
@@ -100,45 +97,36 @@ def test_nodeid_helpers_are_stable_and_path_safe(tmp_path) -> None:
     assert log_dir == tmp_path / "tests" / "foo" / "test_bar" / "test_case_param_a"
 
 
-def test_create_topology_for_request_uses_request_options(tmp_path) -> None:
-    env = plugin.Env(
-        out_tag="run-test",
-        run_uid="abc123",
-        out_dir=tmp_path / "out",
-        log_dir=tmp_path / "out" / "log",
-        babblesim_root=tmp_path / "components" / "babblesim",
-        hci_virt_bin=tmp_path / "components" / "hci",
-        bsim_dir=tmp_path / "build" / "babblesim" / "bsim",
-        bsim_bin_dir=tmp_path / "build" / "babblesim" / "bsim" / "bin",
-        bs_state_dir=tmp_path / "state",
-    )
-    cfg = _Config()
-    request = SimpleNamespace(
-        config=cfg,
-        node=SimpleNamespace(
-            nodeid="tests/integration/nuttx/btsak/test_btsak_scan_advertise.py::test_nuttx_btsak_scanner_finds_advertiser"
-        ),
+def test_topo_fixture_derives_identity_and_log_dir_from_the_node(pytester, monkeypatch) -> None:
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    monkeypatch.setenv("RUN_UID", "abc123")
+    test_file = pytester.makepyfile(
+        test_identity="""
+            import pytest
+            from bsworld.devices import ZephyrController
+
+            @pytest.mark.asyncio
+            async def test_identity(topo, bsworld_env):
+                assert topo.env is bsworld_env
+                assert topo.sim_id.startswith("bsw_abc123_")
+                assert topo.test_log_dir == (
+                    bsworld_env.log_dir / "test_identity" / "test_identity"
+                )
+                assert topo.default_controller_type is ZephyrController
+        """
     )
 
-    topo = plugin.create_topology_for_request(env, request)
-
-    assert topo.env is env
-    assert topo.sim_id.startswith("bsw_abc123_")
-    assert topo.test_log_dir == (
-        env.log_dir
-        / "tests"
-        / "integration"
-        / "nuttx"
-        / "btsak"
-        / "test_btsak_scan_advertise"
-        / "test_nuttx_btsak_scanner_finds_advertiser"
+    result = pytester.runpytest_subprocess(
+        *_ISOLATED_PLUGIN_ARGS,
+        "-o",
+        "asyncio_mode=strict",
+        "--out-dir",
+        str(pytester.path / "logs"),
+        "-q",
+        str(test_file),
     )
-    assert topo.default_controller_type is ZephyrController
 
-    selected = plugin.create_topology_for_request(
-        env, request, default_controller_type=BSController
-    )
-    assert selected.default_controller_type is BSController
+    result.assert_outcomes(passed=1)
 
 
 def test_topo_fixture_honours_an_overridden_controller_default(pytester, monkeypatch) -> None:
