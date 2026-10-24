@@ -188,6 +188,17 @@ source .venv/bin/activate
 pytest tests/integration -n auto
 ```
 
+### 选择测试用的 Controller
+
+Host 集成场景默认分别使用 Zephyr Controller（`[zephyr]`）和 Python BSController（`[bscontroller]`）运行，复用同一份测试代码和 Host 二进制。可通过参数 ID 选择一种实现：
+
+```sh
+pytest tests/integration -n auto -v -k '[zephyr]'
+pytest tests/integration -n auto -v -k '[bscontroller]'
+```
+
+在 Docker 中也可以给 pytest 命令追加同样的筛选参数，参见[选择测试套件](../../docker/README.zh-CN.md#选择测试套件)。
+
 ## 文档
 
 - [编写测试和 RF 场景](writing-tests.md)：进程配置、asyncio 等待、Shell 命令、路径衰减和干扰注入。

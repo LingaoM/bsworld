@@ -188,6 +188,17 @@ source .venv/bin/activate
 pytest tests/integration -n auto
 ```
 
+### Test Controller Variants
+
+Host integration scenarios run with both Zephyr Controller (`[zephyr]`) and Python BSController (`[bscontroller]`) by default, reusing the same test code and Host binaries. To select one variant, use its parameter ID:
+
+```sh
+pytest tests/integration -n auto -v -k '[zephyr]'
+pytest tests/integration -n auto -v -k '[bscontroller]'
+```
+
+The same filters can be appended to the pytest command in Docker; see [suite selection](docker/README.md#select-a-suite).
+
 ## Documentation
 
 - [Writing tests and RF scenarios](docs/writing-tests.md): process adapters, asyncio waits, shell commands, attenuation, and interference.
