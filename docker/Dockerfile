@@ -202,8 +202,8 @@ RUN python -m pip install kconfiglib
 
 # Validated NuttX and apps revisions for both simulator test configurations.
 # Fetch exact commits to avoid downloading the entire upstream Git history.
-ARG NUTTX_REVISION=89c4b8ccaf03f1c6d33624d93ef640d8d176a78d
-ARG NUTTX_APPS_REVISION=8404450fb89346ed244d1c701e5feb5d19f32271
+ARG NUTTX_REVISION=47180bf5ea00a94b41cf2083b8fed123199e5ce9
+ARG NUTTX_APPS_REVISION=95833033f9f5c045309c1c48d2af994c78791f6b
 ENV NUTTX_DIR=/opt/nuttx \
     NUTTX_APPS_DIR=/opt/nuttx-apps \
     NUTTX_NIMBLE_DIR=/opt/nuttx-nimble \

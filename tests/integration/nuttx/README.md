@@ -33,8 +33,8 @@ export NUTTX_NIMBLE_APPS_DIR="$HOME/nuttx-nimble-apps"
 
 git clone https://github.com/apache/nuttx.git "$NUTTX_DIR"
 git clone https://github.com/apache/nuttx-apps.git "$NUTTX_APPS_DIR"
-git -C "$NUTTX_DIR" checkout 89c4b8ccaf03f1c6d33624d93ef640d8d176a78d
-git -C "$NUTTX_APPS_DIR" checkout 8404450fb89346ed244d1c701e5feb5d19f32271
+git -C "$NUTTX_DIR" checkout 47180bf5ea00a94b41cf2083b8fed123199e5ce9
+git -C "$NUTTX_APPS_DIR" checkout 95833033f9f5c045309c1c48d2af994c78791f6b
 
 # Separate source trees retain both in-tree simulator executables.
 git clone "$NUTTX_DIR" "$NUTTX_NIMBLE_DIR"
