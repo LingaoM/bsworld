@@ -53,7 +53,7 @@ cd bsworld
 export BSWORLD_ROOT="$PWD"
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e . -e components/bscontroller
+python -m pip install -e .
 ```
 
 Run the development checks:

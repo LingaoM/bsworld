@@ -31,8 +31,6 @@
 
 每个 Host 可以独立选择 `ZephyrController`（默认，原生进程）或 `BSController`（Python Controller，运行在自己的 worker 线程中）。二者都提供相同的 H:4 Unix socket；Controller 的选择与 Host 运行在 Python 还是外部进程无关。
 
-本地使用 Python 实现时，执行 `python -m pip install -e components/bscontroller`；Docker 测试镜像已包含该组件。
-
 ```python
 from bsworld.devices import BSController
 

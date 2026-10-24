@@ -47,13 +47,13 @@ RUN python -c 'import subprocess, tomllib; \
 # Install the project once for early Python checks and the final runtime image.
 # Keep this branch separate from firmware so Python changes reuse compiled outputs.
 FROM bsworld AS python-test
-COPY --chown=$BUILD_UID:$BUILD_GID components/bscontroller /opt/bscontroller
-RUN python -m pip install --no-deps --no-build-isolation /opt/bscontroller
 ENV PYTHONPATH=/workspace \
     PYTHONUNBUFFERED=1 \
     BSWORLD_ROOT=/workspace
 COPY --chown=$BUILD_UID:$BUILD_GID pyproject.toml /workspace/pyproject.toml
 COPY --chown=$BUILD_UID:$BUILD_GID src /workspace/src
+# BSController is bundled by the BSWorld distribution and installed with it.
+COPY --chown=$BUILD_UID:$BUILD_GID components/bscontroller /workspace/components/bscontroller
 COPY --chown=$BUILD_UID:$BUILD_GID tests /workspace/tests
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/bsworld/
 # Git metadata is excluded from images; CI supplies the Git-derived version.

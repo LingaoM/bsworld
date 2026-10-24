@@ -50,11 +50,10 @@ BSWorld does not vendor TrouBLE. `tests/integration/trouble/source` consumes the
 
 - Project: Bumble
 - Source: https://github.com/google/bumble
-- Usage: Python Bluetooth Host stack used by `tests/integration/bumble/`
-- Distribution: installed from PyPI as a default dependency; not vendored in this repository
+- Usage: Python Bluetooth Host stack used by `tests/integration/bumble/`;
 - License: Apache License 2.0
 
-BSWorld uses Bumble through its public Python and HCI transport APIs and does not modify its source code.
+BSWorld uses the Bumble Host stack through its public Python and HCI transport APIs and does not modify its source code.
 
 ## Zephyr Project
 

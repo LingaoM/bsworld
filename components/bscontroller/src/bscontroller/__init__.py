@@ -14,6 +14,10 @@ from .runtime.worker import RadioControllerWorker as RadioController
 try:
     __version__ = version('bscontroller')
 except PackageNotFoundError:
-    __version__ = '0+unknown'
+    try:
+        # Bundled inside the BSWorld distribution, which has no bscontroller metadata.
+        __version__ = version('bsworld')
+    except PackageNotFoundError:
+        __version__ = '0+unknown'
 
 __all__ = ['Phy', 'Radio', 'RadioController', 'RadioEventLoop', 'RadioSession', 'Received', 'hci']
