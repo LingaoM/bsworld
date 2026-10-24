@@ -1,6 +1,6 @@
 # Code of Conduct
 
-[English](CODE_OF_CONDUCT.md) | [中文](docs/zh-CH/CODE_OF_CONDUCT.md)
+[English](CODE_OF_CONDUCT.md) | [简体中文](docs/zh-CH/CODE_OF_CONDUCT.md)
 
 ## Our Pledge
 

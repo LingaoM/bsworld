@@ -1,6 +1,6 @@
 # Writing Tests
 
-[English](writing-tests.md) | [中文](zh-CH/writing-tests.md)
+[English](writing-tests.md) | [简体中文](zh-CH/writing-tests.md)
 
 The repository [README](../README.md#technical-architecture) introduces the Virtual Controller and discrete-time scheduler. This guide follows the practical test-authoring workflow: declare a topology, integrate Applications, drive and await behavior with asyncio, configure RF conditions, and verify the expected Bluetooth LE result.
 
@@ -21,9 +21,9 @@ The `topo` fixture gives each test a `BluetoothTopology`. Tests declare particip
 The topology moves through four phases:
 
 1. Suite-local process loaders, `topo.add_controller()`, and RF configuration methods record the intended topology without spawning processes or advancing simulation time.
-2. `await topo.start()` assigns Controller, Application, and PHY device identities; prepares isolated socket and log paths; and starts the PHY, Virtual Controllers, interference sources, and Application processes. It then connects pytest's clock client to the PHY. Once the HCI sockets are ready and all participants have registered, a WAIT/ACK exchange at simulation time zero ensures they have submitted their initial requests. Only then does `start()` bind the simulation clock to the event loop and return.
+2. `await topo.start()` assigns device identities, prepares isolated socket and log paths, and starts the PHY, Virtual Controllers, interference sources, and Application processes. It returns once every participant has registered and the event loop is running on simulation time.
 3. Tests drive behavior and evaluate results through `ProcessInstance`, in-process Host stack APIs, shell commands, and standard asyncio APIs. The event loop advances shared simulation time only after all callbacks and I/O at the current timestamp have been processed.
-4. Fixture teardown unbinds the simulation clock from the event loop, stops Controllers and processes, closes capture files, and flushes logs. The BabbleSim backend then closes its FIFO clock connection, generates the Ellisys trace, and removes temporary simulation files.
+4. Fixture teardown stops Controllers and processes, flushes logs and capture files, generates the Ellisys trace, and removes temporary simulation files.
 
 Every test receives its own simulation ID, Unix socket directory, and log directory. Virtual tests can therefore run concurrently without sharing Controller state, RF state, or output files.
 
@@ -49,9 +49,7 @@ await topo.start()
 
 Each Python Controller owns its worker, radio endpoint and address. Omit `max_step_us` to use bscontroller's default; pass it only to override the worker's step size. Both implementations use the shared PHY and framework clock. A topology containing only Python Controllers does not require `BSWORLD_BT_VIRT_CONTROLLER_BIN`.
 
-New implementations subclass `Controller` and implement asynchronous `start(pm, env, *, log_dir)` and `stop()`. The base class provides the HCI socket path and device metadata. Startup launches the runtime without waiting for other PHY participants; returning does not guarantee that the HCI socket is ready. The backend waits for socket readiness, and the topology completes registration after launching the Hosts. Shutdown releases resources even after a partial startup failure.
-
-Both Controller implementations write their own `hciN.snoop` files using local simulation timestamps. Python Controllers capture HCI in their worker thread before handing output to the Host loop. The shared PHY also produces `ellisys.bttrp`.
+Both Controller implementations write their own `hciN.snoop` files; the shared PHY produces `ellisys.bttrp`.
 
 ## Async Waiting and Simulation Time
 
@@ -69,14 +67,7 @@ await asyncio.sleep(0.2)
 result = await asyncio.wait_for(operation(), timeout=5)
 ```
 
-BSWorld implements this transition without replacing asyncio's task scheduler or I/O machinery. It intercepts only the selector wait reached when no work is immediately ready. A normal event loop would block there in wall-clock time; `BsimEventLoop` instead calculates the next target and advances BabbleSim through its FIFO protocol. Each cycle follows four stages:
-
-1. Poll registered file descriptors without blocking, then run callbacks and I/O that are ready at the current timestamp.
-2. When no work remains, compute a target from the next timer deadline and the maximum step size, then send a WAIT request.
-3. The pytest clock waits on its BabbleSim response FIFO until the PHY acknowledges the requested target.
-4. The event loop processes the resulting socket events and expired timers under normal asyncio semantics. It does not advance time again until all work at the current timestamp is complete.
-
-Figure 1 follows one complete advancement: the selector calls the in-process BabbleSim clock client, which sends a WAIT request over its FIFO. Once the PHY acknowledges the target, pytest handles the resulting I/O and timers.
+Simulation time only advances once every callback and I/O event at the current timestamp has been processed, so a test observes all work scheduled for one instant before the clock moves. Figure 1 shows one such step.
 
 <div align="center"><img src="images/bluetooth-diagram.svg" alt="One BSWorld discrete-time step" width="80%"><br><em>Figure 1: One deterministic simulation-time step</em><br><br></div>
 
@@ -87,7 +78,7 @@ Figure 1 follows one complete advancement: the selector calls the in-process Bab
 
 ## Integrating Application Processes
 
-BSWorld core provides generic Virtual Controller, `ProcessInstance`, and topology lifecycle primitives without embedding platform argument formats. Each integration suite owns the profile and loader that translate its launch contract into a BSWorld topology. Zephyr, NuttX, and future platform differences therefore remain outside the framework core.
+Each integration suite owns the profile and loader that translate its platform's launch contract into a BSWorld topology. The examples below show both conventions.
 
 ### NuttX
 

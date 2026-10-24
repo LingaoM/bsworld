@@ -1,6 +1,6 @@
 # 社区行为准则
 
-[English](../../CODE_OF_CONDUCT.md) | [中文](CODE_OF_CONDUCT.md)
+[English](../../CODE_OF_CONDUCT.md) | [简体中文](CODE_OF_CONDUCT.md)
 
 ## 我们的承诺
 

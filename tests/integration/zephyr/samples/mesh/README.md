@@ -1,6 +1,6 @@
 # Zephyr Mesh Sample Tests
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 Validate Mesh provisioning and configuration-model control, using this directory's `source/mesh.conf`.
 

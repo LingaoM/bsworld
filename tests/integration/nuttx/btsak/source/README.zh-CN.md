@@ -1,6 +1,6 @@
 # NuttX BTSak 构建
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 使用上游 `sim:bthcisock` 配置及其原生 Application。先按 [NuttX 环境说明](../../README.zh-CN.md)准备工作区并编译 BabbleSim。
 
@@ -21,12 +21,6 @@ make -j"$(nproc)"
 export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
 ```
 
-`SIM_BSIM_TIME` 接入仿真时钟。BTSak 禁用 SMP self-test。
+`SIM_BSIM_TIME` 接入仿真时钟。BTSak 禁用 SMP 自检（self-test）。
 
-产物为 `$NUTTX_DIR/nuttx`。运行 pytest 时必须保证编译链接的 BabbleSim 动态库位于编译时指定的 `$BSIM_OUT_PATH/lib/`。在 BSWorld Python 环境中运行：
-
-```sh
-cd "$BSWORLD_ROOT"
-source .venv/bin/activate
-pytest tests/integration/nuttx/btsak -q
-```
+产物为 `$NUTTX_DIR/nuttx`，已导出为 `BSWORLD_NUTTX_BTSAK_BIN`。运行 pytest 时必须保证编译链接的 BabbleSim 动态库位于编译时指定的 `$BSIM_OUT_PATH/lib/`。运行测试见 [BTSak 测试 README](../README.zh-CN.md#运行)。

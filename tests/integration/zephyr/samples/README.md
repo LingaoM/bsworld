@@ -1,6 +1,6 @@
 # Zephyr Bluetooth Samples
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 These tests run unmodified Zephyr Bluetooth samples as Host-only processes in BSWorld. A shared configuration and devicetree overlay connects each Host to a separate BSWorld Virtual Controller over a Unix socket.
 
@@ -10,8 +10,6 @@ These tests run unmodified Zephyr Bluetooth samples as Host-only processes in BS
 | [heart_rate/](heart_rate/README.md) | `peripheral_hr`, `central_hr` | Connection, GATT discovery, and notifications |
 | [periodic_advertising/](periodic_advertising/README.md) | `periodic_adv`, `periodic_sync` | Periodic advertising synchronization |
 | [mesh/](mesh/README.md) | `mesh`, `mesh_provisioner` | Mesh provisioning and configuration-model control |
-
-Each directory owns its Python tests, profiles, and optional configuration fragments.
 
 ## Environment Setup
 

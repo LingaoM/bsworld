@@ -1,8 +1,8 @@
 # Zephyr Workspace and Shared Configuration
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-This directory maintains only BSWorld configuration: `bsim_host_only.overlay` selects Unix socket HCI transport, and `bsim.conf` enables shared Host-only BabbleSim settings. Mesh also uses `mesh/source/mesh.conf`. Sample source lives in the upstream Zephyr workspace.
+Use `bsim_host_only.overlay` for Unix socket HCI transport and `bsim.conf` for the shared Host-only BabbleSim settings. Mesh also requires `mesh/source/mesh.conf`. The sample source is provided by the Zephyr workspace.
 
 ## Prepare the Workspace
 

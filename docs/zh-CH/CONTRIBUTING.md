@@ -1,6 +1,6 @@
 # 为 BSWorld 贡献
 
-[English](../../CONTRIBUTING.md) | [中文](CONTRIBUTING.md)
+[English](../../CONTRIBUTING.md) | [简体中文](CONTRIBUTING.md)
 
 感谢参与 BSWorld。项目欢迎缺陷修复、测试、文档、新的 Bluetooth LE 业务程序环境、平台接入，以及对确定性运行时和 RF 编排能力的改进。
 

@@ -1,10 +1,12 @@
 # RadioController Protocol Tests
 
+English | [简体中文](PROTOCOL.zh-CN.md)
+
 The suite is organized by the actual HCI and LL test-suite chapters. These tests do not imply Bluetooth SIG qualification or certification.
 
 ## Chapter Layout
 
-The suite contains 17 primary test files: nine HCI chapters and eight LL chapters. Each source procedure has one method; its test-case variants are parameters of that method. A printed page label is not a section number.
+The suite contains 17 primary test files: nine HCI chapters and eight LL chapters. Each source procedure has one test method; its case variants are parameters of that method. A printed page label is not a section number.
 
 | Directory | Source Chapter | Test File | Selected Cases |
 |---|---|---|---:|
@@ -26,26 +28,20 @@ The suite contains 17 primary test files: nine HCI chapters and eight LL chapter
 | `ll/` | 4.8 Security | `security_test.py` | 38 |
 | `ll/` | 4.9 Data Flow | `data_flow_test.py` | 4 |
 
-The chapter counts total 109 HCI and 392 LL cases selected in the workbook. Additional regression cases do not increase coverage of these selected cases.
+The chapter counts total 109 HCI and 392 LL cases, 501 selected cases in all. Additional regression cases do not increase coverage of these selected cases.
 
-All selected cases are registered in their source chapters. A case without an executable procedure has an explicit pytest skip reason. `HCI/DDI/BI-03-C` is not applicable: it requires an IUT without LE Set Periodic Advertising Receive Enable support, whereas this DUT supports that command.
+## Result Meaning
 
-Two independent pytest markers describe execution limits:
+An unlabelled procedure that completes its assertions produces a protocol `PASS`. Two independent pytest markers describe execution limits and map to a `PARTIAL` verdict:
 
-- `limited` is reserved for sub-microsecond stimulus or measurement precision. These cases execute all available checks at 1-us resolution, using documented integer-us approximations. Timing precision alone never permits a skip.
-- `source_conflict` identifies unresolved source procedure, branch or verdict requirements. It permits skipping the unresolved source path and does not imply a Controller capability gap.
+- `limited` is reserved for sub-microsecond stimulus or measurement precision. These cases execute all available checks at 1-us resolution, using documented integer-us approximations. Timing precision alone never permits a skip; the executor rejects skips from timing-only limited procedures.
+- `source_conflict` identifies an unresolved source procedure, branch, or verdict requirement. It permits skipping the unresolved source path and does not imply a Controller capability gap.
 
-A case may carry both markers. `Timing Approximation` in the procedure documents the exact source requirement and chosen integer-us stimulus. The executor rejects skips from timing-only limited procedures; mixed cases can skip for their independent source question. `Source Conflict` documents the unresolved requirement.
+A case may carry both markers; a mixed case can skip for its independent source question. A successful labelled execution produces a pytest pass and a protocol `PARTIAL` verdict, preserving the precision or source qualification boundary. An approximate execution is never represented as an exact fractional-time measurement.
 
-Successful labelled executions produce a pytest pass and a protocol `PARTIAL` verdict, preserving the precision or source qualification boundary. Unlabelled procedures that complete their assertions produce a protocol `PASS`. An approximate execution must not be represented as an exact fractional-time measurement.
+A case without an executable procedure has an explicit pytest skip reason. `not_applicable` is distinct from `unsupported`: the former means the case's applicability conditions are false for this Controller. For example, `HCI/DDI/BI-03-C` requires a Controller without LE Set Periodic Advertising Receive Enable support, which this Controller provides, so the case is not applicable.
 
-## Test Infrastructure
-
-The suite owns its wire encoders and HCI probes (`tester.py`), raw connection peer and ACL helpers (`peer.py`), shared lower-tester link operations (`link.py`), periodic advertiser/observer (`periodic.py`), and case registration and verdict logging (`cases.py`). Protocol procedures and chapter-local helpers live in the corresponding `hci/` or `ll/` chapter file. Controller implementation tests live in `../unit/`; they do not test this suite's encoders, registrations or verdict algorithms.
-
-Both HCI and LL chapters use `PROCEDURES |= procedure_cases(...)`. Each variant contains its workbook description and procedure arguments. Use `pytest.param(..., marks=...)` for per-case execution marks. The Test Purpose is a comment immediately above its registration; the implementation docstring retains initial conditions, numbered steps, expected outcomes and specification references. Collection and execution depend only on these test definitions.
-
-The original workbook and review/test-plan documents are not runtime inputs. Case metadata, Source Correction notes and unresolved Source Conflict explanations are maintained alongside the executable procedures.
+These independently implemented tests do not imply complete LL.TS/HCI.TS coverage.
 
 ## Run
 
@@ -61,18 +57,13 @@ python -m pytest tests/qualification -m 'limited and not source_conflict' -v
 
 # Includes source-only and mixed cases; unresolved source paths may skip.
 python -m pytest tests/qualification -m source_conflict -v -rs
-
 ```
+
+## Limits
 
 `BSIM_SCAN_MAX_CODED_RANGE_M` declares the simulated `TSPX_scan_max_coded_range` in meters for the Coded latest-scanner case. Its default is 0 for colocated simulated endpoints. The stimulus applies the source's half-us range-delay floor before rounding the combined response delay to whole microseconds, and records the declaration in the protocol log.
 
-Parallel cases have independent PHY processes, simulation IDs, FIFOs and log directories. Identical channels in different simulations cannot interfere. Workers share host resources; some source procedures remain long because they require repeated complete packet observations or simulated silence windows. Parallel scheduling leaves each case's steps, simulation timing and verdict requirements unchanged. See [parallel execution](../README.md#parallel-execution) for installation and worker selection.
-
-## Procedure Requirements
-
-Each registration documents Test Purpose and each case's description. Each method documents Initial Condition, Test Steps, Expected Outcome / Pass verdict, exact source section, printed/PDF pages and case identifiers. All variants belonging to one source procedure use that method with explicit parameters. Unsupported or inapplicable cases state their missing prerequisites. Use `limited` only for sub-microsecond precision and `source_conflict` for unresolved normative requirements. Labelled cases do not receive a full protocol pass verdict.
-
-`not_applicable` is distinct from `unsupported`: the former means the case's applicability conditions are false for this Controller. For example, HCI/DDI/BI-03-C requires a Controller without LE Set Periodic Advertising Receive Enable; this Controller supports that command. LL/FRH/CEN/BV-03-C tests reception of Minimum Number of Used Channels and ten subsequent acknowledged events. Its initial channel map already enables all 37 channels, so map-selection algorithms and update deferral are covered separately by unit tests rather than added as invented qualification steps.
+Parallel cases have independent PHY processes, simulation IDs, FIFOs and log directories, so identical channels in different simulations cannot interfere. Workers share host resources; some source procedures remain long because they require repeated complete packet observations or simulated silence windows. Parallel scheduling leaves each case's steps, simulation timing and verdict requirements unchanged. See [parallel execution](../README.md#parallel-execution) for installation and worker selection.
 
 ## License
 

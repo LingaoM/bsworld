@@ -1,6 +1,6 @@
 # Logs, Traces, and Captures
 
-[English](artifacts.md) | [中文](zh-CH/artifacts.md)
+[English](artifacts.md) | [简体中文](zh-CH/artifacts.md)
 
 BSWorld preserves framework logs, Application logs, HCI captures, and RF traces for every test. These files are not only console output: together they locate a failure in the Application, Host, Controller, or radio path.
 
@@ -81,7 +81,7 @@ Timestamps at the start of lines in `bsworld.log` use Linux wall-clock time and 
 
 ## Application Logs and `wait_log()`
 
-Each Application writes its stdout and stderr to a dedicated FIFO. BSWorld registers that FIFO with the active [asyncio](https://docs.python.org/3/library/asyncio.html) event loop. When the FIFO is readable, its callback copies data to the `.log` file and stores complete lines in an in-memory queue for `wait_log()`.
+Each Application's stdout and stderr are written to its `.log` file and made available to `ProcessInstance.wait_log()` as complete lines.
 
 ```python
 await device.wait_log(r"Bluetooth initialized", timeout=30)
@@ -92,10 +92,8 @@ await device.wait_log(r"Bluetooth initialized", timeout=30)
 - It applies a regular expression to complete lines.
 - Its `timeout` uses the active event loop clock. After topology startup, this is simulation time rather than wall-clock time.
 - Complete lines that reached the FIFO before the call remain matchable unless an earlier wait already consumed them.
-- Lines inspected while searching are consumed from the in-memory queue. A later wait cannot match an old line skipped by an earlier wait.
+- A later wait cannot match a line that an earlier wait already scanned past.
 - An unterminated fragment is written to the `.log` file immediately, but it becomes matchable only after a newline completes the line.
-
-The event loop processes ready log and HCI file descriptors before advancing the next BabbleSim time step. Log matching and test callbacks therefore share the framework clock boundary. Controllers capture HCI using their own local simulation clocks before delivering packets to the Host.
 
 Tail an Application log while a test is running:
 
@@ -118,7 +116,7 @@ If a process exits with a nonzero status before teardown, BSWorld writes a warni
 
 ## HCI BTSnoop Capture
 
-BSWorld passes each Controller its `hciN.snoop` output path: Zephyr receives `-btsnoop-file`, and Python `BSController` receives `hci_snoop_file`. The Controller records HCI packets directly at its own transmit/receive boundaries, using its local simulation clock. The Host connects directly to the HCI socket; no relay or separate capture socket participates in the data path. Files use BTSnoop v1, H4 datalink type 1002, complete packet lengths, direction flags and the existing simulation-time epoch. Unbuffered file writes preserve completed records when teardown terminates the Controller.
+Each Controller records HCI packets at its own transmit and receive boundaries, timestamped with simulation time. Files use BTSnoop v1, H4 datalink type 1002, complete packet lengths, and direction flags.
 
 Open a capture with [Wireshark](https://www.wireshark.org/) or `btmon`:
 
@@ -127,7 +125,7 @@ wireshark /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 btmon -r /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 ```
 
-HCI capture is always enabled for both Controller implementations. Python Controllers write captures in their worker thread, before output reaches the Host event loop, without advancing simulation time. Application-bound Controllers save the capture under the Application directory; otherwise, captures are saved under `bt_virt_controller/` or `bscontroller/`. Radio traffic from both implementations is included in the shared `ellisys.bttrp` trace.
+HCI capture is always enabled for both Controller implementations. Application-bound Controllers save the capture under the Application directory; otherwise, captures are saved under `bt_virt_controller/` or `bscontroller/`. Radio traffic from both implementations is included in the shared `ellisys.bttrp` trace.
 
 ## Ellisys Over-the-Air Trace
 

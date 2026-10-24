@@ -1,6 +1,6 @@
 # Zephyr Bluetooth 示例测试
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 这些测试将未经修改的 Zephyr Bluetooth 示例程序作为独立的 Host 进程接入 BSWorld。公共配置和 devicetree overlay 让每个 Host 通过 Unix socket 连接到独立的虚拟 Controller。
 
@@ -10,8 +10,6 @@
 | [heart_rate/](heart_rate/README.zh-CN.md) | `peripheral_hr`、`central_hr` | 连接、GATT 发现和通知 |
 | [periodic_advertising/](periodic_advertising/README.zh-CN.md) | `periodic_adv`、`periodic_sync` | 周期广播同步 |
 | [mesh/](mesh/README.zh-CN.md) | `mesh`、`mesh_provisioner` | Mesh 配网和配置模型控制 |
-
-每个目录维护自己的 Python 测试、进程配置和可选配置片段。
 
 ## 环境准备
 

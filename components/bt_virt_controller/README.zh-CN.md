@@ -1,8 +1,8 @@
 # bt_virt_controller
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-`bt_virt_controller` 是 Xiaomi 为 BSWorld 开发的虚拟 Controller 实现。它的源代码独立于 Zephyr 源码树维护，并面向 [nrf52_bsim](https://docs.zephyrproject.org/latest/boards/native/nrf_bsim/doc/nrf52_bsim.html) 构建。该程序运行完整的 HCI 接口和 Link Layer 协议逻辑，并通过 BabbleSim PHY 参与无线数据收发和 RF 交互。虚拟 Controller 提供基于 Unix socket 的双向 H4 传输通道，以及可选的非阻塞 BTSnoop 抓包 socket。
+`bt_virt_controller` 是 Xiaomi 为 BSWorld 开发的虚拟 Controller 实现。它是一个面向 [nrf52_bsim](https://docs.zephyrproject.org/latest/boards/native/nrf_bsim/doc/nrf52_bsim.html) 构建的 Zephyr 树外（out-of-tree）Application。该程序运行完整的 HCI 接口和 Link Layer 协议逻辑，并通过 BabbleSim PHY 参与无线数据收发和 RF 交互。虚拟 Controller 提供基于 Unix socket 的双向 H4 传输通道，以及可选的非阻塞 BTSnoop 抓包 socket。
 
 本目录保留 Application 源码、配置和构建说明。编译产物位于 Zephyr 工作区，通过 `BSWORLD_BT_VIRT_CONTROLLER_BIN` 指定。
 
@@ -21,7 +21,7 @@ BSWorld 为每个 HCI socket 启动一个虚拟 Controller：
 ```
 
 - `-s` 和 `-d` 分别指定 BabbleSim 仿真标识和 Controller 设备编号。
-- `-hci-poll-interval` 设置 HCI socket 轮询周期，并将同一个值应用为 PHY 最大重同步间隔；默认值为 1,000 微秒（1 ms）。
+- `-hci-poll-interval` 设置 HCI socket 轮询周期，并将同一个值应用为 PHY 最大重同步偏移量；默认值为 1,000 微秒（1 ms）。
 - `-hci-socket` 承载双向 H4 HCI 帧。
 - `-bd-addr` 用于在 Host 连接前初始化 Controller 的 public address。
 

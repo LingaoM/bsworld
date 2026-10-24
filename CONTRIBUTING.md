@@ -1,6 +1,6 @@
 # Contributing to BSWorld
 
-[English](CONTRIBUTING.md) | [中文](docs/zh-CH/CONTRIBUTING.md)
+[English](CONTRIBUTING.md) | [简体中文](docs/zh-CH/CONTRIBUTING.md)
 
 Thank you for contributing to BSWorld. Contributions may include bug fixes, tests, documentation, new Bluetooth LE Application environments, platform integrations, and improvements to the deterministic runtime or RF orchestration.
 

@@ -1,6 +1,6 @@
 # Zephyr Mesh 示例测试
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 验证 Mesh 配网和配置模型控制，并使用本目录的 `source/mesh.conf`。
 

@@ -1,6 +1,6 @@
 # 第三方声明
 
-[English](../../THIRD_PARTY_NOTICES.md) | [中文](THIRD_PARTY_NOTICES.md)
+[English](../../THIRD_PARTY_NOTICES.md) | [简体中文](THIRD_PARTY_NOTICES.md)
 
 本仓库引用的第三方组件用于准备 Docker 编译环境及构建测试程序。本机构建产物及 Docker 测试镜像中的产物通过环境变量指定；第三方组件仍遵循各自的许可证。
 
@@ -20,7 +20,7 @@ BSWorld 使用 repo 获取 BabbleSim 官方仓库，已验证的版本记录在 
 
 - 项目：Apache NuttX
 - 源码：https://github.com/apache/nuttx
-- 用途：构建 `tests/integration/nuttx/` 使用的测试镜像
+- 用途：外部源码，用于构建 `tests/integration/nuttx/` 中的 NuttX 测试镜像
 - 生成的程序：`BSWORLD_NUTTX_BTSAK_BIN` 和 `BSWORLD_NUTTX_NIMBLE_BIN`
 - 许可证：Apache License 2.0
 
@@ -30,7 +30,7 @@ BSWorld 不直接包含 Apache NuttX 源码。NuttX 测试文档说明了如何�
 
 - 项目：Apache Mynewt NimBLE
 - 源码：https://github.com/apache/mynewt-nimble
-- 用途：用于 NuttX NimBLE 测试，以及 QEMU Guest 中的上游 Linux 示例测试
+- 用途：外部 Bluetooth Host 协议栈，用于 NuttX NimBLE 测试，以及 QEMU Guest 中的上游 Linux 示例测试
 - 生成的程序：`BSWORLD_NUTTX_NIMBLE_BIN` 和 `BSWORLD_QEMU_ROOTFS`
 - 许可证：Apache License 2.0
 
@@ -44,7 +44,7 @@ BSWorld 不直接包含 Apache NimBLE 源码。NuttX 镜像通过 NuttX apps 引
 - 生成的运行文件：`BSWORLD_QEMU_ROOTFS`
 - 许可证：MIT 或 Apache License 2.0
 
-BSWorld 不直接包含 TrouBLE 源码。QEMU 的 Buildroot 配置下载固定的上游提交，交叉编译未经修改的 Linux 示例，并在 Buildroot `legal-info` 输出中保留其许可证文件。
+BSWorld 不直接包含 TrouBLE 源码。`tests/integration/trouble/source` 以固定到单个上游提交的 Cargo git 依赖方式引用未经修改的上游 Battery Service 应用，并通过它引入 `trouble-host` 栈，Cargo 会在其 checkout 中保留上游许可证文件。该目录下仅原生传输与执行器由 BSWorld 维护。
 
 ## Bumble
 
@@ -81,7 +81,7 @@ BSWorld QEMU 测试使用包含修改的 QEMU fork。对外分发其可执行程
 
 - 项目：Buildroot
 - 源码：https://gitlab.com/buildroot.org/buildroot
-- 用途：下载预编译交叉工具链，并用它构建 `tests/integration/qemu/` 使用的 Linux kernel、initramfs、BlueZ、Apache NimBLE、TrouBLE 和 Guest 配套软件
+- 用途：下载预编译交叉工具链，并用它构建 `tests/integration/qemu/` 使用的 Linux kernel、initramfs、BlueZ、Apache NimBLE 和 Guest 配套软件
 - 仓库内位置：仅在 `tests/integration/qemu/source/` 保存 BSWorld 自行维护的 Buildroot external 配置，不包含 Buildroot 源码
 - 许可证：Buildroot 使用 GNU General Public License version 2 or later；例外情况和单个文件的许可证以上游 `COPYING` 为准
 

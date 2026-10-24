@@ -1,8 +1,8 @@
 # Zephyr 工作区与公共配置
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-本目录仅维护 BSWorld 的配置：`bsim_host_only.overlay` 选择 Unix socket HCI 传输，`bsim.conf` 启用 Host-only BabbleSim 设置。Mesh 另外使用 `mesh/source/mesh.conf`。示例源码来自 Zephyr 工作区。
+使用 `bsim_host_only.overlay` 配置 Unix socket HCI 传输，使用 `bsim.conf` 启用公共的 Host-only BabbleSim 设置。Mesh 还需要 `mesh/source/mesh.conf`。示例源码由 Zephyr 工作区提供。
 
 ## 准备工作区
 

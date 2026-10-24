@@ -1,8 +1,8 @@
 # QEMU Linux Test Environment
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-BSWorld can run a complete Linux guest as one participant in the BabbleSim time domain. The validated setup uses a single-vCPU AArch64 QEMU `virt` machine and a Buildroot Linux kernel and initramfs containing BlueZ, Apache NimBLE, and TrouBLE. QEMU connects the guest's HCI UART to a BSWorld Virtual Controller through a Host Unix socket, while its instruction-counting clock is synchronized with BabbleSim.
+BSWorld can run a complete Linux guest as one participant in the BabbleSim time domain. The validated setup uses a single-vCPU AArch64 QEMU `virt` machine and a Buildroot Linux kernel and initramfs containing BlueZ and Apache NimBLE. QEMU connects the guest's HCI UART to a BSWorld Virtual Controller through a Host Unix socket, while its instruction-counting clock is synchronized with BabbleSim.
 
 This path is intended for Linux Bluetooth software that should be tested without porting the Application or Host stack to an RTOS. Buildroot builds the guest kernel and root filesystem using an automatically downloaded prebuilt cross toolchain.
 
@@ -15,7 +15,6 @@ This path is intended for Linux Bluetooth software that should be tested without
 | Linux | `6.18.7` | Guest kernel selected by the maintained defconfig |
 | BlueZ | `5.86` | Guest Bluetooth Host stack and command-line tools |
 | Apache NimBLE | `1e8ed60276f35a80ed4d4b4f8bb9d9c6fee53845` | Linux Host example inside the Guest |
-| TrouBLE | `730198ecf94ee6953163b7485cf902d5f9d45dbd` | Rust Linux Host example inside the Guest |
 
 The Buildroot and package versions are pinned by the validated Buildroot revision and the BSWorld defconfig. Use these revisions when reproducing the current tests; moving either repository independently may change build options, package versions, or runtime behavior.
 
@@ -76,9 +75,9 @@ export BSWORLD_QEMU_KERNEL="$BUILDROOT_OUTPUT/images/Image"
 export BSWORLD_QEMU_ROOTFS="$BUILDROOT_OUTPUT/images/rootfs.cpio"
 ```
 
-BlueZ, NimBLE, and TrouBLE share this QEMU, kernel, and rootfs.
+BlueZ and NimBLE share this QEMU, kernel, and rootfs.
 
-The fork's `--enable-bsim` links the BabbleSim communication static libraries into QEMU. The Buildroot external tree at `tests/integration/qemu/source` maintains the guest defconfig, Linux fragment, and NimBLE/TrouBLE package inputs. Buildroot automatically downloads and extracts the Bootlin toolchain, then compiles Linux and the guest packages. The first build takes substantially longer than incremental builds.
+The fork's `--enable-bsim` links the BabbleSim communication static libraries into QEMU. The Buildroot external tree at `tests/integration/qemu/source` maintains the guest defconfig, Linux fragment, and NimBLE package inputs. Buildroot automatically downloads and extracts the Bootlin toolchain, then compiles Linux and the guest packages. The first build takes substantially longer than incremental builds.
 
 The rootfs is an initramfs expanded afresh at each guest boot. Inspect the original outputs before testing:
 
@@ -88,22 +87,19 @@ test -f "$BSWORLD_QEMU_KERNEL"
 test -f "$BSWORLD_QEMU_ROOTFS"
 test -x "$BUILDROOT_OUTPUT/target/usr/bin/btattach"
 test -x "$BUILDROOT_OUTPUT/target/usr/bin/nimble-linux"
-test -x "$BUILDROOT_OUTPUT/target/usr/bin/trouble-ble-bas-peripheral"
 ```
 
 ## Runtime Data Path
 
-At runtime, BSWorld creates the Virtual Controller's Unix socket and starts QEMU with a socket-backed character device. QEMU exposes that character device as the guest's first PCI serial port, `/dev/ttyS0`. The test runs `btattach -B /dev/ttyS0 -P h4 -S 1000000 -N`, which registers `hci0` with the guest Linux Bluetooth subsystem. BlueZ tests control `hci0` through `bluetoothd`, `bluetoothctl`, and the standard kernel API. NimBLE and TrouBLE tests stop `bluetoothd` and claim the same `hci0` through HCI User Channel; TrouBLE first runs `hciconfig hci0 down` because its Linux transport requires the caller to take the device down.
+At runtime, BSWorld creates the Virtual Controller's Unix socket and starts QEMU with a socket-backed character device. QEMU exposes that character device as the guest's first PCI serial port, `/dev/ttyS0`. The test runs `btattach -B /dev/ttyS0 -P h4 -S 1000000 -N`, which registers `hci0` with the guest Linux Bluetooth subsystem. BlueZ tests control `hci0` through `bluetoothd`, `bluetoothctl`, and the standard kernel API. NimBLE tests stop `bluetoothd` and claim the same `hci0` through HCI User Channel.
 
-The QEMU command supplies the BabbleSim simulation identity through `-icount`. `bsim-mro=1000` limits each virtual execution interval to 1,000 microseconds, while an earlier timer deadline shortens that interval. At each boundary, QEMU submits the target time to the PHY and holds the vCPU until the PHY acknowledges it. Guest virtual time, timer interrupts, and sleeps therefore follow the same BabbleSim timeline as the Virtual Controller, PHY, pytest, and every other simulated device.
+The QEMU command supplies the BabbleSim simulation identity through `-icount`. `bsim-mro=1000` limits each virtual execution interval to 1,000 microseconds, while an earlier timer deadline shortens that interval. At each boundary, QEMU submits the target time to the PHY and holds the vCPU until the PHY acknowledges it. Guest virtual time, timer interrupts, and sleeps therefore follow the same BabbleSim timeline as the Virtual Controller, PHY, pytest, and every other simulated device: guest timing is defined by simulation time, so host load changes how long a test takes but not the protocol behavior the test observes.
 
-The fork uses a fair execution-order lock shared by the vCPU thread and QEMU Main Loop so Host thread scheduling cannot change the order between Guest execution and Host-side I/O dispatch. This primitive is extracted from QEMU's record/replay lock and preserves the existing record/replay interfaces; BabbleSim synchronization and record/replay are mutually exclusive.
-
-While the vCPU waits for the PHY acknowledgment, it releases the execution-order lock and the Main Loop continues processing Host I/O with blocking polls. After acknowledging the wait, the PHY blocks for this device's next request, so the simulation cannot advance again. QEMU then polls without blocking until no locally queued fd event remains, commits the target virtual time, and allows the vCPU to resume.
+Because the fork drives the guest from simulation time rather than wall-clock time, BabbleSim synchronization and QEMU's record/replay feature are mutually exclusive; do not enable both.
 
 ## Run the Tests
 
-See the [BlueZ tests](bluez/README.md), [NimBLE Linux test](nimble/README.md), and [TrouBLE Linux test](trouble/README.md) for pytest commands, artifact environment variables, validated behavior, and per-test logs.
+See the [BlueZ tests](bluez/README.md) and [NimBLE Linux test](nimble/README.md) for pytest commands, artifact environment variables, validated behavior, and per-test logs.
 
 ## Rebuild and Inspect the Configuration
 

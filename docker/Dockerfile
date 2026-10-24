@@ -322,8 +322,33 @@ RUN --mount=type=cache,id=bsworld-buildroot-downloads-${BUILD_UID}-${BUILD_GID},
     && test -f "$BUILDROOT_DIR/output-bsworld-linux/images/Image" \
     && test -f "$BUILDROOT_DIR/output-bsworld-linux/images/rootfs.cpio" \
     && test -x "$BUILDROOT_DIR/output-bsworld-linux/target/usr/bin/btattach" \
-    && test -x "$BUILDROOT_DIR/output-bsworld-linux/target/usr/bin/nimble-linux" \
-    && test -x "$BUILDROOT_DIR/output-bsworld-linux/target/usr/bin/trouble-ble-bas-peripheral"
+    && test -x "$BUILDROOT_DIR/output-bsworld-linux/target/usr/bin/nimble-linux"
+
+# TrouBLE: build the native adapter against its pinned upstream Host commit.
+# The adapter binary joins BabbleSim directly, so no Linux guest is involved.
+FROM build-base AS trouble
+USER root
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    curl ca-certificates gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/trouble /opt/rust
+USER bsworld
+
+# rust-toolchain.toml in the adapter directory selects the channel; rustup only
+# needs to exist. Keep both homes writable by the build user.
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo \
+    PATH=/opt/rust/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --no-modify-path --default-toolchain none
+
+COPY --chown=$BUILD_UID:$BUILD_GID tests/integration/trouble/source /opt/trouble
+# Share the registry and git checkouts across rebuilds; the pinned rev and the
+# committed lock file make the resolved graph identical regardless of cache state.
+RUN --mount=type=cache,id=bsworld-cargo-${BUILD_UID}-${BUILD_GID},target=/opt/rust/cargo/registry,uid=${BUILD_UID},gid=${BUILD_GID},sharing=locked \
+    cd /opt/trouble \
+    && cargo build --locked --release \
+    && test -x /opt/trouble/target/release/ble_bas
 
 # Extend the Python image that passed lint/unit tests with runtime libraries and
 # firmware. BabbleSim is copied whole; other components' source/SDKs stay above.
@@ -355,6 +380,7 @@ COPY --from=nuttx /opt/nuttx-nimble/nuttx /opt/firmware/nuttx/nimble
 COPY --from=qemu /opt/qemu/build/bsworld/qemu-system-aarch64 /opt/firmware/qemu/qemu-system-aarch64
 COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/Image /opt/firmware/qemu/Image
 COPY --from=buildroot /opt/buildroot/output-bsworld-linux/images/rootfs.cpio /opt/firmware/qemu/rootfs.cpio
+COPY --from=trouble /opt/trouble/target/release/ble_bas /opt/firmware/trouble/ble_bas
 
 ENV BSIM_OUT_PATH=/opt/babblesim/build \
     BSIM_COMPONENTS_PATH=/opt/babblesim/components \
@@ -371,7 +397,8 @@ ENV BSIM_OUT_PATH=/opt/babblesim/build \
     BSWORLD_NUTTX_NIMBLE_BIN=/opt/firmware/nuttx/nimble \
     BSWORLD_QEMU_BIN=/opt/firmware/qemu/qemu-system-aarch64 \
     BSWORLD_QEMU_KERNEL=/opt/firmware/qemu/Image \
-    BSWORLD_QEMU_ROOTFS=/opt/firmware/qemu/rootfs.cpio
+    BSWORLD_QEMU_ROOTFS=/opt/firmware/qemu/rootfs.cpio \
+    BSWORLD_TROUBLE_NATIVE_BIN=/opt/firmware/trouble/ble_bas
 
 USER bsworld
 
@@ -379,6 +406,7 @@ USER bsworld
 # BabbleSim .Tsymbols files are readable text maps, not executable binaries.
 RUN for binary in /opt/firmware/bt_virt_controller /opt/firmware/zephyr/* \
         /opt/firmware/nuttx/* /opt/firmware/qemu/qemu-system-aarch64 \
+        /opt/firmware/trouble/ble_bas \
         /opt/babblesim/build/bin/*; do \
         case "$binary" in *.Tsymbols) continue ;; esac; \
         test -f "$binary" && test -x "$binary" || { \

@@ -1,6 +1,6 @@
 # Security Policy
 
-[English](SECURITY.md) | [中文](docs/zh-CH/SECURITY.md)
+[English](SECURITY.md) | [简体中文](docs/zh-CH/SECURITY.md)
 
 ## Supported Versions
 

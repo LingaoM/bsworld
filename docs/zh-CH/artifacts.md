@@ -1,6 +1,6 @@
 # 日志、跟踪文件与抓包
 
-[English](../artifacts.md) | [中文](artifacts.md)
+[English](../artifacts.md) | [简体中文](artifacts.md)
 
 BSWorld 会为每个测试保存框架日志、业务程序日志、HCI 抓包和 RF 空口跟踪文件。这些文件不仅用于查看测试输出，也用于把一次失败还原到业务程序、Host、Controller 和无线链路中的具体位置。
 
@@ -81,7 +81,7 @@ OUT_DIR=/path/to/artifacts pytest tests/
 
 ## 业务程序日志与 `wait_log()`
 
-每个业务程序的标准输出和标准错误都写入一个独立 FIFO。BSWorld 将 FIFO 注册到当前 [asyncio](https://docs.python.org/3/library/asyncio.html) event loop；FIFO 可读时，回调会把数据同时写入 `.log` 文件，并按完整行保存到内存队列供 `wait_log()` 匹配。
+每个业务程序的标准输出和标准错误都写入其 `.log` 文件，并以完整行的形式提供给 `ProcessInstance.wait_log()` 使用。
 
 ```python
 await device.wait_log(r"Bluetooth initialized", timeout=30)
@@ -92,10 +92,8 @@ await device.wait_log(r"Bluetooth initialized", timeout=30)
 - 使用正则表达式逐行匹配。
 - `timeout` 使用当前 event loop 的时间；拓扑启动完成后，它表示仿真时间，而不是墙钟时间。
 - 已经到达 FIFO、但尚未被前一次等待消费的完整行仍然可以匹配，因此调用 `wait_log()` 前输出的日志不会自然丢失。
-- 搜索过程中检查过的行会从内存队列中消费。后续等待不能再次匹配已经被前一次等待越过的旧行。
+- 后续等待不能再次匹配已经被前一次等待越过的行。
 - 没有换行符的末尾片段会立即写入 `.log` 文件，但只有收到换行符、形成完整一行后才会参与匹配。
-
-event loop 会先处理当前已经就绪的日志和 HCI FD，再推进下一个 BabbleSim 时间步。因此，日志匹配和测试回调共享框架时钟边界。Controller 则在向 Host 交付报文前，使用自己的本地仿真时钟记录 HCI。
 
 运行过程中可以直接查看业务程序日志：
 
@@ -118,7 +116,7 @@ tail -f /tmp/run-<timestamp>/<uid>/log/tests/.../nuttx_btsak_advertiser.log
 
 ## HCI BTSnoop 抓包
 
-BSWorld 向每个 Controller 传入 `hciN.snoop` 输出路径：Zephyr 使用 `-btsnoop-file`，Python `BSController` 使用 `hci_snoop_file`。Controller 在自身 HCI 收发边界直接记录，时间戳来自其本地仿真时钟。Host 直接连接 HCI socket，数据路径没有中转或独立抓包 socket。文件保持 BTSnoop v1、H4 链路类型 1002、完整报文长度、方向标记和原有仿真时间基点；无用户态缓冲的文件写入确保 teardown 终止 Controller 时不丢失已完成的记录。
+每个 Controller 在自身收发边界记录 HCI 报文，时间戳采用仿真时间。文件保持 BTSnoop v1、H4 链路类型 1002、完整报文长度和方向标记。
 
 可以使用 [Wireshark](https://www.wireshark.org/) 或 `btmon` 查看：
 
@@ -127,7 +125,7 @@ wireshark /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 btmon -r /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 ```
 
-两种 Controller 的 HCI 抓包默认始终开启。Python Controller 在 worker 线程内写入抓包，再将输出交给 Host event loop；记录操作不推进仿真时间。绑定业务程序的 Controller 将抓包保存在业务程序目录，否则保存在 `bt_virt_controller/` 或 `bscontroller/` 下。两种实现的无线交互均记录在共享的 `ellisys.bttrp` 中。
+两种 Controller 的 HCI 抓包默认始终开启。绑定业务程序的 Controller 将抓包保存在业务程序目录，否则保存在 `bt_virt_controller/` 或 `bscontroller/` 下。两种实现的无线交互均记录在共享的 `ellisys.bttrp` 中。
 
 ## Ellisys 空口跟踪文件
 

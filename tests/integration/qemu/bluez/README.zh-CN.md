@@ -1,6 +1,6 @@
 # QEMU BlueZ 测试
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 该测试集在 AArch64 Linux Guest 中运行未经修改的 BlueZ Host 协议栈，并将 Guest 虚拟时间接入 BabbleSim。QEMU 把虚拟 Controller 的 Unix-socket HCI 数据映射为 Linux 中的 `/dev/ttyS0`，`btattach` 再将其注册为 `hci0`，测试随后通过 `bluetoothctl` 控制 BlueZ。
 

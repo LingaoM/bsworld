@@ -1,6 +1,6 @@
 # NuttX BTSak Build
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 Use the upstream `sim:bthcisock` configuration and stock Applications. Prepare the workspaces and BabbleSim from the [NuttX environment guide](../../README.md).
 
@@ -23,10 +23,4 @@ export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
 
 `SIM_BSIM_TIME` joins the simulation clock. BTSak disables the SMP self-test.
 
-The output is `$NUTTX_DIR/nuttx`. Keep its linked BabbleSim shared libraries available at the build-time `$BSIM_OUT_PATH/lib/` path. Run in the BSWorld Python environment:
-
-```sh
-cd "$BSWORLD_ROOT"
-source .venv/bin/activate
-pytest tests/integration/nuttx/btsak -q
-```
+The output is `$NUTTX_DIR/nuttx`, exported as `BSWORLD_NUTTX_BTSAK_BIN`. Keep its linked BabbleSim shared libraries available at the build-time `$BSIM_OUT_PATH/lib/` path. Run the tests from the [BTSak test README](../README.md#run).

@@ -1,8 +1,8 @@
 # Zephyr 周期广播示例测试
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-验证周期广播发送和同步。
+验证周期广播和同步。
 
 ## 构建
 

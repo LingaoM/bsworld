@@ -1,6 +1,6 @@
 # NuttX Test Environment
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 ## Prepare the Environment
 
