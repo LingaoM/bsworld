@@ -276,10 +276,9 @@ class BluetoothTopology:
         return endpoint.controller_dev_id
 
     async def stop(self) -> None:
-        clock = self.bsim.clock
         if self._event_loop is not None:
             try:
-                self._event_loop.unbind_clock(clock)
+                self._event_loop.unbind_clock()
             except Exception as exc:
                 warn(f"simulation clock unbind failed: {exc}")
             finally:
