@@ -1,6 +1,6 @@
 # BSWorld Docker Test Image
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 Use the published image to run BSWorld tests directly. It includes Python, BSWorld, tests, and compiled firmware. Build your own image when changing firmware source or build configuration.
 
@@ -8,17 +8,7 @@ Use a Linux/x86_64 host with [Docker Engine](https://docs.docker.com/engine/inst
 
 ## Use a Published Image
 
-Choose `latest` for the most recently published tested main image, or a matching commit or Release image when validating older source:
-
-| Version | Image reference |
-|---|---|
-| Latest tested main | `ghcr.io/xiaomi/bsworld:latest` |
-| Full commit ID | `ghcr.io/xiaomi/bsworld:sha-<40-character-commit>` |
-| Release tag | `ghcr.io/xiaomi/bsworld:v1.0.0` |
-
-`v1.0.0` illustrates the tag format; replace it with an available Release tag. Commit images use the full 40-character commit ID.
-
-Pull and run the packaged integration tests from any directory; no source checkout is required. Replace `latest` in both commands to select another version:
+Pull and run the packaged integration tests from any directory; no source checkout is required:
 
 ```sh
 sudo docker pull ghcr.io/xiaomi/bsworld:latest
@@ -33,7 +23,17 @@ sudo docker run --rm \
 
 The default command runs all integration tests with two parallel workers (`pytest tests/integration -n 2`). The writable `/output` mount saves reports, logs, and captures under the host's `.cache/docker-results`; `pytest.xml` is the test report. `--rm` removes the container after it exits, while these files remain on the host. See [Logs and captures](../docs/artifacts.md) for the output layout.
 
-For older source, use its matching release or commit image. To pull the current checkout's image, if published:
+### Select a Version
+
+`latest` is the most recently published tested main image. To reproduce an older source revision, replace `latest` in both the pull and run commands with a matching commit or Release image:
+
+| Version | Image reference |
+|---|---|
+| Latest tested main | `ghcr.io/xiaomi/bsworld:latest` |
+| Full commit ID | `ghcr.io/xiaomi/bsworld:sha-<40-character-commit>` |
+| Release tag | `ghcr.io/xiaomi/bsworld:v1.0.0` |
+
+Commit images use the full 40-character commit ID; `v1.0.0` only illustrates the tag format, so replace it with an available Release tag. From an existing checkout, derive the current commit's image (it must already be published):
 
 ```sh
 SOURCE_COMMIT="$(git rev-parse HEAD)"
@@ -145,7 +145,7 @@ sudo docker build --progress=plain -f docker/Dockerfile \
   -t bsworld:dev .
 ```
 
-`BUILD_UID` and `BUILD_GID` match the image user to your host user so generated files have the expected ownership. Adjust `BUILD_JOBS` for compilation parallelism. The first build downloads dependencies and compiles firmware; later builds reuse Docker's cache. The final runtime image retains the Python test environment, including its basic build tools, and adds firmware and runtime dependencies. BabbleSim is copied as a whole directory; other components' upstream source, SDKs, and intermediate outputs stay in their build stages.
+`BUILD_UID` and `BUILD_GID` match the image user to your host user so generated files have the expected ownership. Adjust `BUILD_JOBS` for compilation parallelism. The first build downloads dependencies and compiles firmware; later builds reuse Docker's cache.
 
 The build stages have independent dependencies so unrelated changes can reuse compiled firmware:
 
@@ -160,10 +160,6 @@ build-base
 │   └── qemu
 └── buildroot (guest kernel and rootfs)
 ```
-
-The runtime stage inherits the Python environment and explicitly installs the shared libraries needed by the firmware and QEMU; these libraries are not added to `python-test`. It copies the entire BabbleSim directory and the other branches' compiled outputs, then checks executable dependencies with `ldd`. Python dependency changes do not rebuild firmware, Zephyr/NuttX changes do not rebuild QEMU, and QEMU changes do not rebuild Buildroot. Changes to a shared base or BabbleSim still rebuild the stages that depend on them. `BUILD_JOBS` is scoped to the compilation steps so changing it preserves dependency installation and source download layers.
-
-CI has three jobs: `ci` (shown as `CI result`), `publish`, and `release`. The CI job runs lint and unit tests in `python-test` before building runtime, then runs integration tests in runtime and uploads one combined report artifact, including available reports when a check fails. Only a successful main push publishes that exact tested image. Releases add a release tag to an already published commit image without rebuilding it. Main runs are kept separately so newer pushes do not replace pending commit builds; obsolete checks for the same PR are canceled.
 
 Run the locally built image. Restore ownership of the output directory if it was previously prepared for the published image's UID/GID 1000:
 

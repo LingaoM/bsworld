@@ -1,5 +1,0 @@
-# Locally calculated from the upstream source, Cargo dependency archive, and license files.
-sha256  d56d287c18cb682b942f498eb06220eff09093c8215952bcf6725e80fbfd6c43  bsworld-trouble-linux-730198ecf94ee6953163b7485cf902d5f9d45dbd.tar.gz
-sha256  f93f5ee4649f7fe1090ccc8f07f9cf3bf302074811e18d3745e36f061b30e5a8  bsworld-trouble-linux-730198ecf94ee6953163b7485cf902d5f9d45dbd-cargo6.tar.gz
-sha256  64853d2f346cf20ad5a133c441e792d4b99b45adb2ef3acfa2b890d713e4ed0b  LICENSE-APACHE
-sha256  83d04e56c5beb631d65d6bd7b78c9350083084acc19753a3e6e1b68806a607f5  LICENSE-MIT

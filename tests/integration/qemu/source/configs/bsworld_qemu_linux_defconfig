@@ -4,7 +4,7 @@
 
 BR2_aarch64=y
 # Use the pinned Buildroot release's prebuilt AArch64 glibc toolchain.
-# This profile includes C++ and threads for the NimBLE and TrouBLE examples.
+# This profile includes C++ and threads for the NimBLE example.
 BR2_TOOLCHAIN_EXTERNAL=y
 BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
 BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_AARCH64_GLIBC_STABLE=y
@@ -19,7 +19,6 @@ BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="board/qemu/aarch64-virt/linux.config"
 BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_BSWORLD_PATH)/board/linux/linux.fragment"
 BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
 BR2_PACKAGE_BSWORLD_NIMBLE_LINUX=y
-BR2_PACKAGE_BSWORLD_TROUBLE_LINUX=y
 BR2_PACKAGE_BLUEZ5_UTILS=y
 BR2_PACKAGE_BLUEZ5_UTILS_CLIENT=y
 BR2_PACKAGE_BLUEZ5_UTILS_TOOLS=y

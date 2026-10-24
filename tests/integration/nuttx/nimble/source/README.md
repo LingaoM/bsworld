@@ -1,6 +1,6 @@
 # NuttX NimBLE Build
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 Use the upstream `sim:nimble` configuration and stock Applications. Prepare the workspaces and BabbleSim from the [NuttX environment guide](../../README.md).
 
@@ -24,12 +24,6 @@ make -j"$(nproc)"
 export BSWORLD_NUTTX_NIMBLE_BIN="$NUTTX_NIMBLE_DIR/nuttx"
 ```
 
-`SIM_BSIM_TIME` joins the simulation clock. NimBLE enables bleprph/blecent and the peripheral, central, and observer roles.
+`SIM_BSIM_TIME` joins the simulation clock. NimBLE enables the bleprph/blecent examples and the peripheral, central, and observer roles.
 
-The output is `$NUTTX_NIMBLE_DIR/nuttx`. Keep its linked BabbleSim shared libraries available at the build-time `$BSIM_OUT_PATH/lib/` path. Run in the BSWorld Python environment:
-
-```sh
-cd "$BSWORLD_ROOT"
-source .venv/bin/activate
-pytest tests/integration/nuttx/nimble -q
-```
+The output is `$NUTTX_NIMBLE_DIR/nuttx`, exported as `BSWORLD_NUTTX_NIMBLE_BIN`. Keep its linked BabbleSim shared libraries available at the build-time `$BSIM_OUT_PATH/lib/` path. Run the tests from the [NimBLE test README](../README.md#run).

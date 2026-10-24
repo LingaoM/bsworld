@@ -5,6 +5,5 @@
 menu "BSWorld guest packages"
 
 source "$BR2_EXTERNAL_BSWORLD_PATH/package/bsworld-nimble-linux/Config.in"
-source "$BR2_EXTERNAL_BSWORLD_PATH/package/bsworld-trouble-linux/Config.in"
 
 endmenu

@@ -1,6 +1,6 @@
 # QEMU NimBLE Linux Test
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 This test runs the upstream Apache NimBLE Linux Host example inside the AArch64 Linux Guest. QEMU exposes the Virtual Controller's Unix-socket HCI stream as `/dev/ttyS0`, `btattach` registers the H4 serial transport as `hci0`, and the NimBLE Linux port claims that device through HCI User Channel. The integration neither modifies NimBLE source nor adds a BSWorld-specific transport.
 

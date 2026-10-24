@@ -1,6 +1,6 @@
 # Zephyr Periodic Advertising Sample Tests
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 Validate periodic advertising and synchronization.
 

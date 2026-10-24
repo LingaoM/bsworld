@@ -1,6 +1,6 @@
 # bt_virt_controller
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 `bt_virt_controller` is Xiaomi's Virtual Controller implementation for BSWorld. It is an out-of-tree Zephyr Application built for [nrf52_bsim](https://docs.zephyrproject.org/latest/boards/native/nrf_bsim/doc/nrf52_bsim.html). It runs the complete HCI interface and Link Layer protocol logic, and participates in radio transmission, reception, and RF interaction through the BabbleSim PHY. The Virtual Controller exposes a bidirectional H4 transport over a Unix socket and an optional, non-blocking BTSnoop capture socket.
 

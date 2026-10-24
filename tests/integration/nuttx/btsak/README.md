@@ -1,18 +1,10 @@
 # BSWorld NuttX BTSak Tests
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 This directory contains end-to-end tests for the stock NuttX `btsak` Application. The tests run one NuttX image that includes `btsak`, then use process shell commands to choose the role for each process.
 
 Application build instructions and artifact environment variables are documented in [source/README.md](source/README.md). For first-time NuttX environment setup, start with [../README.md](../README.md).
-
-## Files
-
-- `devices.py`: reusable `NuttXProcessProfile` definitions for scanner and advertiser roles. Both roles use the same NuttX image.
-- `test_btsak_scan_advertise.py`: end-to-end scenarios covering one scanner discovering one or more advertisers.
-- `source/`: build inputs and details for the stock NuttX image.
-
-`NuttXProcessProfile` entries set `controller_address`. BSWorld passes that address to the Virtual Controller before the Host connects.
 
 ## Shell Commands
 

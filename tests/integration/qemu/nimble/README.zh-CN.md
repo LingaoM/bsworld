@@ -1,6 +1,6 @@
 # QEMU NimBLE Linux 测试
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 该测试在 AArch64 Linux Guest 中运行 Apache NimBLE 上游自带的 Linux Host 示例。QEMU 将虚拟 Controller 的 Unix-socket HCI 数据映射为 `/dev/ttyS0`，`btattach` 将 H4 串口注册为 `hci0`，NimBLE Linux port 再通过 HCI User Channel 独占该设备。测试不修改 NimBLE 源码，也不引入 BSWorld 专用 transport。
 

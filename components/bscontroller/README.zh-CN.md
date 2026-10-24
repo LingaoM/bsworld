@@ -1,6 +1,6 @@
 # BSController
 
-[English](README.md) | 中文
+[English](README.md) | 简体中文
 
 BSController 是可独立安装、运行和发布的 Python Bluetooth LE Controller，Python 导入包为 `bscontroller`，命令行入口为 `bscontroller`。它向 Host 提供 H4 HCI 字节接口，在内部执行 LE 链路层过程，并通过 BabbleSim PHY 完成射频收发与离散时间同步。
 
@@ -42,22 +42,11 @@ bscontroller --help
 
 ## 技术架构
 
-Controller 包含 HCI、Link Layer 和射频适配；运行时负责工作线程、仿真时钟和进程生命周期。每个实例独占工作线程、事件循环、设备编号和 FIFO 射频端点；多个 Controller 连接同一个 BabbleSim PHY，在共享信道和仿真时间线上进行射频交互。
+每个 Controller 实现 HCI、Link Layer 和射频适配。多个 Controller 连接同一个 BabbleSim PHY，在共享信道和共同的仿真时间线上进行射频交互。
 
 <div align="center"><img src="docs/images/radio_controller_arch.svg" alt="多个 Radio Controller 共享 BabbleSim PHY" width="100%"><br><em>图 1：Controller 协议架构与共享 PHY</em></div>
 
-| 层次 | 主要实现 | 职责 |
-| --- | --- | --- |
-| HCI 接口 | `hci/transport.py`、`hci/packets.py`、`hci/controller.py` | H4 分帧、HCI 编解码、命令分发、事件及 ACL 数据收发 |
-| HCI 命令与状态 | `hci/backend.py`、`hci/le.py`、`hci/events.py` | HCI 参数校验、能力声明、广播/扫描/连接状态及事件转换 |
-| LE 射频过程 | `linklayer/link.py`、`linklayer/primary.py`、`linklayer/extended.py`、`linklayer/periodic.py`、`linklayer/connection.py` | 广播与扫描窗口、周期同步、连接事件及空口 PDU 处理 |
-| LL 控制过程 | `linklayer/control.py`、`linklayer/data_length.py`、`linklayer/encryption.py` | 连接控制、数据长度协商、加密及相关状态机 |
-| 射频抽象与调度 | `radio/base.py`、`linklayer/scheduler.py` | PHY 参数、收发结果、时间窗口冲突检测与可用时隙计算 |
-| 运行时与 PHY 适配 | `runtime/worker.py`、`runtime/session.py`、`runtime/event_loop.py`、`radio/babblesim.py`、`runtime/phy.py` | 线程隔离、离散事件循环、FIFO 通信、会话与 PHY 进程生命周期 |
-
-表中路径相对于 `src/bscontroller/`。HCI 解码与命令响应由 Controller 层负责；射频过程通过 `Radio` 协议使用底层收发能力，BabbleSim 的 FIFO 细节集中在适配层。`linklayer/scheduler.py` 只计算预留窗口、优先级冲突和完整可用时隙，不创建任务或推进时钟。
-
-源码职责按照 Bluetooth Core 6.3 划分，各文件职责、规范章节与依赖边界见[架构映射](docs/architecture.md)。仿真时钟、线程及调度策略属于实现选择。Mock Host 位于 `examples/`，Host 测试报文构造工具位于测试目录。
+协议行为遵循 Bluetooth Core 6.3。与集成和调试相关的分层方式、命令与事件流以及实现限制，见[架构概览](docs/architecture.zh-CN.md)。
 
 ## 运行示例
 
@@ -96,23 +85,23 @@ sequenceDiagram
     H4-->>Host: H4 事件字节
 ```
 
-该示例同时验证 Host 的 H4 传输边界、HCI 命令处理以及 PHY 广播接收路径。更多说明见 [examples/README.md](examples/README.md)。
+该示例同时验证 Host 的 H4 传输边界、HCI 命令处理以及 PHY 广播接收路径。更多说明见 [examples/README.zh-CN.md](examples/README.zh-CN.md)。
 
 向外部 Host 提供 H4 HCI 服务：
 
 ```sh
-bscontroller serve --hci-socket /tmp/radio.sock
+bscontroller serve --hci-socket /tmp/radio.sock --btsnoop-file /tmp/hci.snoop
 ```
+
+构造 `RadioController` 时使用 `hci_snoop_file=Path(...)`，或在 CLI 中使用 `--btsnoop-file`，可写入 BTSnoop v1 H4 抓包文件。worker 会在将输出交给 Host event loop 前，使用本地仿真时间戳记录完整的 HCI 报文。记录不经用户态缓冲直接写入；抓包不会推进仿真时间。BSWorld 会自动提供该路径。
 
 Host 通过 Unix socket 收发 H4 HCI 字节流。服务接受一个 Host，Host 断开后退出；socket 路径必须尚未被占用。更多选项见 `bscontroller serve --help`。
 
 ## 线程、时钟与资源生命周期
 
-`RadioController` 在 Host 的运行中事件循环内创建，启动后在自己的线程中构建并运行 Controller。启动在 FIFO 连接后返回，让会话能够继续启动其他 PHY 参与者。Host 输入以不可变 H4 字节包进入线程安全队列，worker 在首次 PHY 同步完成后、射频步骤之间处理；输入入队不会打断正在等待结果的 PHY 请求。Controller 输出通过 `call_soon_threadsafe` 返回 Host 事件循环，Host 与 worker 不共享可变协议状态。
+`RadioController` 需在 Host 的运行中事件循环内创建，它会在独立线程中运行 Controller。Host 与 worker 不共享可变协议状态，两侧以不可变 H4 字节包交换数据。
 
-射频时间以整数微秒表示。每个 worker 维护自己的时钟端点，通过 PHY 请求与响应同步到共同的仿真时间线。独立 Host 可以使用额外的时钟端点；Host 时钟与 Controller 时钟各自占用不同的 PHY 设备编号。
-
-`RadioEventLoop` 在已有 I/O 和就绪任务处理完成后，将空闲等待转换为仿真时间推进，推进范围受下一个定时器和最大步长约束。Controller 的事件循环还会在发起 PHY 请求前排空当前就绪任务，并优先运行早于射频开始时间的软件定时器。多个 Controller 的射频事件由 PHY 在共同的仿真时间线上协调。
+射频时间以整数微秒表示。每个 worker 维护自己的时钟端点，通过 PHY 同步到共同的仿真时间线。独立 Host 可以使用额外的时钟端点，其 PHY 设备编号需与所有 Controller 区分开。
 
 | 对象 | 管理的资源 |
 | --- | --- |
@@ -155,25 +144,11 @@ with asyncio.Runner(loop_factory=RadioEventLoop) as runner:
 ```text
 .
 ├── pyproject.toml
-├── src/bscontroller/
-│   ├── __init__.py          # 公开 API
-│   ├── hci/                # HCI 编解码、命令处理、事件及 H4 传输
-│   ├── linklayer/          # 空口 PDU、广播、扫描、连接及 LL 控制过程
-│   ├── radio/              # 射频接口及 BabbleSim 适配
-│   ├── runtime/            # 工作线程、仿真时钟及 PHY 进程管理
-│   └── cli.py              # H4 服务入口
-├── examples/
-│   └── advertise_scan.py   # H4 Controller 与 Mock Host 扫描示例
+├── src/bscontroller/     # 运行时包（公开 API、HCI、Link Layer、radio、runtime）
+├── examples/             # 可运行的 H4 Controller 与 Mock Host 示例
 └── tests/
-    ├── unit/               # 与源码目录和模块名对应
-    │   ├── hci/
-    │   ├── linklayer/
-    │   ├── radio/
-    │   └── runtime/
-    ├── qualification/      # 协议用例、下位测试器与用例注册
-    │   ├── hci/
-    │   └── ll/
-    └── support.py          # 两套测试共用的线格式常量与载荷构造
+    ├── unit/             # 自包含的实现检查（无需原生 PHY）
+    └── qualification/    # HCI/LL 协议用例（RF 用例需要 BabbleSim）
 ```
 
 ```sh
@@ -183,6 +158,6 @@ python -m pytest tests/qualification -n auto --dist worksteal -v -rs
 python -m build
 ```
 
-协议测试包含 501 个选定 HCI/LL 用例，结果保留 `PASS`、`PARTIAL`、规范冲突跳过和不适用跳过的区别；受时间精度限制的用例使用各自注明的整数微秒近似，不代表正式蓝牙认证。测试范围和执行方式见 [tests/README.md](tests/README.md)。
+协议测试包含 501 个选定 HCI/LL 用例，结果保留 `PASS`、`PARTIAL`、规范冲突跳过和不适用跳过的区别；受时间精度限制的用例使用各自注明的整数微秒近似，不代表正式蓝牙认证。测试范围和执行方式见 [tests/README.zh-CN.md](tests/README.zh-CN.md)。
 
 构建产物位于 `dist/`。源码发行包包含运行时、示例及单元和协议测试；wheel 包含运行时与必要版权声明。许可证及第三方归属见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。

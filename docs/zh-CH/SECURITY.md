@@ -1,6 +1,6 @@
 # 安全策略
 
-[English](../../SECURITY.md) | [中文](SECURITY.md)
+[English](../../SECURITY.md) | [简体中文](SECURITY.md)
 
 ## 支持范围
 

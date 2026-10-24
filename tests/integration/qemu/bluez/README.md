@@ -1,6 +1,6 @@
 # QEMU BlueZ Tests
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 These tests run an unmodified BlueZ Host stack inside an AArch64 Linux guest whose virtual time is synchronized with BabbleSim. QEMU exposes the Virtual Controller's Unix-socket HCI stream to Linux as `/dev/ttyS0`; `btattach` registers it as `hci0`, after which the tests control BlueZ through `bluetoothctl`.
 

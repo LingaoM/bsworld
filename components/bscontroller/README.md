@@ -1,6 +1,6 @@
 # BSController
 
-English | [中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md)
 
 BSController is a Python Bluetooth LE Controller that can be installed, run, and published independently. Its import package and command-line entry point are both named `bscontroller`. It exposes an H4 HCI byte interface to the Host, executes LE link-layer procedures, and uses a BabbleSim PHY for radio transmission, reception, and discrete-time synchronization.
 
@@ -42,22 +42,11 @@ bscontroller --help
 
 ## Technical architecture
 
-Each Controller contains HCI, Link Layer, and radio adaptation; its runtime owns worker threads, simulation clocks, and process lifecycles. Every instance owns its worker thread, event loop, device identity, and FIFO radio endpoint. Multiple Controllers connect to the same BabbleSim PHY and interact through shared radio channels and a common simulation timeline.
+Each Controller implements HCI, the Link Layer, and radio adaptation. Multiple Controllers connect to the same BabbleSim PHY and interact through shared radio channels on a common simulation timeline.
 
 <div align="center"><img src="docs/images/radio_controller_arch.svg" alt="Multiple Radio Controllers sharing a BabbleSim PHY" width="100%"><br><em>Figure 1: Controller protocol architecture and shared PHY</em></div>
 
-| Layer | Main implementation | Responsibility |
-| --- | --- | --- |
-| HCI interface | `hci/transport.py`, `hci/packets.py`, `hci/controller.py`, `hci/snoop.py` | H4 framing, HCI serialization, command dispatch, events, ACL data, and BTSnoop capture |
-| HCI commands and state | `hci/backend.py`, `hci/le.py`, `hci/events.py` | HCI validation, capabilities, advertising/scanning/connection state, and event conversion |
-| LE radio procedures | `linklayer/link.py`, `linklayer/primary.py`, `linklayer/extended.py`, `linklayer/periodic.py`, `linklayer/connection.py` | Advertising and scan windows, periodic synchronization, connection events, and on-air PDUs |
-| LL control procedures | `linklayer/control.py`, `linklayer/data_length.py`, `linklayer/encryption.py` | Connection control, data-length negotiation, encryption, and related state machines |
-| Radio abstraction and scheduling | `radio/base.py`, `linklayer/scheduler.py` | PHY parameters, receive results, reservation conflicts, and available radio slots |
-| Runtime and PHY adaptation | `runtime/worker.py`, `runtime/session.py`, `runtime/event_loop.py`, `radio/babblesim.py`, `runtime/phy.py` | Thread isolation, discrete event loops, FIFO communication, session and PHY process lifecycle |
-
-Paths in the table are relative to `src/bscontroller/`. The Controller layer owns HCI decoding and responses. Radio procedures access transmission and reception through the `Radio` protocol, with BabbleSim FIFO details contained in its adapter. `linklayer/scheduler.py` only calculates reservations, priority conflicts, and complete available slots; it does not create tasks or advance clocks.
-
-The source responsibilities follow Bluetooth Core 6.3. See the [per-file architecture mapping](docs/architecture.md) for references, dependency boundaries, and the distinction between protocol requirements and simulator policy. Mock Host code lives in `examples/`; Host payload builders live in tests.
+The protocol behavior follows Bluetooth Core 6.3. See the [architecture overview](docs/architecture.md) for the layering, command and event flow, and implementation limits relevant to integration and debugging.
 
 ## Running examples
 
@@ -110,11 +99,9 @@ The Host exchanges an H4 HCI byte stream over the Unix socket. The service accep
 
 ## Threads, clocks, and resource ownership
 
-Create `RadioController` inside the Host's running event loop. On startup, it constructs and runs its Controller in a dedicated thread. Startup returns after FIFO connection so the session can start other PHY participants. Host input enters a thread-safe queue as immutable H4 packets and is consumed after the initial PHY grant and between radio steps; enqueuing input does not interrupt an outstanding PHY request. Controller output returns to the Host event loop through `call_soon_threadsafe`. The Host and worker do not share mutable protocol state.
+Create `RadioController` inside the Host's running event loop; it runs its Controller in a dedicated thread. The Host and the worker never share mutable protocol state, so Host input and Controller output are passed as immutable H4 packets.
 
-RF time uses integer microseconds. Each worker maintains its own clock endpoint and synchronizes with the common simulation timeline through PHY requests and responses. A standalone Host can use an additional clock endpoint, with a PHY device identity distinct from every Controller.
-
-Once existing I/O and ready work have been handled, `RadioEventLoop` converts idle waits into simulation-time advances bounded by the next timer and maximum step. The Controller event loop also drains current ready work before admitting a PHY request and runs software timers preceding the RF start first. The PHY coordinates radio events from multiple Controllers on the common simulation timeline.
+RF time uses integer microseconds. Each worker keeps its own clock endpoint and synchronizes with the shared simulation timeline through the PHY. A standalone Host may use an additional clock endpoint, which needs a PHY device identity distinct from every Controller.
 
 | Object | Resources it manages |
 | --- | --- |
@@ -157,25 +144,11 @@ with asyncio.Runner(loop_factory=RadioEventLoop) as runner:
 ```text
 .
 ├── pyproject.toml
-├── src/bscontroller/
-│   ├── __init__.py          # Public API
-│   ├── hci/                # HCI codecs, command handling, events, and H4 transport
-│   ├── linklayer/          # On-air PDUs, advertising, scanning, and LL procedures
-│   ├── radio/              # Radio interface and BabbleSim adapter
-│   ├── runtime/            # Worker threads, simulation clocks, and PHY processes
-│   └── cli.py              # H4 service entry point
-├── examples/
-│   └── advertise_scan.py   # H4 Controller and scanning Mock Host
+├── src/bscontroller/     # Runtime package (public API, HCI, Link Layer, radio, runtime)
+├── examples/             # Runnable H4 Controller and Mock Host example
 └── tests/
-    ├── unit/               # Mirrors source directories and module names
-    │   ├── hci/
-    │   ├── linklayer/
-    │   ├── radio/
-    │   └── runtime/
-    ├── qualification/      # Protocol cases, lower testers, and case registration
-    │   ├── hci/
-    │   └── ll/
-    └── support.py          # Shared wire values and payload builders
+    ├── unit/             # Self-contained implementation checks (no native PHY)
+    └── qualification/    # HCI/LL protocol cases (RF cases need BabbleSim)
 ```
 
 ```sh

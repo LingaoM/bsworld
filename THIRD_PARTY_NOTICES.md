@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-[English](THIRD_PARTY_NOTICES.md) | [中文](docs/zh-CH/THIRD_PARTY_NOTICES.md)
+[English](THIRD_PARTY_NOTICES.md) | [简体中文](docs/zh-CH/THIRD_PARTY_NOTICES.md)
 
 Third-party components prepare the Docker build environment and test programs. Native build outputs and artifacts in the Docker test image are selected by environment variables. Third-party components retain their own licenses.
 
@@ -44,7 +44,7 @@ BSWorld does not vendor Apache NimBLE. The NuttX image obtains it through NuttX 
 - Generated runtime: `BSWORLD_QEMU_ROOTFS`
 - License: MIT or Apache License 2.0
 
-BSWorld does not vendor TrouBLE. The QEMU Buildroot configuration downloads a pinned upstream revision, cross-compiles the unmodified Linux example, and preserves its license files in Buildroot's `legal-info` output.
+BSWorld does not vendor TrouBLE. `tests/integration/trouble/source` consumes the unmodified upstream Battery Service applications, and through them the `trouble-host` stack, as a Cargo git dependency pinned to a single upstream revision; Cargo retains the upstream license files in its checkout. Only the native transport and executor in that directory are maintained by BSWorld.
 
 ## Bumble
 
@@ -81,7 +81,7 @@ The BSWorld QEMU tests use a modified QEMU fork. Redistributing its executable r
 
 - Project: Buildroot
 - Source: https://gitlab.com/buildroot.org/buildroot
-- Usage: downloads a prebuilt cross toolchain and uses it to build the Linux kernel, initramfs, BlueZ, Apache NimBLE, TrouBLE, and supporting Guest packages used by `tests/integration/qemu/`
+- Usage: downloads a prebuilt cross toolchain and uses it to build the Linux kernel, initramfs, BlueZ, Apache NimBLE, and supporting Guest packages used by `tests/integration/qemu/`
 - Repository copies: only BSWorld-owned Buildroot external configuration files under `tests/integration/qemu/source/`; Buildroot source is not vendored
 - License: GNU General Public License version 2 or later for Buildroot, with exceptions and per-file licenses described by the upstream `COPYING` file
 

@@ -1,6 +1,6 @@
 # Zephyr 心率示例测试
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 验证 central/peripheral 连接、GATT 发现和心率通知。
 

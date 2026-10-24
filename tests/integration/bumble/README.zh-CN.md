@@ -1,6 +1,6 @@
 # Bumble 集成测试
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 这组测试将 [Bumble](https://github.com/google/bumble) Bluetooth Host 协议栈直接运行在 pytest 的 asyncio event loop 中。每个 Bumble 设备都会分配一个独立的 BSWorld 虚拟 Controller，并通过 Unix-socket HCI 连接。
 

@@ -1,6 +1,6 @@
 # Zephyr 广播与扫描示例测试
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 验证广播、被动扫描，以及定向干扰与恢复。
 

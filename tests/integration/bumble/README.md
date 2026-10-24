@@ -1,6 +1,6 @@
 # Bumble Integration Tests
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 These tests run the [Bumble](https://github.com/google/bumble) Bluetooth Host stack directly in pytest's asyncio event loop. Each Bumble device receives an independent BSWorld Virtual Controller and connects to it through a Unix-socket HCI transport.
 

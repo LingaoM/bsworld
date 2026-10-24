@@ -1,6 +1,6 @@
 # BSWorld Docker 测试镜像
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 镜像包含 Python、BSWorld、测试用例和编译好的固件，可以直接运行内置测试，也可以挂载本地仓库验证自己的代码。修改固件源码或构建配置时，可以使用仓库中的 [Dockerfile](Dockerfile) 重新构建完整测试镜像。
 
@@ -8,17 +8,7 @@
 
 ## 使用已发布镜像
 
-首次使用可以选择 `latest`。复现历史版本的行为时，使用对应的完整 commit ID 或 Release tag：
-
-| 版本 | 镜像地址 |
-|---|---|
-| 最近通过测试并发布的主线版本 | `ghcr.io/xiaomi/bsworld:latest` |
-| 完整 commit ID | `ghcr.io/xiaomi/bsworld:sha-<40位commit>` |
-| Release tag | `ghcr.io/xiaomi/bsworld:v1.0.0` |
-
-`sha-<40位commit>` 中的占位符需要替换为完整提交 ID；`v1.0.0` 为标签格式示例，请选择实际已发布的版本。
-
-下面的命令可以在任意目录执行，使用镜像内置的代码和集成测试。公开镜像以 UID/GID 1000 运行，先为它准备可写的结果目录。选择其他版本时，同时替换拉取和运行命令中的 `latest`：
+下面的命令可以在任意目录执行，使用镜像内置的代码和集成测试，无需检出源码。公开镜像以 UID/GID 1000 运行，先为它准备可写的结果目录：
 
 ```sh
 sudo docker pull ghcr.io/xiaomi/bsworld:latest
@@ -32,7 +22,17 @@ sudo docker run --rm \
 
 镜像默认执行 `pytest tests/integration -n 2`，使用两个 worker 运行集成测试。容器中的 `/output` 挂载到当前目录的 `.cache/docker-results`，其中 `pytest.xml` 是测试报告，各测试的日志和抓包也保存在该目录下。`--rm` 会在结束后删除容器，已经写入主机目录的结果会保留。输出结构见[日志文档](../docs/zh-CH/artifacts.md)。
 
-在已有的本地仓库中，也可以读取当前提交 ID 来拉取对应镜像。此命令需要该提交的镜像已经发布；拉取后运行时，也使用相同的 `sha-$SOURCE_COMMIT` 镜像地址：
+### 选择版本
+
+`latest` 是最近通过测试并发布的主线版本。复现历史源码版本时，将拉取和运行命令中的 `latest` 同时替换为对应的完整 commit ID 或 Release tag：
+
+| 版本 | 镜像地址 |
+|---|---|
+| 最近通过测试并发布的主线版本 | `ghcr.io/xiaomi/bsworld:latest` |
+| 完整 commit ID | `ghcr.io/xiaomi/bsworld:sha-<40位commit>` |
+| Release tag | `ghcr.io/xiaomi/bsworld:v1.0.0` |
+
+commit 镜像使用完整的 40 位提交 ID；`v1.0.0` 仅为标签格式示例，请替换为实际已发布的版本。在已有仓库中，也可以读取当前提交 ID 拉取对应镜像（该提交的镜像需已发布）：
 
 ```sh
 SOURCE_COMMIT="$(git rev-parse HEAD)"
@@ -53,7 +53,7 @@ sudo docker run --rm \
   ghcr.io/xiaomi/bsworld:latest
 ```
 
-`/workspace` 以只读方式挂载，测试结果通过独立的 `/output` 目录写回主机。固件仍使用镜像内的编译产物，因此 Python 和测试用例的修改可以直接验证；修改 Zephyr、NuttX、QEMU / Buildroot 等固件源码或构建配置后，需要[重新构建镜像](#构建)。
+挂载 `/workspace` 后，将使用当前检出版本中的 Python 源码和测试替换镜像内的对应内容。`/workspace` 以只读方式挂载，测试结果通过独立的 `/output` 目录写回主机。固件仍使用镜像内的编译产物，因此 Python 和测试用例的修改可以直接验证；修改 Zephyr、NuttX、QEMU / Buildroot 等固件源码或构建配置后，需要[重新构建镜像](#构建)。
 
 ### 选择测试套件
 
@@ -71,7 +71,7 @@ sudo docker run --rm \
 
 `--out-dir /output` 指定日志和抓包的输出位置，`--junitxml` 指定测试报告文件；二者都保存在前面挂载的主机目录中。
 
-开发过程中也可以分别运行单元测试和静态检查。以下两条命令使用当前仓库，结果直接显示在终端：
+运行当前检出版本的单元测试：
 
 ```sh
 sudo docker run --rm \
@@ -79,6 +79,11 @@ sudo docker run --rm \
   --env PYTHONDONTWRITEBYTECODE=1 \
   -e PYTHONPATH=/workspace \
   ghcr.io/xiaomi/bsworld:latest pytest tests/unit -q -p no:cacheprovider
+```
+
+运行 Ruff 静态检查：
+
+```sh
 sudo docker run --rm \
   --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
   -e PYTHONPATH=/workspace \
@@ -141,8 +146,6 @@ sudo docker build --progress=plain -f docker/Dockerfile \
 
 `BUILD_JOBS` 控制编译并行度，可以根据主机资源调整。`BUILD_UID` 和 `BUILD_GID` 让镜像中的运行用户与当前主机用户一致，便于写入挂载的结果目录。上述命令需要在同一个终端中依次执行，以保留 `BSWORLD_VERSION` 变量。
 
-最终镜像保留 Python 测试环境及其基础编译工具，再加入固件和运行依赖。BabbleSim 整个目录会复制进镜像，其他组件的上游源码、SDK 和编译中间文件仍留在各自的构建阶段。
-
 构建阶段按实际依赖拆分，修改无关组件时可以复用已有固件：
 
 ```text
@@ -156,10 +159,6 @@ build-base
 │   └── qemu
 └── buildroot（guest 内核和 rootfs）
 ```
-
-runtime 继承 Python 环境，并在自己的阶段显式安装固件和 QEMU 所需的动态运行库，不会把这些库加入 `python-test` 阶段。它整体复制 BabbleSim 目录，复制其他分支的编译产物，再用 `ldd` 检查可执行文件的依赖。修改 Python 依赖不会连带重编固件，修改 Zephyr/NuttX 不会重编 QEMU，修改 QEMU 不会重编 Buildroot。公共基础阶段或 BabbleSim 变化时，依赖它们的阶段仍需重新构建。`BUILD_JOBS` 只在编译步骤使用，调整并行度不会使前面的依赖安装和源码下载层失效。
-
-CI 包含 `ci`（检查名为 `CI result`）、`publish`、`release` 三个 job。`ci` 先在 `python-test` 中运行 lint 和单测，再构建 runtime 并在其中运行集成测试，最后统一上传报告；检查失败时也会保存已经生成的报告。只有 main push 检查成功才发布同一个经过测试的镜像。Release 直接给已经发布的 commit 镜像增加版本标签，不重新编译。main 的各次运行独立保留，避免后来的 push 替换仍在排队的 commit 构建；同一个 PR 的过时检查会被取消。
 
 构建完成后，使用本地镜像运行测试：
 

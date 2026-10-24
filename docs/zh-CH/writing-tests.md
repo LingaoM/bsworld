@@ -1,6 +1,6 @@
 # 编写测试
 
-[English](../writing-tests.md) | [中文](writing-tests.md)
+[English](../writing-tests.md) | [简体中文](writing-tests.md)
 
 仓库 [README](README.md#技术架构) 已经介绍了虚拟 Controller 和离散时间调度。本文按照测试的实际编写过程，说明如何声明拓扑、接入业务程序、使用 asyncio 执行与等待、配置 RF 场景，并验证预期的 Bluetooth LE 行为。
 
@@ -21,9 +21,9 @@
 一套拓扑依次经过四个阶段：
 
 1. 测试目录的进程加载函数、`topo.add_controller()` 和 RF 配置接口记录预期拓扑，此时不会创建子进程或推进仿真时间。
-2. `await topo.start()` 确定 Controller、业务程序与 PHY 的设备标识，创建隔离的 socket 和日志路径，依次启动 PHY、虚拟 Controller、干扰源和业务程序，再将 pytest 注册为 BabbleSim 时钟设备。HCI socket 就绪且所有参与者完成注册后，pytest 在仿真时间零执行一次 WAIT/ACK 同步，确认各参与者已经提交初始请求，再将仿真时钟绑定到 event loop，随后 `start()` 返回。
+2. `await topo.start()` 确定各设备标识，创建隔离的 socket 和日志路径，并启动 PHY、虚拟 Controller、干扰源和业务程序。当所有参与者完成注册、event loop 已运行在仿真时间上时，该调用返回。
 3. 测试通过 `ProcessInstance`、进程内 Host 协议栈接口、Shell 命令和标准 asyncio API 执行业务操作与断言。event loop 处理完当前时间戳上的回调和 I/O 后，才会推进共享仿真时间。
-4. fixture 清理阶段先将仿真时钟从 event loop 解绑，停止 Controller 和进程、关闭抓包文件并写完日志，再由 BabbleSim 后端关闭时钟的 FIFO 连接、生成 Ellisys 跟踪文件并删除仿真临时文件。
+4. fixture 清理阶段停止 Controller 和进程，写完日志和抓包文件，生成 Ellisys 跟踪文件并删除仿真临时文件。
 
 每个测试都有独立的仿真标识、Unix socket 目录和日志目录，因此多个虚拟测试可以并行运行，不会共享 Controller 状态、RF 状态或输出文件。
 
@@ -49,9 +49,7 @@ await topo.start()
 
 每个 Python Controller 独立拥有 worker、无线端点和地址。省略 `max_step_us` 时沿用 bscontroller 的默认值，仅在需要覆盖 worker 步长时传入。两种实现使用共享 PHY 和框架时钟。拓扑中只有 Python Controller 时，无需配置 `BSWORLD_BT_VIRT_CONTROLLER_BIN`。
 
-新增实现继承 `Controller`，实现异步的 `start(pm, env, *, log_dir)` 和 `stop()`；基类提供 HCI socket 路径和设备元数据。启动方法发起运行时启动，但不等待其他 PHY 参与者就绪，返回时也不保证 HCI socket 已就绪。后端统一等待 socket 就绪，拓扑启动 Host 后再完成注册。停止方法需要能够清理启动中途失败时已经创建的资源。
-
-两种 Controller 都使用本地仿真时间戳生成自己的 `hciN.snoop`。Python Controller 在 worker 线程中记录 HCI，再将输出交给 Host event loop。共享 PHY 同时生成 `ellisys.bttrp`。
+两种 Controller 都生成各自的 `hciN.snoop`，共享 PHY 同时生成 `ellisys.bttrp`。
 
 ## 异步等待与仿真时间
 
@@ -69,14 +67,7 @@ await asyncio.sleep(0.2)
 result = await asyncio.wait_for(operation(), timeout=5)
 ```
 
-为了实现这种切换，BSWorld 不改变 asyncio 的任务调度和 I/O 处理机制，只接管 event loop 在没有就绪工作时执行的 selector 阻塞等待。普通 event loop 会在这里等待墙钟时间；`BsimEventLoop` 则计算下一个目标时间，并通过 FIFO 通信协议请求 BabbleSim 推进。每轮调度遵循以下流程：
-
-1. 非阻塞检查已注册的文件描述符，并运行当前时间戳上已就绪的回调和 I/O。
-2. 当前时间戳无可执行工作时，根据下一项定时器和最大步长计算目标时间，并发送 WAIT 请求。
-3. pytest 时钟等待 BabbleSim 响应 FIFO，直到收到 PHY 对目标时间的应答。
-4. event loop 检查这次推进产生的 socket 事件和到期定时器，并按标准 asyncio 语义运行对应回调。当前时间戳上的工作全部处理完成后，才允许再次推进时间。
-
-图 1 展示了一次完整的时间推进：selector 调用进程内的 BabbleSim 时钟客户端，通过 FIFO 发送 WAIT 请求；收到 PHY 应答后，pytest 再处理本次推进产生的 I/O 和定时器。
+仿真时间只有在当前时间戳上的全部回调和 I/O 事件都处理完成后才会推进，因此测试总是先看到同一时刻调度的所有工作，时钟才继续前进。图 1 展示了这样一次推进。
 
 <div align="center"><img src="../images/bluetooth-diagram.svg" alt="一次 BSWorld 离散时间推进" width="80%"><br><em>图 1：一次确定性的离散时间推进</em><br><br></div>
 
@@ -87,7 +78,7 @@ result = await asyncio.wait_for(operation(), timeout=5)
 
 ## 接入业务程序进程
 
-BSWorld 核心只提供通用的虚拟 Controller、`ProcessInstance` 和拓扑生命周期，不内置平台参数格式。各集成测试目录维护自己的进程配置对象和加载函数，将平台启动约定转换为 BSWorld 拓扑。这样，Zephyr、NuttX 及后续平台的差异不会进入框架核心。
+各集成测试目录维护自己的进程配置对象和加载函数，将所在平台的启动约定转换为 BSWorld 拓扑。下面的示例展示了两种约定。
 
 ### NuttX
 

@@ -1,6 +1,6 @@
 # NuttX NimBLE 构建
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 使用上游 `sim:nimble` 配置及其原生 Application。先按 [NuttX 环境说明](../../README.zh-CN.md)准备工作区并编译 BabbleSim。
 
@@ -26,10 +26,4 @@ export BSWORLD_NUTTX_NIMBLE_BIN="$NUTTX_NIMBLE_DIR/nuttx"
 
 `SIM_BSIM_TIME` 接入仿真时钟。NimBLE 启用 bleprph/blecent 示例及 peripheral、central、observer 角色。
 
-产物为 `$NUTTX_NIMBLE_DIR/nuttx`。运行 pytest 时必须保证编译链接的 BabbleSim 动态库位于编译时指定的 `$BSIM_OUT_PATH/lib/`。在 BSWorld Python 环境中运行：
-
-```sh
-cd "$BSWORLD_ROOT"
-source .venv/bin/activate
-pytest tests/integration/nuttx/nimble -q
-```
+产物为 `$NUTTX_NIMBLE_DIR/nuttx`，已导出为 `BSWORLD_NUTTX_NIMBLE_BIN`。运行 pytest 时必须保证编译链接的 BabbleSim 动态库位于编译时指定的 `$BSIM_OUT_PATH/lib/`。运行测试见 [NimBLE 测试 README](../README.zh-CN.md#运行)。
