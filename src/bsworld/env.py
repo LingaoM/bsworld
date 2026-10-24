@@ -27,12 +27,6 @@ from pathlib import Path
 
 from bscontroller.radio.babblesim import simulation_root
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def repo_root() -> Path:
-    return _REPO_ROOT
-
 
 def env_path(name: str) -> Path | None:
     """Resolve a configured artifact without assuming a build location."""
@@ -71,9 +65,6 @@ class Env:
     out_dir: Path
     log_dir: Path
 
-    # Default repo-managed BabbleSim source workspace
-    babblesim_root: Path
-
     # Native artifacts are selected explicitly before pytest starts.
     hci_virt_bin: Path | None
 
@@ -109,7 +100,6 @@ class Env:
             run_uid=uid,
             out_dir=out_dir,
             log_dir=log_dir,
-            babblesim_root=_REPO_ROOT / ".cache" / "babblesim",
             hci_virt_bin=env_path("BSWORLD_BT_VIRT_CONTROLLER_BIN"),
             bsim_dir=bsim_dir,
             bsim_bin_dir=bsim_dir / "bin" if bsim_dir else None,
@@ -119,7 +109,3 @@ class Env:
 
     def sim_dir(self, sim_id: str) -> Path:
         return self.bs_state_dir / sim_id
-
-    @property
-    def babblesim_components_dir(self) -> Path:
-        return env_path("BSIM_COMPONENTS_PATH") or self.babblesim_root / "components"

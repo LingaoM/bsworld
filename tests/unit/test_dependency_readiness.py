@@ -25,12 +25,7 @@ from bsworld import deps
 
 def _bsim_env(tmp_path: Path) -> SimpleNamespace:
     bsim_dir = tmp_path / "build" / "babblesim" / "bsim"
-    return SimpleNamespace(
-        babblesim_root=tmp_path / "components" / "babblesim",
-        babblesim_components_dir=tmp_path / "components" / "babblesim" / "components",
-        bsim_dir=bsim_dir,
-        bsim_bin_dir=bsim_dir / "bin",
-    )
+    return SimpleNamespace(bsim_dir=bsim_dir, bsim_bin_dir=bsim_dir / "bin")
 
 
 def _write_bsim_outputs(env: SimpleNamespace) -> None:
@@ -63,8 +58,8 @@ def _write_controller(path: Path) -> None:
 def test_babblesim_check_accepts_runtime_without_source(tmp_path) -> None:
     env = _bsim_env(tmp_path)
     _write_bsim_outputs(env)
-    assert not env.babblesim_root.exists()
 
+    # Only the selected build output matters; no source workspace is consulted.
     deps.check_babblesim_ready(env)
 
 

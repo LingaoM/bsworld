@@ -104,9 +104,6 @@ class Address:
 
         self.address_type = address_type
 
-    def clone(self) -> Address:
-        return Address(self.address_bytes, self.address_type)
-
     @property
     def is_public(self) -> bool:
         return self.address_type in (
@@ -119,19 +116,8 @@ class Address:
         return not self.is_public
 
     @property
-    def is_resolved(self) -> bool:
-        return self.address_type in (
-            self.PUBLIC_IDENTITY_ADDRESS,
-            self.RANDOM_IDENTITY_ADDRESS,
-        )
-
-    @property
     def is_resolvable(self) -> bool:
         return self.address_type == self.RANDOM_DEVICE_ADDRESS and (self.address_bytes[5] >> 6 == 1)
-
-    @property
-    def is_static(self) -> bool:
-        return self.is_random and (self.address_bytes[5] >> 6 == 3)
 
     def to_string(self, with_type_qualifier: bool = True) -> str:
         '''
