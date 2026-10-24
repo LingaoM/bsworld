@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from ..runtime.pipe import LogCapture
 from ..runtime.shell import ProcessShell
+from .layout import AppSlot
 
 if TYPE_CHECKING:
     from ..runtime.proc import ProcessManager
@@ -34,7 +35,7 @@ class ProcessInstance:
     def __init__(
         self,
         *,
-        command: list[str | Path] | Callable[[], list[str | Path]],
+        command: list[str | Path] | Callable[[AppSlot], list[str | Path]],
         controller: "Controller",
         label: str,
         shell: bool = False,
@@ -53,8 +54,9 @@ class ProcessInstance:
         self,
         pm: "ProcessManager",
         log_dir: Path,
+        slot: AppSlot,
     ) -> None:
-        command = self._resolve_command()
+        command = self._resolve_command(slot)
         executable = Path(command[0])
         if not executable.is_file():
             from ..log import die
@@ -86,8 +88,8 @@ class ProcessInstance:
 
         log(f"{self.label}: started (pid={proc.pid})")
 
-    def _resolve_command(self) -> list[str | Path]:
-        command = self._command_factory() if callable(self._command_factory) else self._command_factory
+    def _resolve_command(self, slot: AppSlot) -> list[str | Path]:
+        command = self._command_factory(slot) if callable(self._command_factory) else self._command_factory
         if not command:
             raise ValueError("process command must not be empty")
         return list(command)

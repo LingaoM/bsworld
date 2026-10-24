@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from bsworld.devices import Controller, ProcessInstance
+from bsworld.devices import AppSlot, Controller, ProcessInstance
 from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
@@ -69,16 +69,14 @@ def load_zephyr_profile(
     controller = topo.add_controller(public_address=profile.controller_address, **options)
     binary = profile.path.absolute()
 
-    def command() -> list[str | Path]:
-        if controller.application_dev_id is None:
-            raise RuntimeError("Zephyr process requires a BabbleSim device id")
+    def command(slot: AppSlot) -> list[str | Path]:
         return [
             binary,
-            f"-s={controller.sim_id}",
-            f"-p={controller.phy_id}",
-            f"-d={controller.application_dev_id}",
+            f"-s={slot.sim_id}",
+            f"-p={slot.phy_id}",
+            f"-d={slot.dev_id}",
             "-mro=1000",
-            f"--bt-dev={controller.hci_sock}",
+            f"--bt-dev={slot.hci_sock}",
         ]
 
     return topo.add_process(

@@ -73,16 +73,21 @@ def test_mixed_controller_registration_preserves_independent_configuration(tmp_p
     python = topo.add_controller(controller_type=BSController, public_address="f0:f1:f2:f3:f4:02", max_step_us=250)
     another = topo.add_controller(controller_type=BSController, max_step_us=500)
     topo.bsim.reserve_application_device(python)
+    topo.add_burst_interference(2402.0)
     assert isinstance(zephyr, ZephyrController)
     assert isinstance(python, BSController)
     assert [ctl.controller_dev_id for ctl in topo.bsim.controllers] == [0, 1, 2]
-    assert python.application_dev_id == 3
-    assert zephyr.application_dev_id is another.application_dev_id is None
+    layout = topo.bsim.plan_devices()
+    assert layout.application_slot(python).dev_id == 3
+    for in_process in (zephyr, another):
+        with pytest.raises(KeyError, match="no Application device reserved"):
+            layout.application_slot(in_process)
     assert python.public_address == "F0:F1:F2:F3:F4:02"
     assert python.max_step_us == 250
     assert another.max_step_us == 500
     assert len({ctl.hci_sock for ctl in topo.bsim.controllers}) == 3
-    assert topo.bsim.interference_dev_id(0) == 5
+    assert layout.clock_dev_id == 4
+    assert layout.interference_dev_id(0) == 5
 
 
 @pytest.mark.parametrize("interval", [0, -1])

@@ -21,8 +21,8 @@ Bring-up shape:
     1. verify configured BabbleSim and Virtual Controller artifacts.
     2. prepare_sim: kill stragglers for this sim_id, remove stale HCI
        socket files.
-    3. assign device ids: Virtual Controllers, Application processes,
-       framework clock, then interference.
+    3. plan_devices: freeze one DeviceLayout covering Virtual Controllers,
+       Application processes, the framework clock, then interference.
     4. spawn phy (-D = num_devs).
     5. spawn Virtual Controllers and interference devices. Firmware processes
        are started by topology.
@@ -38,6 +38,7 @@ from pathlib import Path
 
 from ..compile import bsim as bsim_build
 from ..devices.controller import Controller
+from ..devices.layout import DeviceLayout, build_device_layout
 from ..devices.zephyr import ZephyrController
 from ..env import Env
 from ..interference import (
@@ -73,6 +74,7 @@ class BabbleSimBackend:
     channel_attenuation: ChannelAttenuation | None = None
     interference_sources: list[InterferenceSource] = field(default_factory=list)
     _application_controllers: list[Controller] = field(default_factory=list, init=False, repr=False)
+    _layout: DeviceLayout | None = field(default=None, init=False, repr=False)
     _started: bool = False
     clock: BsimClock | None = None
 
@@ -95,7 +97,6 @@ class BabbleSimBackend:
             **options,
         )
         self.controllers.append(ctl)
-        self._assign_application_dev_ids()
         return ctl
 
     def reserve_application_device(self, controller: Controller) -> None:
@@ -107,26 +108,24 @@ class BabbleSimBackend:
         if any(candidate is controller for candidate in self._application_controllers):
             return
         self._application_controllers.append(controller)
-        self._assign_application_dev_ids()
 
-    def _assign_application_dev_ids(self) -> None:
-        application_dev_id = len(self.controllers)
-        for index, controller in enumerate(self.controllers):
-            controller.controller_dev_id = index
-            if any(candidate is controller for candidate in self._application_controllers):
-                controller.application_dev_id = application_dev_id
-                application_dev_id += 1
-            else:
-                controller.application_dev_id = None
+    def plan_devices(self) -> DeviceLayout:
+        """Freeze the device id assignment for the registered topology.
 
-    def _application_device_count(self) -> int:
-        return len(self._application_controllers)
+        Device ids are derived from the registered participants, so the first
+        caller after registration fixes the layout for the whole simulation.
+        """
+        if self._layout is None:
+            self._layout = build_device_layout(
+                phy_id=_PHY_ID,
+                controllers=self.controllers,
+                application_controllers=self._application_controllers,
+                interference_count=len(self.interference_sources),
+            )
+        return self._layout
 
     def check_deps_ready(self) -> None:
         bsim_build.check_ready(self.env)
-
-    def interference_dev_id(self, index: int) -> int:
-        return len(self.controllers) + self._application_device_count() + 1 + index
 
     def prepare(self) -> None:
         log(f"preparing bsim sim_id={self.sim_id}")
@@ -161,15 +160,8 @@ class BabbleSimBackend:
         self.check_deps_ready()
         self.prepare()
 
-        # dev_id layout:
-        #   [0 .. C-1]        Controller processes or Python worker threads
-        #   [C .. C+A-1]      Application processes that join BabbleSim directly
-        #   [C+A]             Python test-framework clock device
-        #   [C+A+1 ..]        interference devices
-        clock_dev_id = len(self.controllers) + self._application_device_count()
-        interf_base = self.interference_dev_id(0)
-        num_interf = len(self.interference_sources)
-        num_devs = interf_base + num_interf
+        layout = self.plan_devices()
+        num_devs = layout.device_count
 
         # Spawn phy.
         phy_bin = self.env.bsim_bin_dir / f"bs_{_PHY_ID}_phy_v1"
@@ -210,7 +202,7 @@ class BabbleSimBackend:
         self.clock = BsimClock(
             sim_dir=sim_dir,
             phy_id=_PHY_ID,
-            dev_id=clock_dev_id,
+            dev_id=layout.clock_dev_id,
             phy_alive=phy_process.alive,
         )
 
@@ -218,7 +210,7 @@ class BabbleSimBackend:
             await ctl.start(pm, self.env, log_dir=log_dir)
 
         for i, src in enumerate(self.interference_sources):
-            dev_id = interf_base + i
+            dev_id = layout.interference_dev_id(i)
             argv = _build_interf_argv(src, sim_id=self.sim_id, dev_id=dev_id, bin_dir=self.env.bsim_bin_dir)
             pm.spawn(
                 f"interf_{dev_id}",
@@ -238,9 +230,7 @@ class BabbleSimBackend:
     def device_lock_paths(self) -> list[Path]:
         if not self.controllers:
             return []
-        sim_dir = self.env.sim_dir(self.sim_id)
-        device_count = self.interference_dev_id(len(self.interference_sources))
-        return [sim_dir / f"{_PHY_ID}.d{dev_id}.lock" for dev_id in range(device_count)]
+        return self.plan_devices().lock_paths(self.env.sim_dir(self.sim_id))
 
     def wait_for_devices_registered(self, *, timeout: float = 30.0) -> None:
         locks = self.device_lock_paths()

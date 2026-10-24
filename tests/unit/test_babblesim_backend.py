@@ -14,6 +14,7 @@
 #
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,6 +23,7 @@ import pytest
 from bsworld.backends import babblesim
 from bsworld.backends.babblesim import BabbleSimBackend
 from bsworld.devices import zephyr
+from bsworld.devices.layout import AppSlot
 from bsworld.env import Env
 from bsworld.interference import (
     BurstInterference,
@@ -313,9 +315,12 @@ def test_device_lock_paths_skip_in_process_host_slots(tmp_path) -> None:
     ctl1 = backend.add_controller()
     backend.interference_sources.append(BurstInterference(2402.0))
 
-    assert ctl0.application_dev_id is None
-    assert ctl1.application_dev_id is None
-    assert backend.interference_dev_id(0) == 3
+    layout = backend.plan_devices()
+    assert layout.application_slots == {}
+    for controller in (ctl0, ctl1):
+        with pytest.raises(KeyError, match="no Application device reserved"):
+            layout.application_slot(controller)
+    assert layout.interference_dev_id(0) == 3
     assert backend.device_lock_paths() == [
         tmp_path / "state" / "sim" / "2G4.d0.lock",
         tmp_path / "state" / "sim" / "2G4.d1.lock",
@@ -331,11 +336,20 @@ def test_device_ids_support_native_and_in_process_hosts_together(tmp_path) -> No
     backend.reserve_application_device(native_host)
     backend.interference_sources.append(BurstInterference(2402.0))
 
+    layout = backend.plan_devices()
     assert python_host.controller_dev_id == 0
-    assert python_host.application_dev_id is None
+    with pytest.raises(KeyError, match="no Application device reserved"):
+        layout.application_slot(python_host)
     assert native_host.controller_dev_id == 1
-    assert native_host.application_dev_id == 2
-    assert backend.interference_dev_id(0) == 4
+    assert layout.application_slot(native_host) == AppSlot(
+        sim_id="sim",
+        phy_id="2G4",
+        dev_id=2,
+        hci_sock=tmp_path / "state" / "sim" / "hci1.sock",
+    )
+    assert layout.clock_dev_id == 3
+    assert layout.interference_dev_id(0) == 4
+    assert layout.device_count == 5
     assert backend.device_lock_paths() == [
         tmp_path / "state" / "sim" / "2G4.d0.lock",
         tmp_path / "state" / "sim" / "2G4.d1.lock",
@@ -343,6 +357,30 @@ def test_device_ids_support_native_and_in_process_hosts_together(tmp_path) -> No
         tmp_path / "state" / "sim" / "2G4.d3.lock",
         tmp_path / "state" / "sim" / "2G4.d4.lock",
     ]
+
+
+def test_device_layout_is_frozen_once_planned(tmp_path) -> None:
+    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend.add_controller()
+    layout = backend.plan_devices()
+
+    assert backend.plan_devices() is layout
+    with pytest.raises(FrozenInstanceError):
+        layout.clock_dev_id = 9
+    with pytest.raises(TypeError):
+        layout.application_slots[0] = None
+
+
+def test_interference_dev_id_rejects_unknown_sources(tmp_path) -> None:
+    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend.add_controller()
+    backend.interference_sources.append(BurstInterference(2402.0))
+    layout = backend.plan_devices()
+
+    assert layout.interference_dev_id(0) == 2
+    for index in (-1, 1):
+        with pytest.raises(ValueError, match="unknown interference source index"):
+            layout.interference_dev_id(index)
 
 
 @pytest.mark.parametrize("close_fails", [False, True])

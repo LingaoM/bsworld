@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from bsworld.devices import Controller, ProcessInstance
+from bsworld.devices import AppSlot, Controller, ProcessInstance
 from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
@@ -58,15 +58,13 @@ def load_nuttx_profile(
     controller = topo.add_controller(public_address=profile.controller_address, **options)
     binary = profile.path.absolute()
 
-    def command() -> list[str | Path]:
-        if controller.application_dev_id is None:
-            raise RuntimeError("NuttX process requires a BabbleSim device id")
+    def command(slot: AppSlot) -> list[str | Path]:
         return [
             binary,
-            f"--sim-bsim-sid={controller.sim_id}",
-            f"--sim-bsim-pid={controller.phy_id}",
-            f"--sim-bsim-dev={controller.application_dev_id}",
-            f"--bt-dev={controller.hci_sock}",
+            f"--sim-bsim-sid={slot.sim_id}",
+            f"--sim-bsim-pid={slot.phy_id}",
+            f"--sim-bsim-dev={slot.dev_id}",
+            f"--bt-dev={slot.hci_sock}",
         ]
 
     return topo.add_process(
