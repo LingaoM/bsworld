@@ -13,9 +13,6 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-from functools import partial
-
-
 class ColorError(ValueError):
     """Error raised when a color spec is invalid."""
 
@@ -82,26 +79,3 @@ def color(
         return f'\x1b[{_join(*codes)}m{s}\x1b[0m'
     else:
         return s
-
-
-# Foreground color shortcuts
-black = partial(color, fg='black')
-red = partial(color, fg='red')
-green = partial(color, fg='green')
-yellow = partial(color, fg='yellow')
-blue = partial(color, fg='blue')
-magenta = partial(color, fg='magenta')
-cyan = partial(color, fg='cyan')
-white = partial(color, fg='white')
-
-# Style shortcuts
-bold = partial(color, style='bold')
-none = partial(color, style='none')
-faint = partial(color, style='faint')
-italic = partial(color, style='italic')
-underline = partial(color, style='underline')
-blink = partial(color, style='blink')
-blink2 = partial(color, style='blink2')
-negative = partial(color, style='negative')
-concealed = partial(color, style='concealed')
-crossed = partial(color, style='crossed')

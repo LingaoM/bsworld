@@ -54,24 +54,28 @@ def test_spawn_launches_process_and_writes_log(tmp_path) -> None:
         assert isinstance(p, Proc)
         assert p.pid > 0
         p.popen.wait(timeout=5)
-        assert p.returncode() == 0
+        assert p.popen.poll() == 0
         assert not p.alive()
         assert (log_dir / "echoer.log").read_text().strip() == "hello-world"
     finally:
         pm.cleanup()
 
 
-def test_alive_list_reports_only_running_processes(tmp_path) -> None:
+def test_cleanup_reports_only_running_processes(tmp_path, monkeypatch) -> None:
+    logs: list[str] = []
+    monkeypatch.setattr(proc_mod, "log", lambda msg, *, tag="bsworld": logs.append(msg))
     pm = ProcessManager()
     short = pm.spawn("short", ["/bin/sh", "-c", "true"], cwd=tmp_path, log_dir=tmp_path / "log")
     long = pm.spawn("long", ["/bin/sh", "-c", "sleep 30"], cwd=tmp_path, log_dir=tmp_path / "log")
-    try:
-        short.popen.wait(timeout=5)
-        alive = pm.alive_list()
-        assert long in alive
-        assert short not in alive
-    finally:
-        pm.cleanup()
+    short.popen.wait(timeout=5)
+    assert long.alive() and not short.alive()
+
+    pm.cleanup()
+
+    # Only the still-running process is counted and killed.
+    assert "stopping 1 background process(es)" in logs
+    assert any("kill long" in msg for msg in logs)
+    assert not any("kill short" in msg for msg in logs)
 
 
 def test_cleanup_kills_running_processes(tmp_path) -> None:

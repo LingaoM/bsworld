@@ -14,10 +14,6 @@ class TransportSink(Protocol):
     def on_packet(self, packet: bytes) -> None: ...
 
 
-class TransportSource(Protocol):
-    def set_packet_sink(self, sink: TransportSink | None) -> None: ...
-
-
 class H4Parser:
     def __init__(self, sink):
         self.sink = sink

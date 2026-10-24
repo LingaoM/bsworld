@@ -212,9 +212,6 @@ class Controller:
             hci.HCI_Command_Status_Event(status=status, num_hci_command_packets=1, command_opcode=op_code)
         )
 
-    async def wait_for_termination(self) -> None:
-        await self.terminated
-
     @property
     def is_advertising(self) -> bool:
         return self.le_legacy_advertiser.enabled or any(s.enabled for s in self.advertising_sets.values())

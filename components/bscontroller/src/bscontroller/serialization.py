@@ -31,14 +31,7 @@ class OpenIntEnum(enum.IntEnum):
 
 
 class CompatibleIntFlag(enum.IntFlag):
-    """
-    Subclass of `enum.IntFlag` with a `composite_name` property that behaves like the
-    `name` property of the `enum.IntFlag` implementation for python vesions >= 3.11
-    """
-
-    @property
-    def composite_name(self) -> str:
-        return '|'.join(name for flag in self.__class__ if self.value & flag.value and (name := flag.name) is not None)
+    """Named base for the HCI feature masks, kept as their shared supertype."""
 
 
 class SpecableEnum(OpenIntEnum):

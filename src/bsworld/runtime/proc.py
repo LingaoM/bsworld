@@ -47,9 +47,6 @@ class Proc:
     def alive(self) -> bool:
         return self.popen.poll() is None
 
-    def returncode(self) -> int | None:
-        return self.popen.poll()
-
 @dataclass
 class ProcessManager:
     procs: list[Proc] = field(default_factory=list)
@@ -124,9 +121,6 @@ class ProcessManager:
         self.procs.append(proc)
         return proc
 
-    def alive_list(self) -> list[Proc]:
-        return [p for p in self.procs if p.alive()]
-
     def stop(self, proc: Proc) -> None:
         """Stop one owned process while keeping other PHY participants alive."""
         if proc not in self.procs:
@@ -138,7 +132,7 @@ class ProcessManager:
         self.procs.remove(proc)
 
     def _report_exit(self, proc: Proc) -> None:
-        rc = proc.returncode()
+        rc = proc.popen.poll()
         if rc is not None and rc != 0:
             warn(f"{proc.name}: exited unexpectedly (rc={rc})")
             self._dump_tail(proc, lines=20)
@@ -172,9 +166,9 @@ class ProcessManager:
             return
         for proc in self.procs:
             self._report_exit(proc)
-        living = self.alive_list()
+        living = sum(1 for proc in self.procs if proc.alive())
         if living:
-            log(f"stopping {len(living)} background process(es)")
+            log(f"stopping {living} background process(es)")
         for proc in reversed(self.procs):
             if proc.alive():
                 log(f"    kill {proc.name} (pid={proc.pid})")

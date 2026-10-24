@@ -44,7 +44,6 @@ def _env(tmp_path: Path) -> Env:
         run_uid="uid",
         out_dir=tmp_path / "out",
         log_dir=tmp_path / "out" / "log",
-        babblesim_root=tmp_path / "components" / "babblesim",
         hci_virt_bin=tmp_path / "components" / "hci",
         bsim_dir=bsim_dir,
         bsim_bin_dir=bsim_dir / "bin",
