@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import errno
-import getpass
 import os
+import pwd
 import select
 import stat
 import struct
@@ -157,9 +157,47 @@ class PhyConnection:
             raise RuntimeError(f'BabbleSim communication path is not a FIFO: {self.prefix}{suffix}')
         return fd
 
+    def _write_steps(self, fd: int, packet: bytes):
+        """Write a whole packet, yielding once per blocked attempt."""
+        while packet:
+            try:
+                written = os.write(fd, packet)
+            except BlockingIOError:
+                yield
+                continue
+            if written == 0:
+                raise RuntimeError('BabbleSim request write made no progress')
+            packet = packet[written:]
+
+    def _read_steps(self, fd: int, size: int, into: bytearray):
+        """Fill `into` with `size` bytes, yielding once per blocked attempt."""
+        while len(into) < size:
+            try:
+                chunk = os.read(fd, size - len(into))
+            except BlockingIOError:
+                yield
+                continue
+            if not chunk:
+                raise RuntimeError('BabbleSim PHY disconnected')
+            into.extend(chunk)
+
+    def _wait_ready(self, fd: int, *, write: bool, deadline: float) -> None:
+        """Block the calling thread until the FIFO is ready or the watchdog fires."""
+        if self.controller_loop is not None:
+            self.controller_loop.wait_for_phy_io(fd, write=write, deadline=deadline)
+            return
+        readable, writable, _ = select.select(
+            [] if write else [fd],
+            [fd] if write else [],
+            [],
+            max(0, deadline - time.monotonic()),
+        )
+        if not readable and not writable:
+            raise TimeoutError('timed out waiting for BabbleSim PHY')
+
     async def _ready(self, fd: int, *, write: bool = False) -> None:
         if self.controller_loop is not None and self._busy:
-            self.controller_loop.wait_for_phy_io(fd, write=write, deadline=self._io_deadline)
+            self._wait_ready(fd, write=write, deadline=self._io_deadline)
             return
         loop = asyncio.get_running_loop()
         ready = loop.create_future()
@@ -179,29 +217,15 @@ class PhyConnection:
     async def send(self, packet: bytes) -> None:
         if self.write_fd is None:
             raise RuntimeError('BabbleSim device is not connected')
-        while packet:
-            try:
-                written = os.write(self.write_fd, packet)
-            except BlockingIOError:
-                await self._ready(self.write_fd, write=True)
-                continue
-            if written == 0:
-                raise RuntimeError('BabbleSim request write made no progress')
-            packet = packet[written:]
+        for _ in self._write_steps(self.write_fd, packet):
+            await self._ready(self.write_fd, write=True)
 
     async def receive(self, size: int) -> bytes:
         if self.read_fd is None:
             raise RuntimeError('BabbleSim device is not connected')
         packet = bytearray()
-        while len(packet) < size:
-            try:
-                chunk = os.read(self.read_fd, size - len(packet))
-            except BlockingIOError:
-                await self._ready(self.read_fd)
-                continue
-            if not chunk:
-                raise RuntimeError('BabbleSim PHY disconnected')
-            packet.extend(chunk)
+        for _ in self._read_steps(self.read_fd, size, packet):
+            await self._ready(self.read_fd)
         return bytes(packet)
 
     async def response(self, expected: int) -> None:
@@ -229,40 +253,15 @@ class PhyConnection:
         self.begin_request()
         deadline = time.monotonic() + timeout
 
-        def ready(fd, write=False):
-            if self.controller_loop is not None:
-                self.controller_loop.wait_for_phy_io(fd, write=write, deadline=deadline)
-                return
-            readable, writable, _ = select.select(
-                [] if write else [fd],
-                [fd] if write else [],
-                [],
-                max(0, deadline - time.monotonic()),
-            )
-            if not readable and not writable:
-                raise TimeoutError('timed out waiting for BabbleSim PHY')
+        def drive(steps, fd: int, *, write: bool) -> None:
+            for _ in steps:
+                self._wait_ready(fd, write=write, deadline=deadline)
 
         try:
-            packet = HEADER.pack(WAIT) + TIME.pack(target_us)
-            while packet:
-                ready(self.write_fd, write=True)
-                try:
-                    size = os.write(self.write_fd, packet)
-                except BlockingIOError:
-                    continue
-                if size == 0:
-                    raise RuntimeError('BabbleSim request write made no progress')
-                packet = packet[size:]
+            request = HEADER.pack(WAIT) + TIME.pack(target_us)
+            drive(self._write_steps(self.write_fd, request), self.write_fd, write=True)
             response = bytearray()
-            while len(response) < HEADER.size:
-                ready(self.read_fd)
-                try:
-                    chunk = os.read(self.read_fd, HEADER.size - len(response))
-                except BlockingIOError:
-                    continue
-                if not chunk:
-                    raise RuntimeError('BabbleSim PHY disconnected')
-                response.extend(chunk)
+            drive(self._read_steps(self.read_fd, HEADER.size, response), self.read_fd, write=False)
             header = HEADER.unpack(response)[0]
             if header == DISCONNECT:
                 raise RuntimeError('BabbleSim PHY disconnected')
@@ -301,10 +300,17 @@ class PhyConnection:
         self.read_fd = self.write_fd = None
 
 
+def simulation_root() -> Path:
+    """Resolve BabbleSim's native /tmp/bs_<user> state root for this account."""
+    # BabbleSim names the directory after the account that owns the processes,
+    # so resolve the real uid instead of trusting LOGNAME/USER in the Host env.
+    return Path('/tmp') / f'bs_{pwd.getpwuid(os.getuid()).pw_name}'
+
+
 def simulation_directory(sim_id: str) -> Path:
     if not sim_id or Path(sim_id).name != sim_id or sim_id in ('.', '..'):
         raise ValueError('simulation id must be a nonempty path component')
-    return Path('/tmp') / f'bs_{getpass.getuser()}' / sim_id
+    return simulation_root() / sim_id
 
 
 class BabbleSimRadio:
