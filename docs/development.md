@@ -44,17 +44,9 @@ Tests under `tests/unit/` are organized by subsystem. Each test should focus on 
 
 Application behavior, RF propagation itself, and end-to-end Bluetooth LE examples are covered by the simulation suites under `tests/integration/*`.
 
-The Bumble, NuttX NimBLE, QEMU and Zephyr Host suites run each scenario twice, with `[zephyr]` and `[bscontroller]` IDs. NuttX BTSak currently runs only the `[zephyr]` variant. Both variants reuse the same test body, Host binaries, steps and assertions. The shared fixtures in `tests/integration/controllers.py` select the default Controller for the topology; explicit `controller_type=` arguments still allow mixed topologies. Parameter IDs also distinguish simulation identities, reports, logs and captures.
+See the README's [Controller variants](../README.md#test-controller-variants) for test selection commands. The shared fixtures in `tests/integration/controllers.py` select the default Controller for the topology; explicit `controller_type=` arguments still allow mixed topologies. Parameter IDs also distinguish simulation identities, reports, logs and captures.
 
-```sh
-# Run both Controller variants, including the existing backend/interop checks.
-pytest tests/integration -v
-
-# Run only the BSController variants of the Host scenarios.
-pytest tests/integration -k bscontroller -v
-```
-
-NuttX BTSak uses a suite-local fixture to select Zephyr Controller because it requires Host Buffer Size and Controller-to-Host flow control commands that BSController does not yet support. NuttX NimBLE is covered with both Controller implementations, including advertising, connection establishment, GATT service discovery and subscription.
+The pinned NuttX revision detects Controller-to-Host flow-control support and skips the optional setup commands when unavailable, allowing BTSak to run against BSController.
 
 ## Linting
 
