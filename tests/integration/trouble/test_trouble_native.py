@@ -26,6 +26,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from tests.integration.applications import add_application
 
 from bsworld.devices import AppSlot, ProcessInstance
 from bsworld.env import env_path
@@ -55,11 +56,10 @@ def _add_host(topo: BluetoothTopology, role: str) -> ProcessInstance:
             "Build it with `cargo build` in tests/integration/trouble/source, "
             "or set BSWORLD_TROUBLE_NATIVE_BIN. See tests/integration/trouble/README.md."
         )
-    controller = topo.add_controller(log_subdir=_LOG_SUBDIR / role)
 
-    def command(slot: AppSlot) -> list[str | Path]:
+    def argv(executable: Path, slot: AppSlot) -> list[str | Path]:
         return [
-            binary,
+            executable,
             role,
             slot.hci_sock.parent,
             slot.phy_id,
@@ -67,13 +67,13 @@ def _add_host(topo: BluetoothTopology, role: str) -> ProcessInstance:
             slot.hci_sock,
         ]
 
-    return topo.add_process(
-        ProcessInstance(
-            command=command,
-            controller=controller,
-            label=role,
-            log_subdir=_LOG_SUBDIR / role,
-        )
+    return add_application(
+        topo,
+        binary=binary,
+        argv=argv,
+        label=role,
+        controller_log_subdir=_LOG_SUBDIR / role,
+        log_subdir=_LOG_SUBDIR / role,
     )
 
 

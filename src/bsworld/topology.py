@@ -58,6 +58,7 @@ class BluetoothTopology:
     env: Env
     sim_id: str
     test_log_dir: Path
+    default_controller_type: type[Controller] = ZephyrController
     pm: ProcessManager = field(default_factory=ProcessManager)
     bsim: BabbleSimBackend = field(init=False)
     processes: list[ProcessInstance] = field(default_factory=list)
@@ -78,15 +79,22 @@ class BluetoothTopology:
     def add_controller(
         self,
         *,
-        controller_type: type[Controller] = ZephyrController,
+        controller_type: type[Controller] | None = None,
         public_address: str | None = None,
         log_subdir: Path | str | None = None,
         **options,
     ) -> Controller:
-        """Allocate a Virtual Controller for one Bluetooth Host."""
+        """Allocate a Virtual Controller for one Bluetooth Host.
+
+        Omitting controller_type uses default_controller_type, so a suite can
+        run unchanged scenarios against either implementation by choosing the
+        default once for the whole topology.
+        """
         self._ensure_configurable()
         controller = self.bsim.add_controller(
-            controller_type=controller_type, public_address=public_address, **options,
+            controller_type=controller_type or self.default_controller_type,
+            public_address=public_address,
+            **options,
         )
         log_path = (
             Path(log_subdir) if log_subdir is not None else Path("controllers") / f"hci{controller.controller_dev_id}"

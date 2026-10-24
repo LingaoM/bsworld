@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from bsworld.devices import BSController, ZephyrController
 from bsworld.devices.instance import ProcessInstance
 from bsworld.devices.layout import AppSlot
 from bsworld.env import Env
@@ -100,6 +101,24 @@ def test_add_controller_allocates_in_process_virtual_controller(tmp_path) -> Non
     with pytest.raises(KeyError, match="no Application device reserved"):
         topo.bsim.plan_devices().application_slot(ctl)
     assert ctl.hci_sock == tmp_path / "state" / "sim0" / "hci0.sock"
+
+
+def test_default_controller_type_applies_until_a_call_overrides_it(tmp_path) -> None:
+    topo = BluetoothTopology(
+        _env(tmp_path), "sim0", tmp_path / "log", default_controller_type=BSController
+    )
+
+    inherited = topo.add_controller()
+    overridden = topo.add_controller(controller_type=ZephyrController)
+
+    assert isinstance(inherited, BSController)
+    assert isinstance(overridden, ZephyrController)
+
+
+def test_controller_type_defaults_to_the_zephyr_process(tmp_path) -> None:
+    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+
+    assert isinstance(topo.add_controller(), ZephyrController)
 
 
 @pytest.mark.parametrize(

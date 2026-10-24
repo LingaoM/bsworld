@@ -17,6 +17,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from bsworld import plugin
+from bsworld.devices import BSController, ZephyrController
 
 pytest_plugins = ("pytester",)
 
@@ -132,6 +133,44 @@ def test_create_topology_for_request_uses_request_options(tmp_path) -> None:
         / "test_btsak_scan_advertise"
         / "test_nuttx_btsak_scanner_finds_advertiser"
     )
+    assert topo.default_controller_type is ZephyrController
+
+    selected = plugin.create_topology_for_request(
+        env, request, default_controller_type=BSController
+    )
+    assert selected.default_controller_type is BSController
+
+
+def test_topo_fixture_honours_an_overridden_controller_default(pytester, monkeypatch) -> None:
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    # The suites override this fixture instead of patching the topology object.
+    test_file = pytester.makepyfile(
+        test_default_controller="""
+            import pytest
+            from bsworld.devices import BSController
+
+            @pytest.fixture
+            def bsworld_default_controller_type():
+                return BSController
+
+            @pytest.mark.asyncio
+            async def test_default_is_used(topo):
+                assert topo.default_controller_type is BSController
+                assert isinstance(topo.add_controller(), BSController)
+        """
+    )
+
+    result = pytester.runpytest_subprocess(
+        *_ISOLATED_PLUGIN_ARGS,
+        "-o",
+        "asyncio_mode=strict",
+        "--out-dir",
+        str(pytester.path / "logs"),
+        "-q",
+        str(test_file),
+    )
+
+    result.assert_outcomes(passed=1)
 
 
 def test_topo_fixture_works_in_pytest_asyncio_strict_mode(

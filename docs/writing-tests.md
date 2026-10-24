@@ -47,6 +47,14 @@ await topo.start()
 
 Each Python Controller owns its worker, radio endpoint and address. Omit `max_step_us` to use bscontroller's default; pass it only to override the worker's step size. Both implementations use the shared PHY and framework clock. A topology containing only Python Controllers does not require `BSWORLD_BT_VIRT_CONTROLLER_BIN`.
 
+To run one scenario against both implementations, set the topology default instead of passing `controller_type` at every call. The `topo` fixture reads it from the overridable `bsworld_default_controller_type` fixture, and an explicit `controller_type` argument still selects a mixed topology:
+
+```python
+@pytest.fixture(params=[ZephyrController, BSController], ids=["zephyr", "bscontroller"])
+def bsworld_default_controller_type(request):
+    return request.param
+```
+
 Both Controller implementations write their own `hciN.snoop` files; the shared PHY produces `ellisys.bttrp`.
 
 ## Async Waiting and Simulation Time
@@ -115,7 +123,7 @@ ZEPHYR_APP = ZephyrProcessProfile(
 
 `load_zephyr_profile()` generates `-s=<sim_id> -p=<phy_id> -d=<dev_id> -mro=1000` and uses `--bt-dev=<sock>` to connect Zephyr `userchan` to the external Virtual Controller.
 
-Both loaders allocate a Virtual Controller, register a `ProcessInstance`, and defer command construction until `topo.start()` has assigned final device identities and socket paths. `controller_address` belongs to that Controller. The Virtual Controller receives `-bd-addr=<addr>` and initializes its public BD_ADDR before the Host establishes the HCI connection.
+Both loaders delegate to the shared `add_application()` in `tests/integration/applications.py`, which resolves the executable from its environment variable, skips when the artifact is absent, allocates a Virtual Controller, and registers a `ProcessInstance` whose argv is built from the device slot assigned by `topo.start()`. A suite supplies only its argv and setup guide. `controller_address` belongs to that Controller. The Virtual Controller receives `-bd-addr=<addr>` and initializes its public BD_ADDR before the Host establishes the HCI connection.
 
 ### Python Host Stacks
 
