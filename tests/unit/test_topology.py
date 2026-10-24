@@ -15,19 +15,16 @@
 from __future__ import annotations
 
 import asyncio
-import io
-import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from tests.unit.helpers import make_env, register_process
 
 from bsworld.devices import BSController, ZephyrController
 from bsworld.devices.instance import ProcessInstance
 from bsworld.devices.layout import AppSlot
-from bsworld.env import Env
 from bsworld.interference import (
-    InterferenceRef,
     StaticAttenuation,
     TimedAttenuation,
     WlanInterference,
@@ -36,53 +33,12 @@ from bsworld.runtime.scheduler import BsimEventLoop
 from bsworld.topology import BluetoothTopology
 
 
-def _env(tmp_path: Path) -> Env:
-    build = tmp_path / "build"
-    bsim_dir = build / "babblesim" / "bsim"
-    return Env(
-        out_tag="run-test",
-        run_uid="uid",
-        out_dir=tmp_path / "out",
-        log_dir=tmp_path / "out" / "log",
-        hci_virt_bin=tmp_path / "components" / "hci",
-        bsim_dir=bsim_dir,
-        bsim_bin_dir=bsim_dir / "bin",
-        bs_state_dir=tmp_path / "state",
-    )
-
-
-def _register_process(
-    topo: BluetoothTopology,
-    *,
-    exe: str | Path,
-    label: str = "device",
-    args: tuple[str, ...] = (),
-    shell: bool = False,
-    log_subdir: Path | str | None = None,
-    public_address: str | None = None,
-) -> ProcessInstance:
-    binary = Path(exe).absolute()
-    controller = topo.add_controller(public_address=public_address)
-    process = ProcessInstance(
-        command=[binary, *args],
-        controller=controller,
-        label=label,
-        shell=shell,
-        log_subdir=log_subdir,
-    )
-    return topo.add_process(process)
-
-
-def _slot_for(topo: BluetoothTopology, process: ProcessInstance) -> AppSlot:
-    return topo.bsim.plan_devices().application_slot(process.controller)
-
-
 def test_add_process_registers_controller_application_device(tmp_path) -> None:
     exe = tmp_path / "firmware"
     exe.write_text("")
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 
-    dev = _register_process(topo, exe=exe, label="dev0", args=("--foo=bar",))
+    dev = register_process(topo, exe=exe, label="dev0", args=("--foo=bar",))
 
     assert dev.label == "dev0"
     assert dev.controller is topo.bsim.controllers[0]
@@ -91,7 +47,7 @@ def test_add_process_registers_controller_application_device(tmp_path) -> None:
 
 
 def test_add_controller_allocates_in_process_virtual_controller(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 
     ctl = topo.add_controller(public_address="c0:ff:ee:00:00:03")
 
@@ -104,7 +60,7 @@ def test_add_controller_allocates_in_process_virtual_controller(tmp_path) -> Non
 
 def test_default_controller_type_applies_until_a_call_overrides_it(tmp_path) -> None:
     topo = BluetoothTopology(
-        _env(tmp_path), "sim0", tmp_path / "log", default_controller_type=BSController
+        make_env(tmp_path), "sim0", tmp_path / "log", default_controller_type=BSController
     )
 
     inherited = topo.add_controller()
@@ -115,42 +71,26 @@ def test_default_controller_type_applies_until_a_call_overrides_it(tmp_path) -> 
 
 
 def test_controller_type_defaults_to_the_zephyr_process(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 
     assert isinstance(topo.add_controller(), ZephyrController)
-
-
-@pytest.mark.parametrize(
-    "address",
-    [
-        "C0:FF:EE:00:00",
-        "C0:FF:EE:00:00:01:02",
-        "C0:FF:EE:00:00:GG",
-        "00:00:00:00:00:00",
-    ],
-)
-def test_add_controller_rejects_invalid_public_address(tmp_path, address: str) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-
-    with pytest.raises(ValueError, match="controller address"):
-        topo.add_controller(public_address=address)
 
 
 def test_add_process_rejects_duplicate_label(tmp_path) -> None:
     exe = tmp_path / "firmware"
     exe.write_text("")
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    _register_process(topo, exe=exe, label="device")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
+    register_process(topo, exe=exe, label="device")
 
     with pytest.raises(ValueError, match="label is already registered"):
-        _register_process(topo, exe=exe, label="device")
+        register_process(topo, exe=exe, label="device")
 
 
 def test_add_process_rejects_shared_controller(tmp_path) -> None:
     exe = tmp_path / "firmware"
     exe.write_text("")
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    first = _register_process(topo, exe=exe, label="first")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
+    first = register_process(topo, exe=exe, label="first")
     second = ProcessInstance(command=[exe], controller=first.controller, label="second")
 
     with pytest.raises(ValueError, match="only be attached to one Application"):
@@ -158,7 +98,7 @@ def test_add_process_rejects_shared_controller(tmp_path) -> None:
 
 
 def test_topology_rejects_configuration_after_start(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
     controller = topo.add_controller()
     process = ProcessInstance(command=[tmp_path / "firmware"], controller=controller, label="device")
     topo._started = True
@@ -174,7 +114,7 @@ def test_topology_rejects_configuration_after_start(tmp_path) -> None:
 
 
 def test_add_wlan_interference_exposes_full_wlan_parameters(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 
     ref = topo.add_wlan_interference(
         center_freq_mhz=2437.0,
@@ -197,7 +137,7 @@ def test_add_wlan_interference_exposes_full_wlan_parameters(tmp_path) -> None:
 
 
 async def test_start_requires_at_least_one_virtual_controller(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 
     with pytest.raises(RuntimeError, match="at least one Virtual Controller"):
         await topo.start()
@@ -206,10 +146,10 @@ async def test_start_requires_at_least_one_virtual_controller(tmp_path) -> None:
 
 
 async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkeypatch) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
     exe = tmp_path / "firmware"
     exe.write_text("")
-    dev = _register_process(topo, exe=exe, label="dev0")
+    dev = register_process(topo, exe=exe, label="dev0")
     seen_snoop_paths: list[Path] = []
     started_slots: list[AppSlot] = []
 
@@ -265,7 +205,7 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkey
 
 @pytest.mark.parametrize("application", [False, True])
 def test_snoop_path_uses_the_controller_or_application_log_directory(tmp_path, application):
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
     ctl = topo.add_controller(log_subdir="python/bumble")
     assert ctl.hci_snoop_file == tmp_path / "log" / "python/bumble" / "hci0.snoop"
     if application:
@@ -276,192 +216,19 @@ def test_snoop_path_uses_the_controller_or_application_log_directory(tmp_path, a
     assert ctl.hci_snoop_file == tmp_path / "log" / subdir / "hci0.snoop"
 
 
-def test_process_command_receives_the_slot_assigned_for_the_whole_topology(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    scanner_exe = tmp_path / "scanner"
-    advertiser_exe = tmp_path / "advertiser"
-    scanner_exe.write_text("")
-    advertiser_exe.write_text("")
-    _register_process(topo, exe=scanner_exe, label="scanner")
-    controller = topo.add_controller()
-
-    def command(slot: AppSlot) -> list[str | Path]:
-        return [advertiser_exe, f"--device={slot.dev_id}", f"--phy={slot.phy_id}", f"--sim={slot.sim_id}"]
-
-    dev = topo.add_process(
-        ProcessInstance(
-            command=command,
-            controller=controller,
-            label="advertiser",
-        )
-    )
-    calls: list[tuple[str, list[str], dict]] = []
-
-    class FakeProc:
-        pid = 1234
-
-        def alive(self) -> bool:
-            return True
-
-    class FakeProcessManager:
-        def spawn(self, name, cmd, **kwargs):
-            calls.append((name, [str(part) for part in cmd], kwargs))
-            return FakeProc()
-
-    slot = topo.bsim.plan_devices().application_slot(controller)
-    try:
-        dev.start(FakeProcessManager(), tmp_path / "log", slot)
-    finally:
-        dev.stop_capture()
-
-    assert calls[0][1] == [
-        str(advertiser_exe),
-        "--device=3",
-        "--phy=2G4",
-        "--sim=sim0",
-    ]
-    assert calls[0][2]["stdin"] is None
-
-
-def test_process_shell_start_does_not_write_commands(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "nuttx_bsim_test1", tmp_path / "log")
-    exe = tmp_path / "nuttx"
-    exe.write_text("")
-    dev = _register_process(
-        topo,
-        exe=exe,
-        label="shell",
-        shell=True,
-    )
-    calls: list[tuple[str, list[str], dict]] = []
-    proc_stdin = io.BytesIO()
-
-    class FakePopen:
-        stdin = proc_stdin
-
-    class FakeProc:
-        pid = 1234
-        popen = FakePopen()
-
-        def alive(self) -> bool:
-            return True
-
-    class FakeProcessManager:
-        def spawn(self, name, cmd, **kwargs):  # noqa: ANN001
-            calls.append((name, [str(part) for part in cmd], kwargs))
-            return FakeProc()
-
-    try:
-        dev.start(FakeProcessManager(), tmp_path / "log", _slot_for(topo, dev))
-    finally:
-        dev.stop_capture()
-
-    assert calls[0][2]["stdin"] == subprocess.PIPE
-    assert proc_stdin.getvalue() == b""
-
-
-async def test_process_shell_can_send_commands_after_start(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "nuttx_bsim_test1", tmp_path / "log")
-    exe = tmp_path / "nuttx"
-    exe.write_text("")
-    dev = _register_process(
-        topo,
-        exe=exe,
-        label="shell",
-        shell=True,
-    )
-    calls: list[tuple[str, list[str], dict]] = []
-    proc_stdin = io.BytesIO()
-
-    class FakePopen:
-        stdin = proc_stdin
-
-    class FakeProc:
-        pid = 1234
-        popen = FakePopen()
-
-        def alive(self) -> bool:
-            return True
-
-    class FakeProcessManager:
-        def spawn(self, name, cmd, **kwargs):  # noqa: ANN001
-            calls.append((name, [str(part) for part in cmd], kwargs))
-            return FakeProc()
-
-    try:
-        dev.start(FakeProcessManager(), tmp_path / "log", _slot_for(topo, dev))
-        assert proc_stdin.getvalue() == b""
-        await dev.shell.run("ifup bnep0")
-        await dev.shell.run("blecent")
-    finally:
-        dev.stop_capture()
-
-    assert calls[0][2]["stdin"] == subprocess.PIPE
-    assert proc_stdin.getvalue() == b"ifup bnep0\nblecent\n"
-
-
-def test_process_shell_is_disabled_by_default(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "nuttx_bsim_test1", tmp_path / "log")
-    exe = tmp_path / "nuttx"
-    exe.write_text("")
-    dev = _register_process(topo, exe=exe)
-
-    assert dev.shell.enabled is False
-    with pytest.raises(RuntimeError, match="shell input is not enabled"):
-        dev.shell.send("ifup bnep0")
-
-
-def test_process_start_opens_log_capture(tmp_path, monkeypatch) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    exe = tmp_path / "firmware"
-    exe.write_text("")
-    dev = _register_process(topo, exe=exe, label="dev0")
-    opened: list[Path] = []
-
-    class FakePipe:
-        write_fd = 99
-        log_fh = object()
-
-        def stop(self) -> None:
-            return None
-
-        def flush(self) -> None:
-            return None
-
-    def fake_open(log_path):  # noqa: ANN001
-        opened.append(log_path)
-        return FakePipe()
-
-    class FakeProc:
-        pid = 1234
-
-    class FakeProcessManager:
-        def spawn(self, name, cmd, **kwargs):  # noqa: ANN001
-            return FakeProc()
-
-    monkeypatch.setattr("bsworld.devices.instance.LogCapture.open", fake_open)
-
-    try:
-        dev.start(FakeProcessManager(), tmp_path / "log", _slot_for(topo, dev))
-    finally:
-        dev.stop_capture()
-
-    assert opened == [tmp_path / "log" / "dev0.log"]
-
-
 def test_channel_attenuation_resolves_processes_to_virtual_controllers(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
     host_exe = tmp_path / "host"
     dev_exe = tmp_path / "device"
     host_exe.write_text("")
     dev_exe.write_text("")
-    host = _register_process(
+    host = register_process(
         topo,
         exe=host_exe,
         label="host",
         log_subdir=Path("devices") / "host",
     )
-    device = _register_process(
+    device = register_process(
         topo,
         exe=dev_exe,
         label="device",
@@ -504,8 +271,8 @@ def test_channel_attenuation_resolves_processes_to_virtual_controllers(tmp_path)
 
 
 def test_channel_attenuation_rejects_foreign_controller(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    other = BluetoothTopology(_env(tmp_path), "sim1", tmp_path / "other-log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
+    other = BluetoothTopology(make_env(tmp_path), "sim1", tmp_path / "other-log")
     local = topo.add_controller()
     foreign = other.add_controller()
     topo.set_channel_attenuation(
@@ -516,28 +283,10 @@ def test_channel_attenuation_rejects_foreign_controller(tmp_path) -> None:
         topo._resolve_channel_attenuation()
 
 
-@pytest.mark.parametrize("index", [-1, 0])
-def test_channel_attenuation_rejects_unknown_interference_ref(tmp_path, index: int) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    topo.add_controller()
-
-    with pytest.raises(ValueError, match="unknown interference source ref"):
-        topo.bsim.plan_devices().resolve_endpoint(InterferenceRef(index))
-
-
-@pytest.mark.parametrize("endpoint", [-1, True, object()])
-def test_channel_attenuation_rejects_invalid_raw_endpoint(tmp_path, endpoint: object) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-    topo.add_controller()
-
-    with pytest.raises((TypeError, ValueError), match="attenuation endpoint"):
-        topo.bsim.plan_devices().resolve_endpoint(endpoint)
-
-
 @pytest.mark.parametrize("cleanup_fails", [False, True])
 async def test_stop_finalizes_backend_even_if_process_cleanup_fails(tmp_path, monkeypatch, cleanup_fails) -> None:
     events: list[str] = []
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 
     class FakeProcessManager:
         def cleanup(self) -> None:

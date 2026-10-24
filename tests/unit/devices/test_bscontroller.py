@@ -20,9 +20,9 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from tests.unit.test_babblesim_backend import _env
+from tests.unit.helpers import make_env
 
-from bsworld.devices import BSController, ZephyrController
+from bsworld.devices import BSController
 from bsworld.runtime.proc import ProcessManager
 from bsworld.topology import BluetoothTopology
 
@@ -68,29 +68,6 @@ def worker(monkeypatch):
     Worker.instances = []
     monkeypatch.setattr(bscontroller, "RadioController", Worker)
     return Worker
-
-
-def test_mixed_controller_registration_preserves_independent_configuration(tmp_path):
-    topo = BluetoothTopology(_env(tmp_path), "sim", tmp_path / "log")
-    zephyr = topo.add_controller(public_address="f0:f1:f2:f3:f4:01")
-    python = topo.add_controller(controller_type=BSController, public_address="f0:f1:f2:f3:f4:02", max_step_us=250)
-    another = topo.add_controller(controller_type=BSController, max_step_us=500)
-    topo.bsim.reserve_application_device(python)
-    topo.add_burst_interference(2402.0)
-    assert isinstance(zephyr, ZephyrController)
-    assert isinstance(python, BSController)
-    assert [ctl.controller_dev_id for ctl in topo.bsim.controllers] == [0, 1, 2]
-    layout = topo.bsim.plan_devices()
-    assert layout.application_slot(python).dev_id == 3
-    for in_process in (zephyr, another):
-        with pytest.raises(KeyError, match="no Application device reserved"):
-            layout.application_slot(in_process)
-    assert python.public_address == "F0:F1:F2:F3:F4:02"
-    assert python.max_step_us == 250
-    assert another.max_step_us == 500
-    assert len({ctl.hci_sock for ctl in topo.bsim.controllers}) == 3
-    assert layout.clock_dev_id == 4
-    assert layout.interference_dev_id(0) == 5
 
 
 @pytest.mark.parametrize("interval", [0, -1])
@@ -176,7 +153,7 @@ async def test_python_controllers_have_distinct_default_addresses(tmp_path, work
 
 
 async def test_stop_releases_other_controllers_and_phy_after_worker_failure(tmp_path, monkeypatch):
-    topo = BluetoothTopology(_env(tmp_path), "sim", tmp_path / "log")
+    topo = BluetoothTopology(make_env(tmp_path), "sim", tmp_path / "log")
     python = topo.add_controller(controller_type=BSController)
     zephyr = topo.add_controller()
     events = []

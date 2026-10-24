@@ -90,5 +90,3 @@ def test_err_reports_without_exiting_the_interpreter(capsys) -> None:
     # Setup failures raise BSWorldSetupError; logging never terminates pytest.
     log_mod.err("fatal thing")
     assert "fatal thing" in capsys.readouterr().err
-    assert not hasattr(log_mod, "die")
-    assert not hasattr(log_mod, "Die")

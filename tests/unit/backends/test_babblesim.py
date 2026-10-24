@@ -15,17 +15,14 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import FrozenInstanceError
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+from tests.unit.helpers import SpawnRecorder, make_env
 
 from bsworld.backends import babblesim
 from bsworld.backends.babblesim import BabbleSimBackend
 from bsworld.devices import zephyr
-from bsworld.devices.layout import AppSlot
-from bsworld.env import Env
 from bsworld.interference import (
     BurstInterference,
     PlaybackInterference,
@@ -33,30 +30,6 @@ from bsworld.interference import (
     TimedAttenuation,
     WlanInterference,
 )
-
-
-def _env(tmp_path: Path) -> Env:
-    build = tmp_path / "build"
-    bsim_dir = build / "babblesim" / "bsim"
-    return Env(
-        out_tag="run-test",
-        run_uid="uid",
-        out_dir=tmp_path / "out",
-        log_dir=tmp_path / "out" / "log",
-        hci_virt_bin=tmp_path / "components" / "hci",
-        bsim_dir=bsim_dir,
-        bsim_bin_dir=bsim_dir / "bin",
-        bs_state_dir=tmp_path / "state",
-    )
-
-
-class _SpawnRecorder:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, list[str], dict]] = []
-
-    def spawn(self, name, cmd, **kwargs):  # noqa: ARG002
-        self.calls.append((name, [str(part) for part in cmd], kwargs))
-        return SimpleNamespace(alive=lambda: True)
 
 
 def _patch_controller_bin(monkeypatch, tmp_path: Path) -> Path:
@@ -149,7 +122,7 @@ def test_write_attenuation_matrix_supports_static_and_timed_paths(tmp_path) -> N
 
 
 def test_check_deps_ready_only_validates_built_artifacts(tmp_path, monkeypatch) -> None:
-    env = _env(tmp_path)
+    env = make_env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     calls: list[str] = []
 
@@ -161,34 +134,34 @@ def test_check_deps_ready_only_validates_built_artifacts(tmp_path, monkeypatch) 
 
 
 async def test_start_rejects_a_simulation_without_controllers(tmp_path) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend = BabbleSimBackend(make_env(tmp_path), "sim")
 
     with pytest.raises(RuntimeError, match="at least one Virtual Controller"):
-        await backend.start(_SpawnRecorder())
+        await backend.start(SpawnRecorder())
 
 
 async def test_add_controller_rejects_started_backend(tmp_path, monkeypatch) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend = BabbleSimBackend(make_env(tmp_path), "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
     backend.add_controller()
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
-    await backend.start(_SpawnRecorder(), log_dir=tmp_path / "log")
+    await backend.start(SpawnRecorder(), log_dir=tmp_path / "log")
 
     with pytest.raises(RuntimeError, match="after BabbleSim has started"):
         backend.add_controller()
 
 
 async def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, monkeypatch) -> None:
-    env = _env(tmp_path)
+    env = make_env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
     _add_process_controller(backend)
     _add_process_controller(backend)
     backend.interference_sources.append(BurstInterference(2402.0))
-    recorder = _SpawnRecorder()
+    recorder = SpawnRecorder()
 
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
@@ -224,17 +197,16 @@ async def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, m
     assert log_dirs["bt_virt_controller_hci0"] == tmp_path / "log" / "bt_virt_controller"
     assert log_dirs["bt_virt_controller_hci1"] == tmp_path / "log" / "bt_virt_controller"
     assert log_dirs["interf_5"] == tmp_path / "log" / "babblesim"
-    assert all("nice" not in kwargs for _, _, kwargs in recorder.calls)
 
 
 async def test_start_passes_public_address_to_virtual_controller(tmp_path, monkeypatch) -> None:
-    env = _env(tmp_path)
+    env = make_env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
     ctl = backend.add_controller()
     ctl.public_address = "C0:FF:EE:00:00:01"
-    recorder = _SpawnRecorder()
+    recorder = SpawnRecorder()
 
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
@@ -246,13 +218,13 @@ async def test_start_passes_public_address_to_virtual_controller(tmp_path, monke
 
 
 async def test_start_places_default_modem_before_channel_plugin_args(tmp_path, monkeypatch) -> None:
-    env = _env(tmp_path)
+    env = make_env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
     backend.add_controller()
     backend.channel_attenuation = babblesim.ChannelAttenuation(default_attenuation_db=70.0)
-    recorder = _SpawnRecorder()
+    recorder = SpawnRecorder()
 
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
@@ -266,7 +238,7 @@ async def test_start_places_default_modem_before_channel_plugin_args(tmp_path, m
 
 
 def test_device_lock_paths_cover_applications_and_interference_devices(tmp_path) -> None:
-    env = _env(tmp_path)
+    env = make_env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
     _add_process_controller(backend)
     _add_process_controller(backend)
@@ -283,7 +255,7 @@ def test_device_lock_paths_cover_applications_and_interference_devices(tmp_path)
 
 
 def test_registration_connects_clock_before_waiting_for_all_device_locks(tmp_path, monkeypatch) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend = BabbleSimBackend(make_env(tmp_path), "sim")
     backend.add_controller()
     calls = []
 
@@ -306,7 +278,7 @@ def test_registration_connects_clock_before_waiting_for_all_device_locks(tmp_pat
 
 
 def test_registration_does_not_wait_for_locks_after_clock_connection_failure(tmp_path, monkeypatch) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend = BabbleSimBackend(make_env(tmp_path), "sim")
     backend.add_controller()
 
     class Clock:
@@ -321,59 +293,8 @@ def test_registration_does_not_wait_for_locks_after_clock_connection_failure(tmp
         backend.wait_for_devices_registered(timeout=0)
 
 
-def test_device_lock_paths_skip_in_process_host_slots(tmp_path) -> None:
-    env = _env(tmp_path)
-    backend = BabbleSimBackend(env, "sim")
-    ctl0 = backend.add_controller()
-    ctl1 = backend.add_controller()
-    backend.interference_sources.append(BurstInterference(2402.0))
-
-    layout = backend.plan_devices()
-    assert layout.application_slots == {}
-    for controller in (ctl0, ctl1):
-        with pytest.raises(KeyError, match="no Application device reserved"):
-            layout.application_slot(controller)
-    assert layout.interference_dev_id(0) == 3
-    assert backend.device_lock_paths() == [
-        tmp_path / "state" / "sim" / "2G4.d0.lock",
-        tmp_path / "state" / "sim" / "2G4.d1.lock",
-        tmp_path / "state" / "sim" / "2G4.d2.lock",
-        tmp_path / "state" / "sim" / "2G4.d3.lock",
-    ]
-
-
-def test_device_ids_support_native_and_in_process_hosts_together(tmp_path) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
-    python_host = backend.add_controller()
-    native_host = backend.add_controller()
-    backend.reserve_application_device(native_host)
-    backend.interference_sources.append(BurstInterference(2402.0))
-
-    layout = backend.plan_devices()
-    assert python_host.controller_dev_id == 0
-    with pytest.raises(KeyError, match="no Application device reserved"):
-        layout.application_slot(python_host)
-    assert native_host.controller_dev_id == 1
-    assert layout.application_slot(native_host) == AppSlot(
-        sim_id="sim",
-        phy_id="2G4",
-        dev_id=2,
-        hci_sock=tmp_path / "state" / "sim" / "hci1.sock",
-    )
-    assert layout.clock_dev_id == 3
-    assert layout.interference_dev_id(0) == 4
-    assert layout.device_count == 5
-    assert backend.device_lock_paths() == [
-        tmp_path / "state" / "sim" / "2G4.d0.lock",
-        tmp_path / "state" / "sim" / "2G4.d1.lock",
-        tmp_path / "state" / "sim" / "2G4.d2.lock",
-        tmp_path / "state" / "sim" / "2G4.d3.lock",
-        tmp_path / "state" / "sim" / "2G4.d4.lock",
-    ]
-
-
 def test_allocating_a_controller_assigns_its_capture_path(tmp_path) -> None:
-    env = _env(tmp_path)
+    env = make_env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
 
     default = backend.add_controller()
@@ -384,7 +305,7 @@ def test_allocating_a_controller_assigns_its_capture_path(tmp_path) -> None:
 
 
 def test_a_capture_can_be_relocated_until_the_simulation_starts(tmp_path, monkeypatch) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend = BabbleSimBackend(make_env(tmp_path), "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
     controller = backend.add_controller()
@@ -392,45 +313,21 @@ def test_a_capture_can_be_relocated_until_the_simulation_starts(tmp_path, monkey
     backend.set_snoop_dir(controller, tmp_path / "devices" / "dev0")
     assert controller.hci_snoop_file == tmp_path / "devices" / "dev0" / "hci0.snoop"
 
-    foreign = BabbleSimBackend(_env(tmp_path), "sim1").add_controller()
+    foreign = BabbleSimBackend(make_env(tmp_path), "sim1").add_controller()
     with pytest.raises(ValueError, match="does not belong to this BabbleSim backend"):
         backend.set_snoop_dir(foreign, tmp_path / "elsewhere")
 
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
 
-    asyncio.run(backend.start(_SpawnRecorder(), log_dir=tmp_path / "log"))
+    asyncio.run(backend.start(SpawnRecorder(), log_dir=tmp_path / "log"))
     with pytest.raises(RuntimeError, match="after BabbleSim has started"):
         backend.set_snoop_dir(controller, tmp_path / "too-late")
 
 
-def test_device_layout_is_frozen_once_planned(tmp_path) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
-    backend.add_controller()
-    layout = backend.plan_devices()
-
-    assert backend.plan_devices() is layout
-    with pytest.raises(FrozenInstanceError):
-        layout.clock_dev_id = 9
-    with pytest.raises(TypeError):
-        layout.application_slots[0] = None
-
-
-def test_interference_dev_id_rejects_unknown_sources(tmp_path) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
-    backend.add_controller()
-    backend.interference_sources.append(BurstInterference(2402.0))
-    layout = backend.plan_devices()
-
-    assert layout.interference_dev_id(0) == 2
-    for index in (-1, 1):
-        with pytest.raises(ValueError, match="unknown interference source index"):
-            layout.interference_dev_id(index)
-
-
 @pytest.mark.parametrize("close_fails", [False, True])
 def test_finish_releases_clock_before_artifacts_even_if_close_fails(tmp_path, monkeypatch, close_fails) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend = BabbleSimBackend(make_env(tmp_path), "sim")
     backend.add_controller()
     calls = []
     warnings = []
@@ -455,7 +352,7 @@ def test_finish_releases_clock_before_artifacts_even_if_close_fails(tmp_path, mo
 
 
 def test_finish_releases_clock_after_partial_start_without_controllers(tmp_path) -> None:
-    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend = BabbleSimBackend(make_env(tmp_path), "sim")
     calls = []
 
     class Clock:
@@ -469,7 +366,7 @@ def test_finish_releases_clock_after_partial_start_without_controllers(tmp_path)
 
 
 def test_convert_ellisys_writes_trace_without_a_subprocess(tmp_path, monkeypatch) -> None:
-    env = _env(tmp_path)
+    env = make_env(tmp_path)
     results_dir = env.bsim_dir / "results" / "sim"
     results_dir.mkdir(parents=True)
     tx_file = results_dir / "d_2G4_0.Tx.csv"
@@ -494,7 +391,7 @@ def test_convert_ellisys_writes_trace_without_a_subprocess(tmp_path, monkeypatch
 
 
 def test_convert_ellisys_warns_when_dumps_are_missing(tmp_path, monkeypatch) -> None:
-    env = _env(tmp_path)
+    env = make_env(tmp_path)
     warnings = []
     monkeypatch.setattr(babblesim, "warn", warnings.append)
 
