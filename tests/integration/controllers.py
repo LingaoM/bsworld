@@ -3,8 +3,6 @@
 
 """Run unchanged Host scenarios against both Controller implementations."""
 
-from functools import partial
-
 import pytest
 
 from bsworld.devices import BSController, ZephyrController
@@ -16,8 +14,8 @@ def controller_type(request):
 
 
 @pytest.fixture
-def topo(topo, controller_type, monkeypatch):
-    # Keep the framework fixture's lifecycle and per-node output directories.
-    # Explicit controller_type arguments can still select a mixed topology.
-    monkeypatch.setattr(topo, "add_controller", partial(topo.add_controller, controller_type=controller_type))
-    return topo
+def bsworld_default_controller_type(controller_type):
+    # Overrides the framework fixture, so the `topo` fixture keeps its own
+    # lifecycle and per-node output directories. Explicit controller_type
+    # arguments can still select a mixed topology.
+    return controller_type

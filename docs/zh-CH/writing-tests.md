@@ -47,6 +47,14 @@ await topo.start()
 
 每个 Python Controller 独立拥有 worker、无线端点和地址。省略 `max_step_us` 时沿用 bscontroller 的默认值，仅在需要覆盖 worker 步长时传入。两种实现使用共享 PHY 和框架时钟。拓扑中只有 Python Controller 时，无需配置 `BSWORLD_BT_VIRT_CONTROLLER_BIN`。
 
+如果同一套场景需要在两种实现上运行，设置拓扑默认值即可，无需在每次调用时传 `controller_type`。`topo` fixture 从可覆盖的 `bsworld_default_controller_type` fixture 读取该默认值；显式传入 `controller_type` 仍可构造混合拓扑：
+
+```python
+@pytest.fixture(params=[ZephyrController, BSController], ids=["zephyr", "bscontroller"])
+def bsworld_default_controller_type(request):
+    return request.param
+```
+
 两种 Controller 都生成各自的 `hciN.snoop`，共享 PHY 同时生成 `ellisys.bttrp`。
 
 ## 异步等待与仿真时间
@@ -115,7 +123,7 @@ ZEPHYR_APP = ZephyrProcessProfile(
 
 `load_zephyr_profile()` 生成 `-s=<sim_id> -p=<phy_id> -d=<dev_id> -mro=1000`，并通过 `--bt-dev=<sock>` 将 Zephyr `userchan` 连接到外部虚拟 Controller。
 
-两类加载函数都会为业务程序分配虚拟 Controller、登记 `ProcessInstance`，并延迟到 `topo.start()` 时生成包含最终设备标识和 socket 路径的命令。`controller_address` 属于对应的 Controller；虚拟 Controller 启动时通过 `-bd-addr=<addr>` 设置公开设备地址（public BD_ADDR），并在 Host 建立 HCI 连接前完成初始化。
+两类加载函数都委托给 `tests/integration/applications.py` 中的公共 `add_application()`：它按环境变量解析可执行文件、在产物缺失时 skip、分配虚拟 Controller，并登记 `ProcessInstance`——其命令行由 `topo.start()` 分配的设备槽位生成。各测试目录只需提供自己的命令行和构建指引。`controller_address` 属于对应的 Controller；虚拟 Controller 启动时通过 `-bd-addr=<addr>` 设置公开设备地址（public BD_ADDR），并在 Host 建立 HCI 连接前完成初始化。
 
 ### Python Host 协议栈
 

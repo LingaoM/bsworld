@@ -102,9 +102,26 @@ def bsworld_env(bsworld_session_env: Env) -> Env:
     return bsworld_session_env
 
 
+@pytest.fixture
+def bsworld_default_controller_type() -> type | None:
+    """Virtual Controller the `topo` fixture allocates when none is requested.
+
+    Override this fixture to run unchanged scenarios against another
+    implementation; returning None keeps BluetoothTopology's own default.
+    """
+
+    return None
+
+
 @pytest_asyncio.fixture
-async def topo(bsworld_env: Env, request: pytest.FixtureRequest):
-    t = create_topology_for_request(bsworld_env, request)
+async def topo(
+    bsworld_env: Env,
+    request: pytest.FixtureRequest,
+    bsworld_default_controller_type: type | None,
+):
+    t = create_topology_for_request(
+        bsworld_env, request, default_controller_type=bsworld_default_controller_type
+    )
     try:
         yield t
     finally:
@@ -125,10 +142,17 @@ def _test_log_dir_for_node(nodeid: str, log_dir: Path) -> Path:
     return log_dir.joinpath(*parts, func_safe)
 
 
-def create_topology_for_request(env: Env, request: pytest.FixtureRequest) -> BluetoothTopology:
+def create_topology_for_request(
+    env: Env,
+    request: pytest.FixtureRequest,
+    *,
+    default_controller_type: type | None = None,
+) -> BluetoothTopology:
+    options = {} if default_controller_type is None else {"default_controller_type": default_controller_type}
     topology = BluetoothTopology(
         env,
         sim_id=_sim_id_for_node(request.node.nodeid, env.run_uid),
         test_log_dir=_test_log_dir_for_node(request.node.nodeid, env.log_dir),
+        **options,
     )
     return topology

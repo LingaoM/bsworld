@@ -18,19 +18,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
+from tests.integration.applications import add_application, require_artifact
 
 from bsworld.devices import AppSlot, ProcessInstance
-from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
+
+_GUIDE = "tests/integration/qemu/README.md"
 
 
 def _artifact(env_name: str, *, executable: bool = False) -> Path:
-    path = env_path(env_name)
-    if path is None or not path.is_file() or (executable and not path.stat().st_mode & 0o111):
-        pytest.skip(f"Set {env_name} to the built QEMU/Linux artifact; "
-                    "see tests/integration/qemu/README.md.")
-    return path
+    return require_artifact(env_name, guide=_GUIDE, executable=executable)
 
 
 def load_qemu_guest(
@@ -41,13 +38,12 @@ def load_qemu_guest(
     log_subdir: Path,
 ) -> ProcessInstance:
     """Add one QEMU Linux guest and its Virtual Controller to a topology."""
-    qemu = _artifact("BSWORLD_QEMU_BIN", executable=True)
+    # The guest image and kernel are inputs to the emulator rather than the
+    # Application executable, so they are resolved before the shared helper.
     kernel = _artifact("BSWORLD_QEMU_KERNEL")
     rootfs = _artifact("BSWORLD_QEMU_ROOTFS")
 
-    controller = topo.add_controller(public_address=controller_address)
-
-    def command(slot: AppSlot) -> list[str | Path]:
+    def argv(qemu: Path, slot: AppSlot) -> list[str | Path]:
         return [
             qemu,
             "-M", "virt",
@@ -74,14 +70,15 @@ def load_qemu_guest(
             ),
         ]
 
-    return topo.add_process(
-        ProcessInstance(
-            command=command,
-            controller=controller,
-            label=label,
-            shell=True,
-            log_subdir=log_subdir,
-        )
+    return add_application(
+        topo,
+        binary_env="BSWORLD_QEMU_BIN",
+        guide=_GUIDE,
+        argv=argv,
+        label=label,
+        controller_address=controller_address,
+        log_subdir=log_subdir,
+        shell=True,
     )
 
 
