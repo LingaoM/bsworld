@@ -1,0 +1,3 @@
+# bsim/ is a library crate consumed through the adapter; only the binary
+# crate commits a lock file, matching upstream TrouBLE and Cargo guidance.
+Cargo.lock
