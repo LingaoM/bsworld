@@ -21,25 +21,24 @@ from unittest.mock import Mock
 
 import pytest
 
+from bsworld.deps import BSWorldSetupError
 from bsworld.runtime import proc as proc_mod
 from bsworld.runtime.proc import Proc, ProcessManager
 
 
-def test_spawn_dies_when_executable_missing(tmp_path) -> None:
+def test_spawn_reports_a_missing_executable(tmp_path) -> None:
     pm = ProcessManager()
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(BSWorldSetupError, match="missing executable"):
         pm.spawn("ghost", [tmp_path / "does-not-exist"], cwd=tmp_path, log_dir=tmp_path / "log")
-    assert exc.value.code == 25
 
 
-def test_spawn_dies_when_cwd_missing(tmp_path) -> None:
+def test_spawn_reports_a_missing_working_directory(tmp_path) -> None:
     exe = tmp_path / "sh"
     exe.write_text("#!/bin/sh\n")
     exe.chmod(0o755)
     pm = ProcessManager()
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(BSWorldSetupError, match="cwd not found"):
         pm.spawn("proc", [exe], cwd=tmp_path / "nope", log_dir=tmp_path / "log")
-    assert exc.value.code == 21
 
 
 def test_spawn_launches_process_and_writes_log(tmp_path) -> None:
@@ -87,9 +86,9 @@ def test_cleanup_kills_running_processes(tmp_path) -> None:
 
 
 def test_cleanup_dumps_tail_for_unexpectedly_exited_process(tmp_path, monkeypatch) -> None:
-    infos: list[tuple[str, str]] = []
+    logs: list[tuple[str, str]] = []
     warns: list[str] = []
-    monkeypatch.setattr(proc_mod, "info", lambda tag, msg: infos.append((tag, msg)))
+    monkeypatch.setattr(proc_mod, "log", lambda msg, *, tag="bsworld": logs.append((tag, msg)))
     monkeypatch.setattr(proc_mod, "warn", lambda msg: warns.append(msg))
 
     pm = ProcessManager()
@@ -104,12 +103,12 @@ def test_cleanup_dumps_tail_for_unexpectedly_exited_process(tmp_path, monkeypatc
     pm.cleanup()
 
     assert any("exited unexpectedly (rc=3)" in w for w in warns)
-    assert any("boom" in msg for _tag, msg in infos)
+    assert any("boom" in msg for _tag, msg in logs)
 
 
 def test_dump_tail_handles_missing_log_file(tmp_path, monkeypatch) -> None:
     calls: list[str] = []
-    monkeypatch.setattr(proc_mod, "info", lambda tag, msg: calls.append(msg))
+    monkeypatch.setattr(proc_mod, "log", lambda msg, *, tag="bsworld": calls.append(msg))
     pm = ProcessManager()
     fake = Proc(name="x", popen=None, log_path=tmp_path / "absent.log", log_fh=None)
 

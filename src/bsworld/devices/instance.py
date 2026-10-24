@@ -20,6 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..deps import BSWorldSetupError
 from ..runtime.pipe import LogCapture
 from ..runtime.shell import ProcessShell
 from .layout import AppSlot
@@ -59,9 +60,7 @@ class ProcessInstance:
         command = self._resolve_command(slot)
         executable = Path(command[0])
         if not executable.is_file():
-            from ..log import die
-
-            die(f"{self.label}: binary missing: {executable}", code=2)
+            raise BSWorldSetupError(f"{self.label}: binary missing: {executable}")
 
         dev_log_dir = log_dir / self.log_subdir
         log_path = dev_log_dir / f"{self.label}.log"

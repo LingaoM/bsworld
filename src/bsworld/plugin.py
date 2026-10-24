@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from functools import partial
 from pathlib import Path
@@ -27,7 +26,7 @@ import pytest_asyncio
 
 from bsworld.runtime.scheduler import PYTEST_MAX_STEP_US, BsimEventLoop
 
-from .env import Env, _now_tag, _run_uid
+from .env import Env, resolve_run_identity
 from .topology import BluetoothTopology
 
 
@@ -52,17 +51,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    # xdist worker: read tag and uid from controller via workerinput
+    # An xdist worker inherits the controller's identity so every worker in a
+    # run writes into the same output directory.
     worker_input = getattr(config, "workerinput", None)
     if worker_input and "bsworld_out_dir" in worker_input:
         base_dir = worker_input["bsworld_out_dir"]
         now_tag = worker_input["bsworld_now_tag"]
         uid = worker_input["bsworld_run_uid"]
     else:
-        _raw_tag = config.getoption("--out-dir", default=None) or os.environ.get("OUT_DIR")
-        base_dir = _raw_tag if _raw_tag else "/tmp"
-        now_tag = _now_tag()
-        uid = os.environ.get("RUN_UID") or _run_uid()
+        base_dir, now_tag, uid = resolve_run_identity(out_dir=config.getoption("--out-dir", default=None))
     config._bsworld_out_dir = base_dir
     config._bsworld_now_tag = now_tag
     config._bsworld_run_uid = uid
@@ -86,20 +83,18 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 
 @pytest.fixture(scope="session")
-def bsworld_session_env(request: pytest.FixtureRequest) -> Env:
+def bsworld_env(request: pytest.FixtureRequest) -> Env:
+    """Environment shared by every test in the session.
+
+    Built from the identity resolved in pytest_configure so all xdist workers
+    write into the same output directory, even when a worker starts later.
+    """
     cfg = request.config
-    # Use the base dir resolved in pytest_configure so all workers share the same
-    # output directory even when xdist starts workers a second later.
     return Env.detect(
         out_tag=cfg._bsworld_out_dir,
         now_tag=cfg._bsworld_now_tag,
         run_uid=cfg._bsworld_run_uid,
     )
-
-
-@pytest.fixture
-def bsworld_env(bsworld_session_env: Env) -> Env:
-    return bsworld_session_env
 
 
 @pytest.fixture
@@ -119,8 +114,16 @@ async def topo(
     request: pytest.FixtureRequest,
     bsworld_default_controller_type: type | None,
 ):
-    t = create_topology_for_request(
-        bsworld_env, request, default_controller_type=bsworld_default_controller_type
+    options = (
+        {}
+        if bsworld_default_controller_type is None
+        else {"default_controller_type": bsworld_default_controller_type}
+    )
+    t = BluetoothTopology(
+        bsworld_env,
+        sim_id=_sim_id_for_node(request.node.nodeid, bsworld_env.run_uid),
+        test_log_dir=_test_log_dir_for_node(request.node.nodeid, bsworld_env.log_dir),
+        **options,
     )
     try:
         yield t
@@ -140,19 +143,3 @@ def _test_log_dir_for_node(nodeid: str, log_dir: Path) -> Path:
     parts = Path(file_part).with_suffix("").parts
     func_safe = re.sub(r"[^A-Za-z0-9_]+", "_", func_part).strip("_") or "test"
     return log_dir.joinpath(*parts, func_safe)
-
-
-def create_topology_for_request(
-    env: Env,
-    request: pytest.FixtureRequest,
-    *,
-    default_controller_type: type | None = None,
-) -> BluetoothTopology:
-    options = {} if default_controller_type is None else {"default_controller_type": default_controller_type}
-    topology = BluetoothTopology(
-        env,
-        sim_id=_sim_id_for_node(request.node.nodeid, env.run_uid),
-        test_log_dir=_test_log_dir_for_node(request.node.nodeid, env.log_dir),
-        **options,
-    )
-    return topology

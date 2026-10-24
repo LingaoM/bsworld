@@ -47,43 +47,23 @@ class ProcessShell:
         self.send(command)
 
     async def run_many(self, commands: Sequence[str]) -> None:
-        """Send multiple command lines to the child process."""
+        """Send multiple command lines in a single write."""
         self.send_many(commands)
 
     def send(self, command: str) -> None:
         """Synchronously send one command line to the child process."""
-        if command.endswith("\n"):
-            self.write(command)
-        else:
-            self.write(f"{command}\n")
+        self._write(_as_line(command))
 
     def send_many(self, commands: Sequence[str]) -> None:
         if not commands:
             return
-        stdin = self._stdin()
-        chunks = [
-            command if command.endswith("\n") else f"{command}\n"
-            for command in commands
-        ]
-        payload = "".join(chunks).encode()
-        try:
-            stdin.write(payload)
-            stdin.flush()
-        except (BrokenPipeError, OSError) as exc:
-            raise RuntimeError(f"{self.label}: shell input is closed") from exc
+        self._write("".join(_as_line(command) for command in commands))
 
-    def write(self, data: str | bytes) -> None:
-        stdin = self._stdin()
-        payload = data.encode() if isinstance(data, str) else data
-        try:
-            stdin.write(payload)
-            stdin.flush()
-        except (BrokenPipeError, OSError) as exc:
-            raise RuntimeError(f"{self.label}: shell input is closed") from exc
-
-    def flush(self) -> None:
+    def _write(self, payload: str) -> None:
+        """Write one payload and flush, mapping a closed pipe to RuntimeError."""
         stdin = self._stdin()
         try:
+            stdin.write(payload.encode())
             stdin.flush()
         except (BrokenPipeError, OSError) as exc:
             raise RuntimeError(f"{self.label}: shell input is closed") from exc
@@ -94,6 +74,10 @@ class ProcessShell:
         if self._proc is None or self._proc.popen.stdin is None:
             raise RuntimeError(f"{self.label}: shell input is not available")
         return self._proc.popen.stdin
+
+
+def _as_line(command: str) -> str:
+    return command if command.endswith("\n") else f"{command}\n"
 
 
 __all__ = ["ProcessShell"]

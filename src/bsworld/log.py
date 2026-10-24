@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""Coloured stdout logging + Die exception."""
+"""Coloured stdout logging that tees into the active test log file."""
 from __future__ import annotations
 
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import IO, NoReturn
+from typing import IO
 
 
 def _now() -> str:
@@ -51,13 +51,8 @@ def _wrap(code: str, msg: str) -> str:
     return f"\033[{code}m{msg}\033[0m" if sys.stderr.isatty() else msg
 
 
-def log(msg: str) -> None:
-    line = f"{_now()} [bsworld] {msg}\n"
-    print(line, end="", flush=True)
-    _tee(line)
-
-
-def info(tag: str, msg: str) -> None:
+def log(msg: str, *, tag: str = "bsworld") -> None:
+    """Write one tagged line to stdout and the active log file."""
     line = f"{_now()} [{tag}] {msg}\n"
     print(line, end="", flush=True)
     _tee(line)
@@ -73,13 +68,3 @@ def err(msg: str) -> None:
     line = f"{_now()} [bsworld][ERROR] {msg}\n"
     print(_wrap("31", line), end="", file=sys.stderr, flush=True)
     _tee(line)
-
-
-class Die(SystemExit):
-    def __init__(self, msg: str, code: int = 1) -> None:
-        err(msg)
-        super().__init__(code)
-
-
-def die(msg: str, code: int = 1) -> NoReturn:
-    raise Die(msg, code)

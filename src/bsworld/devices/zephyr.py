@@ -20,7 +20,7 @@ import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..compile import hci_virt
+from ..deps import controller_bin
 from ..env import Env
 from ..runtime.proc import Proc, ProcessManager
 from .controller import Controller
@@ -36,7 +36,7 @@ class ZephyrController(Controller):
             raise RuntimeError("Zephyr Controller is already started")
         if self.hci_snoop_file is None:
             raise RuntimeError("hci_snoop_file is assigned when the Controller is allocated")
-        binary = hci_virt.controller_bin(env)
+        binary = controller_bin(env)
         controller_log_dir = log_dir / "bt_virt_controller"
         self.hci_snoop_file.parent.mkdir(parents=True, exist_ok=True)
         argv = [
