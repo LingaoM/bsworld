@@ -91,7 +91,7 @@ async def test_native_zephyr_host_uses_python_controller(topo):
     observer_ctl = topo.add_controller(public_address=OBSERVER_ADDRESS)
     topo.set_channel_attenuation(default_db=45.0)
     await topo.start()
-    assert broadcaster.controller.application_dev_id == 2
+    assert topo.bsim.plan_devices().application_slot(broadcaster.controller).dev_id == 2
     async with AsyncExitStack() as stack:
         observer = await open_bumble_device(stack, "observer", OBSERVER_ADDRESS, observer_ctl.hci_sock)
         found = asyncio.get_running_loop().create_future()

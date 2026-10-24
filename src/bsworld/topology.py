@@ -208,8 +208,9 @@ class BluetoothTopology:
         self._resolve_channel_attenuation()
         await self.bsim.start(self.pm, log_dir=self.test_log_dir)
         await self.bsim.wait_for_hci_sockets()
+        layout = self.bsim.plan_devices()
         for process in self.processes:
-            process.start(self.pm, self.test_log_dir)
+            process.start(self.pm, self.test_log_dir, layout.application_slot(process.controller))
         await asyncio.to_thread(self.bsim.wait_for_devices_registered)
         if self.bsim.clock is not None:
             loop = asyncio.get_running_loop()
@@ -266,7 +267,7 @@ class BluetoothTopology:
                 raise ValueError(f"unknown interference source ref: {endpoint.index}")
             if not self.bsim.controllers:
                 raise ValueError("cannot resolve interference source without BabbleSim controllers")
-            return self.bsim.interference_dev_id(endpoint.index)
+            return self.bsim.plan_devices().interference_dev_id(endpoint.index)
         if isinstance(endpoint, ProcessInstance):
             endpoint = endpoint.controller
         if not isinstance(endpoint, Controller):

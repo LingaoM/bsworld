@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from bsworld.devices.instance import ProcessInstance
+from bsworld.devices.layout import AppSlot
 from bsworld.env import Env
 from bsworld.interference import (
     InterferenceRef,
@@ -72,6 +73,10 @@ def _register_process(
     return topo.add_process(process)
 
 
+def _slot_for(topo: BluetoothTopology, process: ProcessInstance) -> AppSlot:
+    return topo.bsim.plan_devices().application_slot(process.controller)
+
+
 def test_add_process_registers_controller_application_device(tmp_path) -> None:
     exe = tmp_path / "firmware"
     exe.write_text("")
@@ -81,7 +86,7 @@ def test_add_process_registers_controller_application_device(tmp_path) -> None:
 
     assert dev.label == "dev0"
     assert dev.controller is topo.bsim.controllers[0]
-    assert dev.controller.application_dev_id == 1
+    assert topo.bsim.plan_devices().application_slot(dev.controller).dev_id == 1
     assert dev.controller.hci_sock == tmp_path / "state" / "sim0" / "hci0.sock"
 
 
@@ -92,7 +97,8 @@ def test_add_controller_allocates_in_process_virtual_controller(tmp_path) -> Non
 
     assert ctl is topo.bsim.controllers[0]
     assert ctl.public_address == "C0:FF:EE:00:00:03"
-    assert ctl.application_dev_id is None
+    with pytest.raises(KeyError, match="no Application device reserved"):
+        topo.bsim.plan_devices().application_slot(ctl)
     assert ctl.hci_sock == tmp_path / "state" / "sim0" / "hci0.sock"
 
 
@@ -190,6 +196,7 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkey
     exe.write_text("")
     dev = _register_process(topo, exe=exe, label="dev0")
     seen_snoop_paths: list[Path] = []
+    started_slots: list[AppSlot] = []
 
     class FakeClock:
         now_us = 0
@@ -206,7 +213,8 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkey
         def close(self) -> None:
             return None
 
-    def fake_start(pm, log_dir):  # noqa: ANN001, ARG001
+    def fake_start(pm, log_dir, slot):  # noqa: ANN001, ARG001
+        started_slots.append(slot)
         return None
 
     topo.bsim.clock = FakeClock()
@@ -225,6 +233,14 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkey
     await topo.start()
     try:
         assert seen_snoop_paths == [tmp_path / "log" / "hci0.snoop"]
+        assert started_slots == [
+            AppSlot(
+                sim_id="sim0",
+                phy_id="2G4",
+                dev_id=1,
+                hci_sock=tmp_path / "state" / "sim0" / "hci0.sock",
+            )
+        ]
         assert loop.radio_selector.clock is topo.bsim.clock
         assert topo.bsim.clock.synchronized
     finally:
@@ -245,7 +261,7 @@ def test_snoop_path_uses_the_controller_or_application_log_directory(tmp_path, a
     assert ctl.hci_snoop_file == tmp_path / "log" / subdir / "hci0.snoop"
 
 
-def test_process_command_resolves_after_all_device_ids_are_assigned(tmp_path) -> None:
+def test_process_command_receives_the_slot_assigned_for_the_whole_topology(tmp_path) -> None:
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
     scanner_exe = tmp_path / "scanner"
     advertiser_exe = tmp_path / "advertiser"
@@ -254,8 +270,8 @@ def test_process_command_resolves_after_all_device_ids_are_assigned(tmp_path) ->
     _register_process(topo, exe=scanner_exe, label="scanner")
     controller = topo.add_controller()
 
-    def command() -> list[str | Path]:
-        return [advertiser_exe, f"--device={controller.application_dev_id}"]
+    def command(slot: AppSlot) -> list[str | Path]:
+        return [advertiser_exe, f"--device={slot.dev_id}", f"--phy={slot.phy_id}", f"--sim={slot.sim_id}"]
 
     dev = topo.add_process(
         ProcessInstance(
@@ -277,14 +293,17 @@ def test_process_command_resolves_after_all_device_ids_are_assigned(tmp_path) ->
             calls.append((name, [str(part) for part in cmd], kwargs))
             return FakeProc()
 
+    slot = topo.bsim.plan_devices().application_slot(controller)
     try:
-        dev.start(FakeProcessManager(), tmp_path / "log")
+        dev.start(FakeProcessManager(), tmp_path / "log", slot)
     finally:
         dev.stop_capture()
 
     assert calls[0][1] == [
         str(advertiser_exe),
         "--device=3",
+        "--phy=2G4",
+        "--sim=sim0",
     ]
     assert calls[0][2]["stdin"] is None
 
@@ -318,7 +337,7 @@ def test_process_shell_start_does_not_write_commands(tmp_path) -> None:
             return FakeProc()
 
     try:
-        dev.start(FakeProcessManager(), tmp_path / "log")
+        dev.start(FakeProcessManager(), tmp_path / "log", _slot_for(topo, dev))
     finally:
         dev.stop_capture()
 
@@ -355,7 +374,7 @@ async def test_process_shell_can_send_commands_after_start(tmp_path) -> None:
             return FakeProc()
 
     try:
-        dev.start(FakeProcessManager(), tmp_path / "log")
+        dev.start(FakeProcessManager(), tmp_path / "log", _slot_for(topo, dev))
         assert proc_stdin.getvalue() == b""
         await dev.shell.run("ifup bnep0")
         await dev.shell.run("blecent")
@@ -408,7 +427,7 @@ def test_process_start_opens_log_capture(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("bsworld.devices.instance.LogCapture.open", fake_open)
 
     try:
-        dev.start(FakeProcessManager(), tmp_path / "log")
+        dev.start(FakeProcessManager(), tmp_path / "log", _slot_for(topo, dev))
     finally:
         dev.stop_capture()
 
@@ -435,7 +454,8 @@ def test_channel_attenuation_resolves_processes_to_virtual_controllers(tmp_path)
     )
     jammer = topo.add_burst_interference(2402.0)
     assert [process.controller.controller_dev_id for process in topo.processes] == [0, 1]
-    assert [process.controller.application_dev_id for process in topo.processes] == [2, 3]
+    layout = topo.bsim.plan_devices()
+    assert [layout.application_slot(process.controller).dev_id for process in topo.processes] == [2, 3]
 
     topo.set_channel_attenuation(
         default_db=90.0,

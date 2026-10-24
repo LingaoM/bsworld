@@ -56,7 +56,6 @@ class Controller(ABC):
     sim_id: str
     phy_id: str
     socket_dir: Path
-    application_dev_id: int | None = None
     public_address: str | None = None
     hci_snoop_file: Path | None = None
 

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from bsworld.devices import ProcessInstance
+from bsworld.devices import AppSlot, ProcessInstance
 from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
@@ -47,9 +47,7 @@ def load_qemu_guest(
 
     controller = topo.add_controller(public_address=controller_address)
 
-    def command() -> list[str | Path]:
-        if controller.application_dev_id is None:
-            raise RuntimeError("QEMU requires a BabbleSim device id")
+    def command(slot: AppSlot) -> list[str | Path]:
         return [
             qemu,
             "-M", "virt",
@@ -66,13 +64,13 @@ def load_qemu_guest(
             "-kernel", kernel,
             "-append", "console=ttyAMA0,115200",
             "-initrd", rootfs,
-            "-chardev", f"socket,id=hci,path={controller.hci_sock}",
+            "-chardev", f"socket,id=hci,path={slot.hci_sock}",
             "-device", "pci-serial,chardev=hci",
             "-icount",
             (
-                f"bsim-sid={controller.sim_id},"
-                f"bsim-dev={controller.application_dev_id},"
-                f"bsim-phy={controller.phy_id},bsim-mro=1000"
+                f"bsim-sid={slot.sim_id},"
+                f"bsim-dev={slot.dev_id},"
+                f"bsim-phy={slot.phy_id},bsim-mro=1000"
             ),
         ]
 

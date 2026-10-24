@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from bsworld.devices import ProcessInstance
+from bsworld.devices import AppSlot, ProcessInstance
 from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
@@ -57,18 +57,14 @@ def _add_host(topo: BluetoothTopology, role: str) -> ProcessInstance:
         )
     controller = topo.add_controller(log_subdir=_LOG_SUBDIR / role)
 
-    def command() -> list[str | Path]:
-        # Device ids are assigned when the topology is complete, so the command
-        # is resolved lazily at start time rather than at registration.
-        if controller.application_dev_id is None:
-            raise RuntimeError("native TrouBLE requires a BabbleSim device id")
+    def command(slot: AppSlot) -> list[str | Path]:
         return [
             binary,
             role,
-            controller.socket_dir,
-            controller.phy_id,
-            str(controller.application_dev_id),
-            controller.hci_sock,
+            slot.hci_sock.parent,
+            slot.phy_id,
+            str(slot.dev_id),
+            slot.hci_sock,
         ]
 
     return topo.add_process(
