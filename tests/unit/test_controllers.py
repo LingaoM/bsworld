@@ -28,6 +28,9 @@ from bsworld.topology import BluetoothTopology
 
 
 def _python_controller(tmp_path, **options):
+    # The backend assigns hci_snoop_file when it allocates a Controller; a
+    # directly constructed one has to supply it the same way.
+    options.setdefault("hci_snoop_file", tmp_path / "bscontroller" / "hci0.snoop")
     return BSController(0, "sim", "2G4", tmp_path, **options)
 
 

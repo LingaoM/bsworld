@@ -83,6 +83,7 @@ class BabbleSimBackend:
         *,
         controller_type: type[Controller] = ZephyrController,
         public_address: str | None = None,
+        snoop_dir: Path | None = None,
         **options,
     ) -> Controller:
         if self._started:
@@ -96,6 +97,11 @@ class BabbleSimBackend:
             public_address=public_address,
             **options,
         )
+        # Decided once, here: every Controller knows where its capture goes
+        # before it starts, so no implementation needs a fallback path.
+        ctl.hci_snoop_file = (
+            (snoop_dir or self.env.log_dir / "controllers") / f"hci{dev_id}.snoop"
+        ).resolve()
         self.controllers.append(ctl)
         return ctl
 
@@ -108,6 +114,16 @@ class BabbleSimBackend:
         if any(candidate is controller for candidate in self._application_controllers):
             return
         self._application_controllers.append(controller)
+
+    def set_snoop_dir(self, controller: Controller, snoop_dir: Path) -> None:
+        """Relocate a Controller's capture before it starts."""
+        if self._started:
+            raise RuntimeError("cannot move an HCI capture after BabbleSim has started")
+        if not any(candidate is controller for candidate in self.controllers):
+            raise ValueError("Controller does not belong to this BabbleSim backend")
+        controller.hci_snoop_file = (
+            snoop_dir / f"hci{controller.controller_dev_id}.snoop"
+        ).resolve()
 
     def plan_devices(self) -> DeviceLayout:
         """Freeze the device id assignment for the registered topology.
@@ -155,8 +171,7 @@ class BabbleSimBackend:
         if self._started:
             return
         if not self.controllers:
-            self._started = True
-            return
+            raise RuntimeError("a BabbleSim simulation requires at least one Virtual Controller")
         self.check_deps_ready()
         self.prepare()
 
@@ -228,14 +243,10 @@ class BabbleSimBackend:
                 raise result
 
     def device_lock_paths(self) -> list[Path]:
-        if not self.controllers:
-            return []
         return self.plan_devices().lock_paths(self.env.sim_dir(self.sim_id))
 
     def wait_for_devices_registered(self, *, timeout: float = 30.0) -> None:
         locks = self.device_lock_paths()
-        if not locks:
-            return
         log(f"waiting for {len(locks)} BabbleSim device lock(s)")
         if self.clock is not None:
             self.clock.connect(timeout=timeout)
@@ -251,6 +262,7 @@ class BabbleSimBackend:
         log("hci socket(s) bound")
 
     def finish(self, *, log_dir: Path | None = None) -> None:
+        """Release the clock and archive artifacts, including after a failed start."""
         if self.clock is not None:
             try:
                 self.clock.close()
@@ -258,8 +270,6 @@ class BabbleSimBackend:
                 warn(f"simulation clock close failed: {exc}")
             finally:
                 self.clock = None
-        if not self.controllers:
-            return
         try:
             self.convert_ellisys(log_dir=log_dir)
         finally:

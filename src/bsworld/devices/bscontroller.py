@@ -43,9 +43,8 @@ class BSController(Controller):
 
         if self._worker is not None:
             raise RuntimeError("BSController is already started")
-        self.hci_snoop_file = (
-            self.hci_snoop_file or log_dir / "bscontroller" / f"hci{self.controller_dev_id}.snoop"
-        ).resolve()
+        if self.hci_snoop_file is None:
+            raise RuntimeError("hci_snoop_file is assigned when the Controller is allocated")
         options = {"hci_snoop_file": self.hci_snoop_file, "hci_socket": self.hci_sock}
         if self.max_step_us is not None:
             options["max_step_us"] = self.max_step_us

@@ -91,18 +91,15 @@ class BluetoothTopology:
         default once for the whole topology.
         """
         self._ensure_configurable()
-        controller = self.bsim.add_controller(
+        log_path = (
+            Path(log_subdir) if log_subdir is not None else Path("controllers") / f"hci{len(self.bsim.controllers)}"
+        )
+        return self.bsim.add_controller(
             controller_type=controller_type or self.default_controller_type,
             public_address=public_address,
+            snoop_dir=self.test_log_dir / log_path,
             **options,
         )
-        log_path = (
-            Path(log_subdir) if log_subdir is not None else Path("controllers") / f"hci{controller.controller_dev_id}"
-        )
-        controller.hci_snoop_file = (
-            self.test_log_dir / log_path / f"hci{controller.controller_dev_id}.snoop"
-        ).resolve()
-        return controller
 
     def add_process(self, process: ProcessInstance) -> ProcessInstance:
         """Register an Application process that will be started with the topology."""
@@ -112,9 +109,8 @@ class BluetoothTopology:
         if any(existing.controller is process.controller for existing in self.processes):
             raise ValueError("a Virtual Controller can only be attached to one Application process")
         self.bsim.reserve_application_device(process.controller)
-        process.controller.hci_snoop_file = (
-            self.test_log_dir / process.log_subdir / f"hci{process.controller.controller_dev_id}.snoop"
-        ).resolve()
+        # An Application keeps its Controller's capture beside its own logs.
+        self.bsim.set_snoop_dir(process.controller, self.test_log_dir / process.log_subdir)
         self.processes.append(process)
         return process
 
@@ -234,23 +230,22 @@ class BluetoothTopology:
         ca = self.bsim.channel_attenuation
         if ca is None:
             return
-        if not self.bsim.controllers:
-            return
         if ca.matrix_file is not None:
             return
 
+        layout = self.bsim.plan_devices()
         static_paths = [
             StaticAttenuation(
-                tx=self._resolve_path_endpoint(path.tx),
-                rx=self._resolve_path_endpoint(path.rx),
+                tx=layout.resolve_endpoint(path.tx),
+                rx=layout.resolve_endpoint(path.rx),
                 attenuation_db=path.attenuation_db,
             )
             for path in ca.static_paths
         ]
         timed_paths = [
             TimedAttenuation(
-                tx=self._resolve_path_endpoint(path.tx),
-                rx=self._resolve_path_endpoint(path.rx),
+                tx=layout.resolve_endpoint(path.tx),
+                rx=layout.resolve_endpoint(path.rx),
                 times_us=path.times_us,
                 attenuation_db=path.attenuation_db,
             )
@@ -258,31 +253,6 @@ class BluetoothTopology:
         ]
         ca.static_paths[:] = static_paths
         ca.timed_paths[:] = timed_paths
-
-    def _resolve_path_endpoint(self, endpoint) -> int:
-        if isinstance(endpoint, bool):
-            raise TypeError(f"unsupported attenuation endpoint: {endpoint!r}")
-        if isinstance(endpoint, int):
-            if endpoint < 0:
-                raise ValueError("attenuation endpoint device id must be non-negative")
-            return endpoint
-        if isinstance(endpoint, InterferenceRef):
-            if (
-                isinstance(endpoint.index, bool)
-                or not isinstance(endpoint.index, int)
-                or not 0 <= endpoint.index < len(self.bsim.interference_sources)
-            ):
-                raise ValueError(f"unknown interference source ref: {endpoint.index}")
-            if not self.bsim.controllers:
-                raise ValueError("cannot resolve interference source without BabbleSim controllers")
-            return self.bsim.plan_devices().interference_dev_id(endpoint.index)
-        if isinstance(endpoint, ProcessInstance):
-            endpoint = endpoint.controller
-        if not isinstance(endpoint, Controller):
-            raise TypeError(f"unsupported attenuation endpoint: {endpoint!r}")
-        if not any(controller is endpoint for controller in self.bsim.controllers):
-            raise ValueError("attenuation endpoint Controller does not belong to this topology")
-        return endpoint.controller_dev_id
 
     async def stop(self) -> None:
         if self._event_loop is not None:

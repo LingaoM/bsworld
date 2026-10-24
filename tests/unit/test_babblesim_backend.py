@@ -14,6 +14,7 @@
 #
 from __future__ import annotations
 
+import asyncio
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import SimpleNamespace
@@ -160,9 +161,21 @@ def test_check_deps_ready_only_validates_built_artifacts(tmp_path, monkeypatch) 
     assert calls == ["bsim:True"]
 
 
-async def test_add_controller_rejects_started_backend(tmp_path) -> None:
+async def test_start_rejects_a_simulation_without_controllers(tmp_path) -> None:
     backend = BabbleSimBackend(_env(tmp_path), "sim")
-    await backend.start(_SpawnRecorder())
+
+    with pytest.raises(RuntimeError, match="at least one Virtual Controller"):
+        await backend.start(_SpawnRecorder())
+
+
+async def test_add_controller_rejects_started_backend(tmp_path, monkeypatch) -> None:
+    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend.check_deps_ready = lambda: None
+    backend.prepare = lambda: None
+    backend.add_controller()
+    _patch_controller_bin(monkeypatch, tmp_path)
+    monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
+    await backend.start(_SpawnRecorder(), log_dir=tmp_path / "log")
 
     with pytest.raises(RuntimeError, match="after BabbleSim has started"):
         backend.add_controller()
@@ -201,10 +214,11 @@ async def test_start_spawns_phy_virtual_controllers_and_interference(tmp_path, m
     assert backend.clock.phy_alive()
     assert "-d=0" in recorder.calls[1][1]
     assert f"-hci-socket={tmp_path / 'state' / 'sim' / 'hci0.sock'}" in recorder.calls[1][1]
-    assert f"-btsnoop-file={tmp_path / 'log' / 'bt_virt_controller' / 'hci0.snoop'}" in recorder.calls[1][1]
+    # Allocated by the backend, so the capture path is known before start.
+    assert f"-btsnoop-file={env.log_dir / 'controllers' / 'hci0.snoop'}" in recorder.calls[1][1]
     assert "-d=1" in recorder.calls[2][1]
     assert f"-hci-socket={tmp_path / 'state' / 'sim' / 'hci1.sock'}" in recorder.calls[2][1]
-    assert f"-btsnoop-file={tmp_path / 'log' / 'bt_virt_controller' / 'hci1.snoop'}" in recorder.calls[2][1]
+    assert f"-btsnoop-file={env.log_dir / 'controllers' / 'hci1.snoop'}" in recorder.calls[2][1]
     assert "-d=5" in recorder.calls[3][1]
     log_dirs = {name: kwargs["log_dir"] for name, _, kwargs in recorder.calls}
     assert log_dirs["bs_2G4_phy_v1"] == tmp_path / "log" / "babblesim"
@@ -357,6 +371,38 @@ def test_device_ids_support_native_and_in_process_hosts_together(tmp_path) -> No
         tmp_path / "state" / "sim" / "2G4.d3.lock",
         tmp_path / "state" / "sim" / "2G4.d4.lock",
     ]
+
+
+def test_allocating_a_controller_assigns_its_capture_path(tmp_path) -> None:
+    env = _env(tmp_path)
+    backend = BabbleSimBackend(env, "sim")
+
+    default = backend.add_controller()
+    located = backend.add_controller(snoop_dir=tmp_path / "python" / "bumble")
+
+    assert default.hci_snoop_file == env.log_dir / "controllers" / "hci0.snoop"
+    assert located.hci_snoop_file == tmp_path / "python" / "bumble" / "hci1.snoop"
+
+
+def test_a_capture_can_be_relocated_until_the_simulation_starts(tmp_path, monkeypatch) -> None:
+    backend = BabbleSimBackend(_env(tmp_path), "sim")
+    backend.check_deps_ready = lambda: None
+    backend.prepare = lambda: None
+    controller = backend.add_controller()
+
+    backend.set_snoop_dir(controller, tmp_path / "devices" / "dev0")
+    assert controller.hci_snoop_file == tmp_path / "devices" / "dev0" / "hci0.snoop"
+
+    foreign = BabbleSimBackend(_env(tmp_path), "sim1").add_controller()
+    with pytest.raises(ValueError, match="does not belong to this BabbleSim backend"):
+        backend.set_snoop_dir(foreign, tmp_path / "elsewhere")
+
+    _patch_controller_bin(monkeypatch, tmp_path)
+    monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
+
+    asyncio.run(backend.start(_SpawnRecorder(), log_dir=tmp_path / "log"))
+    with pytest.raises(RuntimeError, match="after BabbleSim has started"):
+        backend.set_snoop_dir(controller, tmp_path / "too-late")
 
 
 def test_device_layout_is_frozen_once_planned(tmp_path) -> None:

@@ -197,16 +197,13 @@ def test_add_wlan_interference_exposes_full_wlan_parameters(tmp_path) -> None:
     assert source.rand_seed == 7
 
 
-async def test_start_keeps_wall_time_without_bsim_clock(tmp_path) -> None:
+async def test_start_requires_at_least_one_virtual_controller(tmp_path) -> None:
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
 
-    await topo.start()
-    try:
-        loop = asyncio.get_running_loop()
-        assert isinstance(loop, BsimEventLoop)
-        assert loop.radio_selector.clock is None
-    finally:
-        await topo.stop()
+    with pytest.raises(RuntimeError, match="at least one Virtual Controller"):
+        await topo.start()
+    # Teardown still has to release whatever the failed start opened.
+    await topo.stop()
 
 
 async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkeypatch) -> None:
@@ -523,17 +520,19 @@ def test_channel_attenuation_rejects_foreign_controller(tmp_path) -> None:
 @pytest.mark.parametrize("index", [-1, 0])
 def test_channel_attenuation_rejects_unknown_interference_ref(tmp_path, index: int) -> None:
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo.add_controller()
 
     with pytest.raises(ValueError, match="unknown interference source ref"):
-        topo._resolve_path_endpoint(InterferenceRef(index))
+        topo.bsim.plan_devices().resolve_endpoint(InterferenceRef(index))
 
 
 @pytest.mark.parametrize("endpoint", [-1, True, object()])
 def test_channel_attenuation_rejects_invalid_raw_endpoint(tmp_path, endpoint: object) -> None:
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
+    topo.add_controller()
 
     with pytest.raises((TypeError, ValueError), match="attenuation endpoint"):
-        topo._resolve_path_endpoint(endpoint)
+        topo.bsim.plan_devices().resolve_endpoint(endpoint)
 
 
 @pytest.mark.parametrize("cleanup_fails", [False, True])
