@@ -19,12 +19,13 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from functools import partial
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 
-from bsworld.runtime.scheduler import BsimEventLoop
+from bsworld.runtime.scheduler import PYTEST_MAX_STEP_US, BsimEventLoop
 
 from .env import Env, _now_tag, _run_uid
 from .topology import BluetoothTopology
@@ -33,7 +34,7 @@ from .topology import BluetoothTopology
 def pytest_asyncio_loop_factories(config, item):  # noqa: ANN001, ARG001
     """Run every async test on a loop that can switch to BabbleSim time."""
 
-    return {"bsim": BsimEventLoop}
+    return {"bsim": partial(BsimEventLoop, PYTEST_MAX_STEP_US)}
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

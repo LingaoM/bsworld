@@ -18,7 +18,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from bsworld.runtime.scheduler import BsimEventLoop
+from bsworld.runtime.scheduler import PYTEST_MAX_STEP_US, BsimEventLoop
 
 T = TypeVar("T")
 
@@ -49,7 +49,7 @@ def run_on_clock(
     awaitable: Awaitable[T],
     *,
     clock: ManualClock,
-    max_step_us: int = 10_000,
+    max_step_us: int = PYTEST_MAX_STEP_US,
 ) -> T:
     async def run_bound() -> T:
         try:
@@ -57,10 +57,10 @@ def run_on_clock(
         finally:
             loop = asyncio.get_running_loop()
             assert isinstance(loop, BsimEventLoop)
-            loop.unbind_clock(clock)
+            loop.unbind_clock()
 
     def loop_factory() -> BsimEventLoop:
-        loop = BsimEventLoop(max_step_us=max_step_us)
+        loop = BsimEventLoop(max_step_us)
         loop.bind_clock(clock)
         asyncio.set_event_loop(loop)
         return loop

@@ -179,7 +179,7 @@ async def test_start_keeps_wall_time_without_bsim_clock(tmp_path) -> None:
     try:
         loop = asyncio.get_running_loop()
         assert isinstance(loop, BsimEventLoop)
-        assert loop.discrete_clock is None
+        assert loop.radio_selector.clock is None
     finally:
         await topo.stop()
 
@@ -196,7 +196,7 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkey
         synchronized = False
 
         def synchronize(self) -> None:
-            assert asyncio.get_running_loop().discrete_clock is None
+            assert asyncio.get_running_loop().radio_selector.clock is None
             self.synchronized = True
 
         def advance_to_us(self, target_us: int) -> int:
@@ -225,11 +225,11 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkey
     await topo.start()
     try:
         assert seen_snoop_paths == [tmp_path / "log" / "hci0.snoop"]
-        assert loop.discrete_clock is topo.bsim.clock
+        assert loop.radio_selector.clock is topo.bsim.clock
         assert topo.bsim.clock.synchronized
     finally:
         await topo.stop()
-    assert loop.discrete_clock is None
+    assert loop.radio_selector.clock is None
 
 
 @pytest.mark.parametrize("application", [False, True])

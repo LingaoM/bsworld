@@ -12,14 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run BSWorld asyncio code against wall-clock or BabbleSim time."""
+"""Run BSWorld asyncio code against wall-clock or BabbleSim time.
+
+The discrete clock protocol and the selector that advances it live in
+bscontroller, which BSWorld bundles. Only the idle step size differs here: the
+pytest loop trades idle I/O latency for fewer PHY round trips, while each
+Controller worker keeps bscontroller's finer default.
+"""
+
+from bscontroller.runtime.event_loop import RadioEventLoop as BsimEventLoop
 
 from .babblesim import BsimClock
-from .clock import DiscreteClock
-from .loop import BsimEventLoop
+
+# Longest simulated interval the idle pytest loop may skip in one PHY request.
+PYTEST_MAX_STEP_US = 10_000
 
 __all__ = [
+    "PYTEST_MAX_STEP_US",
     "BsimClock",
     "BsimEventLoop",
-    "DiscreteClock",
 ]
