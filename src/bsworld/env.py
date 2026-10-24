@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from bscontroller.radio.babblesim import simulation_root
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -81,9 +83,6 @@ class Env:
 
         bsim_dir = env_path("BSIM_OUT_PATH")
 
-        import pwd
-        user = pwd.getpwuid(os.getuid()).pw_name
-
         return cls(
             out_tag=resolved_tag,
             run_uid=uid,
@@ -93,7 +92,8 @@ class Env:
             hci_virt_bin=env_path("BSWORLD_BT_VIRT_CONTROLLER_BIN"),
             bsim_dir=bsim_dir,
             bsim_bin_dir=bsim_dir / "bin" if bsim_dir else None,
-            bs_state_dir=Path("/tmp") / f"bs_{user}",
+            # Native layout shared with the Controllers; bscontroller owns it.
+            bs_state_dir=simulation_root(),
         )
 
     def sim_dir(self, sim_id: str) -> Path:
