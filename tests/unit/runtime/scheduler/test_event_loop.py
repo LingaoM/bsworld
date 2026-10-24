@@ -19,7 +19,7 @@ import socket
 import time
 
 import pytest
-from tests.unit.scheduler_support import ManualClock, run_on_clock
+from tests.unit.runtime.scheduler.support import ManualClock, run_on_clock
 
 from bsworld.runtime.scheduler import BsimEventLoop
 
