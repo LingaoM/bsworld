@@ -13,20 +13,23 @@
 # limitations under the License.
 #
 [build-system]
-requires = ["setuptools>=68", "setuptools-scm>=8"]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "bsworld"
 dynamic = ["version"]
 description = "Deterministic simulation test framework for Bluetooth LE Applications"
-license = { text = "Apache-2.0" }
+# The bundled BSController contributes the ISC-licensed terminal color utility.
+license = "Apache-2.0 AND ISC"
+license-files = ["LICENSE", "components/bscontroller/LICENSE", "components/bscontroller/NOTICE"]
 requires-python = ">=3.12"
 dependencies = [
     "pytest>=8.4",
     "pytest-xdist>=3.0",
     "pytest-asyncio>=1.4",
     "bumble==0.0.235",
+    "cryptography>=44.0.3",
     "packaging>=24",
     "pytest-cov>=4.0",
     "ruff>=0.8.0",
@@ -37,8 +40,16 @@ dependencies = [
 [project.entry-points.pytest11]
 bsworld = "bsworld.plugin"
 
+[project.scripts]
+bscontroller = "bscontroller.cli:main"
+
+# BSController is bundled so `pip install bsworld` provides the Python Controller.
+# components/bscontroller/ keeps its own pyproject.toml for standalone distribution.
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "components/bscontroller/src"]
+
+[tool.setuptools.package-data]
+bscontroller = ["py.typed"]
 
 [tool.setuptools_scm]
 fallback_version = "0+unknown"

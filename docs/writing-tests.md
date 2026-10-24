@@ -31,8 +31,6 @@ Every test receives its own simulation ID, Unix socket directory, and log direct
 
 Each Host can use either `ZephyrController` (the default native process) or `BSController` (a Python Controller running in its own worker thread). Both expose the same H:4 Unix socket. Controller choice is independent of whether the Host runs in Python or an external process.
 
-Install the Python implementation locally with `python -m pip install -e components/bscontroller`; the Docker test image includes it.
-
 ```python
 from bsworld.devices import BSController
 
