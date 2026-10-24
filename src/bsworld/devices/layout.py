@@ -19,10 +19,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from .controller import Controller
+from .controller import Controller
 
 
 @dataclass(frozen=True)
@@ -56,11 +54,15 @@ class DeviceLayout:
     """
 
     phy_id: str
-    controller_count: int
+    controller_ids: Mapping[int, int]
     application_slots: Mapping[int, AppSlot]
     clock_dev_id: int
     interference_base: int
     interference_count: int
+
+    @property
+    def controller_count(self) -> int:
+        return len(self.controller_ids)
 
     @property
     def device_count(self) -> int:
@@ -68,7 +70,7 @@ class DeviceLayout:
         return self.interference_base + self.interference_count
 
     def application_slot(self, controller: Controller) -> AppSlot:
-        slot = self.application_slots.get(controller.controller_dev_id)
+        slot = self.application_slots.get(id(controller))
         if slot is None:
             raise KeyError(f"{controller!r} has no Application device reserved")
         return slot
@@ -77,6 +79,48 @@ class DeviceLayout:
         if not 0 <= index < self.interference_count:
             raise ValueError(f"unknown interference source index: {index}")
         return self.interference_base + index
+
+    def controller_dev_id(self, controller: Controller) -> int:
+        """Resolve a Controller registered with this simulation, by identity.
+
+        Identity rather than its own dev_id, so a Controller belonging to
+        another topology is rejected instead of aliasing onto the same index.
+        """
+        dev_id = self.controller_ids.get(id(controller))
+        if dev_id is None:
+            raise ValueError(f"{controller!r} does not belong to this topology")
+        return dev_id
+
+    def resolve_endpoint(self, endpoint) -> int:
+        """Map an RF path endpoint declared by a test onto its PHY dev_id.
+
+        Accepts a raw dev_id, an InterferenceRef, or a Controller — directly or
+        through the Application process attached to it. Every id a test can name
+        is assigned here, so the mapping lives with the assignment.
+        """
+        # Imported here because bsworld.interference depends on this package.
+        from ..interference import InterferenceRef
+
+        # bool is an int subclass, so reject it before the numeric case.
+        if isinstance(endpoint, bool):
+            raise TypeError(f"unsupported attenuation endpoint: {endpoint!r}")
+        if isinstance(endpoint, int):
+            if endpoint < 0:
+                raise ValueError("attenuation endpoint device id must be non-negative")
+            return endpoint
+        if isinstance(endpoint, InterferenceRef):
+            index = endpoint.index
+            if (
+                isinstance(index, bool)
+                or not isinstance(index, int)
+                or not 0 <= index < self.interference_count
+            ):
+                raise ValueError(f"unknown interference source ref: {index}")
+            return self.interference_base + index
+        controller = getattr(endpoint, "controller", endpoint)
+        if not isinstance(controller, Controller):
+            raise TypeError(f"unsupported attenuation endpoint: {endpoint!r}")
+        return self.controller_dev_id(controller)
 
     def lock_paths(self, sim_dir: Path) -> list[Path]:
         """PHY registration lock files, one per participant."""
@@ -92,12 +136,14 @@ def build_device_layout(
 ) -> DeviceLayout:
     """Assign every PHY device id for a complete topology in one pass."""
     reserved = {id(controller) for controller in application_controllers}
+    controller_ids: dict[int, int] = {}
     slots: dict[int, AppSlot] = {}
     next_dev_id = len(controllers)
-    for controller in controllers:
+    for dev_id, controller in enumerate(controllers):
+        controller_ids[id(controller)] = dev_id
         if id(controller) not in reserved:
             continue
-        slots[controller.controller_dev_id] = AppSlot(
+        slots[id(controller)] = AppSlot(
             sim_id=controller.sim_id,
             phy_id=phy_id,
             dev_id=next_dev_id,
@@ -106,7 +152,7 @@ def build_device_layout(
         next_dev_id += 1
     return DeviceLayout(
         phy_id=phy_id,
-        controller_count=len(controllers),
+        controller_ids=MappingProxyType(controller_ids),
         application_slots=MappingProxyType(slots),
         clock_dev_id=next_dev_id,
         interference_base=next_dev_id + 1,

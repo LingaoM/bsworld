@@ -34,11 +34,10 @@ class ZephyrController(Controller):
     async def start(self, pm: ProcessManager, env: Env, *, log_dir: Path) -> None:
         if self._process is not None:
             raise RuntimeError("Zephyr Controller is already started")
+        if self.hci_snoop_file is None:
+            raise RuntimeError("hci_snoop_file is assigned when the Controller is allocated")
         binary = hci_virt.controller_bin(env)
         controller_log_dir = log_dir / "bt_virt_controller"
-        self.hci_snoop_file = (
-            self.hci_snoop_file or controller_log_dir / f"hci{self.controller_dev_id}.snoop"
-        ).resolve()
         self.hci_snoop_file.parent.mkdir(parents=True, exist_ok=True)
         argv = [
             binary,
