@@ -156,7 +156,8 @@ build-base
 ├── babblesim
 │   ├── zephyr
 │   ├── nuttx
-│   └── qemu
+│   ├── qemu
+│   └── trouble
 └── buildroot（guest 内核和 rootfs）
 ```
 
