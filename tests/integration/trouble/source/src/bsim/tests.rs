@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use std::cell::RefCell;
 use std::future::poll_fn;
 use std::io::{self, Read, Write};
@@ -10,7 +12,7 @@ use bt_hci::controller::{Controller, ControllerCmdSync, ExternalController};
 use embassy_futures::join::join;
 use embassy_time::{Instant, Timer};
 
-use crate::{Clock, Executor};
+use super::{Clock, Executor};
 
 // Embassy intentionally has one time driver per process, including test binaries.
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -136,22 +138,22 @@ fn self_waking_future_cannot_starve_other_devices_or_timers() {
 }
 
 #[test]
-fn sequential_executors_keep_embassy_time_monotonic() {
+fn each_executor_owns_the_driver_and_starts_at_zero() {
     let _guard = SERIAL.lock().unwrap();
-    let first = {
+    {
         let mut executor = Executor::new(TestClock::default()).unwrap();
         assert!(Executor::new(TestClock::default()).is_err());
-        assert!(executor.set_max_step_us(0).is_err());
-        executor
+        let elapsed = executor
             .block_on(async {
                 Timer::after_micros(23).await;
-                Instant::now()
+                Instant::now().as_micros()
             })
-            .unwrap()
-    };
+            .unwrap();
+        assert_eq!(elapsed, 23);
+    }
     let mut executor = Executor::new(TestClock::default()).unwrap();
-    let second = executor.block_on(async { Instant::now() }).unwrap();
-    assert_eq!(first, second);
+    let restarted = executor.block_on(async { Instant::now().as_micros() }).unwrap();
+    assert_eq!(restarted, 0);
 }
 
 #[test]

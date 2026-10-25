@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+//! The process-wide Embassy time driver, advanced only by the executor.
+//!
+//! Embassy time equals simulation time. The executor validates that every
+//! grant is monotonic before it is stored here.
+
 use std::io;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -9,13 +16,11 @@ use embassy_time_queue_utils::Queue;
 struct DiscreteTime {
     now: AtomicU64,
     queue: Mutex<Queue>,
-    active: AtomicBool,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: DiscreteTime = DiscreteTime {
     now: AtomicU64::new(0),
     queue: Mutex::new(Queue::new()),
-    active: AtomicBool::new(false),
 });
 
 impl Driver for DiscreteTime {
@@ -30,46 +35,34 @@ impl Driver for DiscreteTime {
     }
 }
 
-/// Owns the single process-wide clock without resetting Embassy's timebase.
-pub(crate) struct ClockLease {
-    origin: u64,
-}
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Exclusive use of the driver by one executor, starting at time zero.
+pub(crate) struct ClockLease(());
 
 impl ClockLease {
     pub fn acquire() -> io::Result<Self> {
-        DRIVER
-            .active
+        ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| io::Error::other("only one discrete executor may be active per process"))?;
-        Ok(Self { origin: DRIVER.now() })
+        *DRIVER.queue.lock().unwrap() = Queue::new();
+        DRIVER.now.store(0, Ordering::Release);
+        Ok(Self(()))
     }
 
-    pub fn advance_to(&self, elapsed_us: u64) -> io::Result<()> {
-        let now = self
-            .origin
-            .checked_add(elapsed_us)
-            .filter(|now| *now < u64::MAX)
-            .ok_or_else(|| io::Error::other("simulation time overflow"))?;
-        if now < DRIVER.now() {
-            return Err(io::Error::other("simulation clock moved backwards"));
-        }
-        DRIVER.now.store(now, Ordering::Release);
-        Ok(())
+    /// Publish a granted simulation time to Embassy.
+    pub fn advance_to(&self, now_us: u64) {
+        DRIVER.now.store(now_us, Ordering::Release);
     }
 
+    /// Wake expired timers and return the earliest remaining deadline.
     pub fn next_deadline(&self) -> u64 {
-        DRIVER
-            .queue
-            .lock()
-            .unwrap()
-            .next_expiration(DRIVER.now())
-            .saturating_sub(self.origin)
+        DRIVER.queue.lock().unwrap().next_expiration(DRIVER.now())
     }
 }
 
 impl Drop for ClockLease {
     fn drop(&mut self) {
-        *DRIVER.queue.lock().unwrap() = Queue::new();
-        DRIVER.active.store(false, Ordering::Release);
+        ACTIVE.store(false, Ordering::Release);
     }
 }

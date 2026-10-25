@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-This test runs two [TrouBLE](https://github.com/embassy-rs/trouble) Rust Hosts as native Linux processes. Each Host joins BabbleSim directly and reaches its Virtual Controller over an H:4 Unix socket, with its timers running on simulation time. The Host stack and the Battery Service applications come from a pinned upstream commit; [`source/bsim/`](source/bsim) supplies the Unix transport, executor, and BabbleSim clock.
+This test runs two [TrouBLE](https://github.com/embassy-rs/trouble) Rust Hosts as native Linux processes. Each Host joins BabbleSim directly and reaches its Virtual Controller over an H:4 Unix socket, with its timers running on simulation time. The Host stack and the Battery Service applications come from a pinned upstream commit; [`source/src/bsim/`](source/src/bsim) supplies the Unix transport, executor, and BabbleSim clock.
 
 ## Validated Scenario
 
@@ -31,11 +31,11 @@ Set `BSWORLD_TROUBLE_NATIVE_BIN` to the `ble_bas` binary when using `CARGO_TARGE
 The transport, executor, and clock have unit tests that need no simulator:
 
 ```sh
-cargo test --manifest-path tests/integration/trouble/source/bsim/Cargo.toml
+cargo test --locked --manifest-path tests/integration/trouble/source/Cargo.toml
 ```
 
 Application logs are stored as `trouble/central/central.log` and `trouble/peripheral/peripheral.log`. HCI BTSnoop captures and BabbleSim RF traces are archived with the other per-test files described in [Logs, Traces, and Packet Captures](../../../docs/artifacts.md).
 
 ## License
 
-The tests and the adapter in this directory are licensed under Apache License 2.0. TrouBLE is available under MIT or Apache License 2.0, and `source/bsim/` retains the MIT OR Apache-2.0 license of its original form. Review [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md) before distributing binaries.
+The tests and the adapter in this directory are licensed under Apache License 2.0. TrouBLE is available under MIT or Apache License 2.0, and `source/src/bsim/` retains the MIT OR Apache-2.0 license of its original form. Review [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md) before distributing binaries.

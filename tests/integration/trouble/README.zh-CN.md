@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-本测试将两个 [TrouBLE](https://github.com/embassy-rs/trouble) Rust Host 作为原生 Linux 进程运行。每个 Host 直接加入 BabbleSim，通过 H:4 Unix socket 连接到各自的 Virtual Controller，定时器运行在仿真时间上。Host 协议栈与 Battery Service 应用来自固定的上游提交；[`source/bsim/`](source/bsim) 提供 Unix 传输、执行器与 BabbleSim 时钟。
+本测试将两个 [TrouBLE](https://github.com/embassy-rs/trouble) Rust Host 作为原生 Linux 进程运行。每个 Host 直接加入 BabbleSim，通过 H:4 Unix socket 连接到各自的 Virtual Controller，定时器运行在仿真时间上。Host 协议栈与 Battery Service 应用来自固定的上游提交；[`source/src/bsim/`](source/src/bsim) 提供 Unix 传输、执行器与 BabbleSim 时钟。
 
 ## 已验证场景
 
@@ -31,11 +31,11 @@ pytest tests/integration/trouble -q
 传输、执行器与时钟带有单元测试，无需仿真器：
 
 ```sh
-cargo test --manifest-path tests/integration/trouble/source/bsim/Cargo.toml
+cargo test --locked --manifest-path tests/integration/trouble/source/Cargo.toml
 ```
 
 应用日志保存为 `trouble/central/central.log` 和 `trouble/peripheral/peripheral.log`。HCI BTSnoop 抓包与 BabbleSim 射频 trace 与其他按用例归档的文件一起保存，详见[日志、Trace 与抓包](../../../docs/zh-CH/artifacts.md)。
 
 ## 许可
 
-本目录下的测试与适配层以 Apache License 2.0 授权。TrouBLE 以 MIT 或 Apache License 2.0 提供，`source/bsim/` 保留其原始形态的 MIT OR Apache-2.0 许可。分发二进制前请查阅[第三方声明](../../../THIRD_PARTY_NOTICES.md)。
+本目录下的测试与适配层以 Apache License 2.0 授权。TrouBLE 以 MIT 或 Apache License 2.0 提供，`source/src/bsim/` 保留其原始形态的 MIT OR Apache-2.0 许可。分发二进制前请查阅[第三方声明](../../../THIRD_PARTY_NOTICES.md)。

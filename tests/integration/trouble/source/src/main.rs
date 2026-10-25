@@ -6,12 +6,14 @@
 //! The Host stack and the Battery Service applications come from the pinned
 //! upstream commit; only the transport and executor are maintained by BSWorld.
 
+mod bsim;
+
 use std::io;
 use std::path::Path;
 
+use bsim::Executor;
+use bsim::babblesim::BabbleSim;
 use bt_hci::controller::ExternalController;
-use trouble_bsim::Executor;
-use trouble_bsim::babblesim::BabbleSim;
 use trouble_example_apps::{ble_bas_central, ble_bas_peripheral};
 
 /// HCI command/event queue depth for the external Controller.
