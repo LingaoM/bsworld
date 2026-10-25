@@ -17,7 +17,7 @@
 Both Hosts are plain Linux processes that join the simulation directly, so no
 QEMU guest is involved. The Host stack and the Battery Service applications
 come from the pinned upstream commit; the transport and executor live in
-`source/bsim/`.
+`source/src/bsim/`.
 """
 
 from __future__ import annotations

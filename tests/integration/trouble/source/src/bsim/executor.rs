@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use std::future::Future;
 use std::io;
 use std::path::Path;
@@ -6,8 +8,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Wake, Waker};
 
-use crate::time::ClockLease;
-use crate::unix::{Reactor, UnixTransport};
+use super::time::ClockLease;
+use super::unix::{Reactor, UnixTransport};
 
 /// A simulation participant that relinquishes execution until an absolute time.
 pub trait Clock {
@@ -40,12 +42,14 @@ pub struct Executor<C> {
     pub(crate) clock: C,
     time: ClockLease,
     io: Reactor,
-    max_step_us: u64,
 }
+
+/// Longest idle wait between HCI socket polls, in simulation microseconds.
+const MAX_STEP_US: u64 = 1_000;
 
 impl<C: Clock> Executor<C> {
     /// Bind an exclusive Embassy time driver to a clock starting at zero.
-    /// HCI input is checked at least every 1,000 simulated microseconds.
+    /// HCI input is checked at least every `MAX_STEP_US` simulated microseconds.
     pub fn new(clock: C) -> io::Result<Self> {
         if clock.now_us() != 0 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "clock must start at zero"));
@@ -54,17 +58,7 @@ impl<C: Clock> Executor<C> {
             clock,
             time: ClockLease::acquire()?,
             io: Reactor::default(),
-            max_step_us: 1_000,
         })
-    }
-
-    /// Set the maximum interval between HCI socket polls, in simulation time.
-    pub fn set_max_step_us(&mut self, step: u64) -> io::Result<()> {
-        if step == 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "step must be positive"));
-        }
-        self.max_step_us = step;
-        Ok(())
     }
 
     /// Connect an H4 socket for use with `bt_hci::controller::ExternalController`.
@@ -84,7 +78,7 @@ impl<C: Clock> Executor<C> {
 
         self.wait_until(self.clock.now_us())?;
         loop {
-            self.time.advance_to(self.clock.now_us())?;
+            self.time.advance_to(self.clock.now_us());
             self.io.poll()?;
             let deadline = self.time.next_deadline();
             if ready.0.swap(false, Ordering::AcqRel) {
@@ -100,7 +94,7 @@ impl<C: Clock> Executor<C> {
                 continue;
             }
 
-            let target = self.clock.now_us().saturating_add(self.max_step_us).min(deadline);
+            let target = self.clock.now_us().saturating_add(MAX_STEP_US).min(deadline);
             if target <= self.clock.now_us() || target == u64::MAX {
                 return Err(io::Error::other("simulation clock cannot advance"));
             }

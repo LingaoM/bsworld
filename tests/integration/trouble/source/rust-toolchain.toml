@@ -1,12 +1,4 @@
-# Before upgrading check that everything is available on all tier1 targets here:
-# https://rust-lang.github.io/rustup-components-history
+# The adapter only builds for the Linux host; no embedded targets are needed.
 [toolchain]
 channel = "1.97"
-components = [ "rust-src", "rustfmt", "llvm-tools-preview", "clippy"]
-targets = [
-    "thumbv8m.main-none-eabihf",
-    "thumbv7em-none-eabi",
-    "thumbv7em-none-eabihf",
-    "thumbv6m-none-eabi",
-    "riscv32imc-unknown-none-elf",
-]
+components = ["rustfmt", "clippy"]
