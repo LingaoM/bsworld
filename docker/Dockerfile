@@ -325,8 +325,9 @@ RUN --mount=type=cache,id=bsworld-buildroot-downloads-${BUILD_UID}-${BUILD_GID},
     && test -x "$BUILDROOT_DIR/output-bsworld-linux/target/usr/bin/nimble-linux"
 
 # TrouBLE: build the native adapter against its pinned upstream Host commit.
-# The adapter binary joins BabbleSim directly, so no Linux guest is involved.
-FROM build-base AS trouble
+# The adapter joins the BabbleSim runtime directly and is kept alongside the
+# Zephyr, NuttX, and QEMU branches rooted in the common BabbleSim stage.
+FROM babblesim AS trouble
 USER root
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     curl ca-certificates gcc libc6-dev \
