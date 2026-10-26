@@ -1,7 +1,9 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Ownership contracts between HCI, LL procedures, event execution and radio scheduling."""
+"""Ownership contracts between HCI, LL procedures, event execution and radio
+scheduling.
+"""
 
 import subprocess
 import sys
@@ -25,12 +27,17 @@ from tests.unit.helpers import PARAMETERS, FakeRadio
 
 @pytest.mark.parametrize('module', ['service', 'connection_event', 'resource', 'link'])
 def test_ll_modules_do_not_load_hci_or_runtime(module):
-    # Run in a fresh interpreter: the fixture's Host codec must not conceal a dependency.
+    # Run in a fresh interpreter: the fixture's Host codec must not conceal a
+    # dependency.
     subprocess.run(
         [
             sys.executable,
             '-c',
-            f"import sys, importlib; importlib.import_module('bscontroller.linklayer.{module}'); assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules for prefix in ('bscontroller.hci', 'bscontroller.runtime'))",
+            "import sys, importlib; "
+            f"importlib.import_module('bscontroller.linklayer.{module}'); "
+            "assert not any(name == prefix or name.startswith(prefix + '.') "
+            "for name in sys.modules "
+            "for prefix in ('bscontroller.hci', 'bscontroller.runtime'))",
         ],
         check=True,
     )
@@ -41,7 +48,9 @@ def test_ll_creates_connection_with_defaults_before_notifying_upper_layer():
     listener = SimpleNamespace(
         allocate_connection_handle=lambda: 1,
         trace=lambda message: None,
-        on_connected=lambda connection: observed.append((connection.controls.tx_phys, connection.controls.rx_phys)),
+        on_connected=lambda connection: observed.append(
+            (connection.controls.tx_phys, connection.controls.rx_phys)
+        ),
     )
     link = RadioLink(FakeRadio(), listener)
     service = LinkLayerService(link, Address.ANY, 30_000, 20_000)
@@ -65,7 +74,9 @@ def test_ll_filter_admission_does_not_depend_on_hci_validation(controller):
     service = controller.le_procedures.ll
     service.configure_scanning(Address.ANY, 30_000, 20_000, False, 1)
     service.enable_scanning(True)
-    assert service.edit_filter(Address.ANY, True, 8) == ErrorCode.COMMAND_DISALLOWED_ERROR
+    assert (
+        service.edit_filter(Address.ANY, True, 8) == ErrorCode.COMMAND_DISALLOWED_ERROR
+    )
     assert not service.link.accept_list
 
 
@@ -120,19 +131,27 @@ def test_cached_procedure_completion_follows_command_status(connection, operatio
 
 
 @pytest.mark.asyncio
-async def test_completed_control_exchange_cannot_authorize_a_later_unknown_response(connection):
+async def test_completed_control_exchange_cannot_authorize_a_later_unknown_response(
+    connection,
+):
     connection.established = True
     connection.report_created()
     connection.controls.request_phy(1, 1)
     await connection.send(0, 100)
     response = bytes([Opcode.LL_PHY_UPDATE_IND, 0, 0, 0, 0])
-    connection.accept(bytes([LlId.CONTROL | PDU_DATA_NESN_MASK, len(response)]) + response, True)
+    connection.accept(
+        bytes([LlId.CONTROL | PDU_DATA_NESN_MASK, len(response)]) + response, True
+    )
     assert not connection.controls.phy_request
     assert not connection.llcp.local_exchanges
-    connection.control(bytes([Opcode.LL_ENC_REQ]) + ENC_REQUEST.pack(bytes(8), 0, bytes(8), bytes(4)))
+    connection.control(
+        bytes([Opcode.LL_ENC_REQ]) + ENC_REQUEST.pack(bytes(8), 0, bytes(8), bytes(4))
+    )
     await connection.send(0, connection.radio.now_us + 100)
     unknown = bytes([Opcode.LL_UNKNOWN_RSP, Opcode.LL_PHY_REQ])
-    connection.accept(bytes([LlId.CONTROL | PDU_DATA_SN_MASK, len(unknown)]) + unknown, True)
+    connection.accept(
+        bytes([LlId.CONTROL | PDU_DATA_SN_MASK, len(unknown)]) + unknown, True
+    )
     assert connection.closed
     assert (
         connection.link.listener.controller.events[-1].reason
@@ -146,8 +165,12 @@ async def test_legacy_rejection_releases_its_tracked_exchange(connection):
     connection.controls.request_parameters(24, 24, 0, 100)
     await connection.send(0, 100)
     assert Opcode.LL_CONNECTION_PARAM_REQ in connection.llcp.local_exchanges
-    rejection = bytes([Opcode.LL_REJECT_IND, ErrorCode.DIFFERENT_TRANSACTION_COLLISION_ERROR])
-    connection.accept(bytes([LlId.CONTROL | PDU_DATA_NESN_MASK, len(rejection)]) + rejection, True)
+    rejection = bytes(
+        [Opcode.LL_REJECT_IND, ErrorCode.DIFFERENT_TRANSACTION_COLLISION_ERROR]
+    )
+    connection.accept(
+        bytes([LlId.CONTROL | PDU_DATA_NESN_MASK, len(rejection)]) + rejection, True
+    )
     assert not connection.llcp.local_exchanges
     assert not connection.controls.parameter_request
 
@@ -157,7 +180,9 @@ def test_ll_does_not_replace_an_existing_sync_acquisition(controller):
     first = PeriodicSync(Address.ANY, 1, 100_000, 0)
     replacement = PeriodicSync(Address.ANY, 2, 100_000, 0)
     assert service.start_synchronizing(first) == ErrorCode.SUCCESS
-    assert service.start_synchronizing(replacement) == ErrorCode.COMMAND_DISALLOWED_ERROR
+    assert (
+        service.start_synchronizing(replacement) == ErrorCode.COMMAND_DISALLOWED_ERROR
+    )
     assert service.link.sync is first
 
 
@@ -169,14 +194,18 @@ async def test_reply_to_peer_version_is_not_tracked_as_a_local_request(connectio
     assert not connection.llcp.local_exchanges
 
 
-def test_phy_rejection_cannot_stop_an_automatically_accepted_parameter_timer(connection):
+def test_phy_rejection_cannot_stop_an_automatically_accepted_parameter_timer(
+    connection,
+):
     from bscontroller.linklayer.control import PARAM_REQUEST
 
     controls = connection.controls
     controls.request_phy(1, 1)
     # Identical parameters are accepted without a Host round trip. The Peripheral
     # still owes the Central a response and must await UPDATE_IND afterwards.
-    request = bytes([Opcode.LL_CONNECTION_PARAM_REQ]) + PARAM_REQUEST.pack(24, 24, 0, 100, 0, 0, *([0xFFFF] * 6))
+    request = bytes([Opcode.LL_CONNECTION_PARAM_REQ]) + PARAM_REQUEST.pack(
+        24, 24, 0, 100, 0, 0, *([0xFFFF] * 6)
+    )
     controls.control(request)
     deadline = controls.deadline_us
     assert not controls.remote_parameters and not controls.requested_interval_min

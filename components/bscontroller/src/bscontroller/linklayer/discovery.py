@@ -28,7 +28,10 @@ from bscontroller.linklayer import (
 )
 from bscontroller.linklayer.advertising import SyncInfo
 from bscontroller.linklayer.parameters import Parameters, valid_channel_map
-from bscontroller.linklayer.timing import LL_DEFAULT_ADV_INTERVAL_US, LL_INSTANT_PAST_THRESHOLD
+from bscontroller.linklayer.timing import (
+    LL_DEFAULT_ADV_INTERVAL_US,
+    LL_INSTANT_PAST_THRESHOLD,
+)
 from bscontroller.radio.base import Phy
 
 # Bluetooth Assigned Numbers, Common Data Types: Channel Map Update Indication,
@@ -91,7 +94,9 @@ class ScanWindow:
     active: bool = False
 
 
-def scan_window_at(windows: tuple[ScanWindow, ...], elapsed_us: int) -> tuple[ScanWindow | None, int, int]:
+def scan_window_at(
+    windows: tuple[ScanWindow, ...], elapsed_us: int
+) -> tuple[ScanWindow | None, int, int]:
     """Phase PHY windows while preserving each PHY's own interval and channel cycle."""
     phase = 0
     active = []
@@ -125,19 +130,27 @@ class ScanBackoff:
     failures: int = 0
 
     def permit(self) -> bool:
-        """Decrement backoffCount; a SCAN_REQ may be sent only when it reaches zero (Core Vol 6, Part B, 4.4.3.2)."""
+        """Decrement backoffCount; a SCAN_REQ may be sent only when it reaches zero
+        (Core Vol 6, Part B, 4.4.3.2).
+        """
         self.count = max(0, self.count - 1)
         return self.count == 0
 
     def complete(self, success: bool, generator: random.Random) -> None:
-        """Core Vol 6, Part B, 4.4.3.2: two consecutive outcomes halve or double upperLimit."""
+        """Core Vol 6, Part B, 4.4.3.2: two consecutive outcomes halve or double
+        upperLimit.
+        """
         self.successes = self.successes + 1 if success else 0
         self.failures = self.failures + 1 if not success else 0
         if self.successes == LL_SCAN_BACKOFF_OUTCOME_COUNT:
-            self.upper_limit = max(LL_SCAN_BACKOFF_COUNT_MIN, self.upper_limit // LL_SCAN_BACKOFF_SCALE)
+            self.upper_limit = max(
+                LL_SCAN_BACKOFF_COUNT_MIN, self.upper_limit // LL_SCAN_BACKOFF_SCALE
+            )
             self.successes = 0
         elif self.failures == LL_SCAN_BACKOFF_OUTCOME_COUNT:
-            self.upper_limit = min(LL_SCAN_BACKOFF_COUNT_MAX, self.upper_limit * LL_SCAN_BACKOFF_SCALE)
+            self.upper_limit = min(
+                LL_SCAN_BACKOFF_COUNT_MAX, self.upper_limit * LL_SCAN_BACKOFF_SCALE
+            )
             self.failures = 0
         self.count = generator.randint(LL_SCAN_BACKOFF_COUNT_MIN, self.upper_limit)
 
@@ -189,7 +202,9 @@ class PeriodicSync:
     channel_map_update: tuple[int, int] | None = None
 
     def receive_channel_map(self, acad: bytes) -> None:
-        """Keep the last valid future ChM/Instant update; malformed AD structures end parsing."""
+        """Keep the last valid future ChM/Instant update; malformed AD structures end
+        parsing.
+        """
         structures = []
         offset = 0
         while offset < len(acad):
@@ -207,12 +222,16 @@ class PeriodicSync:
             instant = int.from_bytes(value[LL_CHANNEL_MAP_SIZE:], 'little')
             if not valid_channel_map(channels):
                 continue
-            if (instant - self.counter) & LL_EVENT_COUNTER_MASK >= LL_INSTANT_PAST_THRESHOLD:
+            if (
+                instant - self.counter
+            ) & LL_EVENT_COUNTER_MASK >= LL_INSTANT_PAST_THRESHOLD:
                 continue
             self.channel_map_update = (instant, channels)
 
     def apply_channel_map(self) -> None:
-        """Switch to the ACAD channel map once the event counter reaches its Instant (Core Vol 6, Part B, 2.3.4.8)."""
+        """Switch to the ACAD channel map once the event counter reaches its Instant
+        (Core Vol 6, Part B, 2.3.4.8).
+        """
         if self.channel_map_update is None:
             return
         instant, channels = self.channel_map_update

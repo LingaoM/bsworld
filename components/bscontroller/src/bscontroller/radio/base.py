@@ -28,8 +28,12 @@ PHY_CODED_FEC1_TIME_US = 376
 # TERM2 is sent with the payload's S=2/S=8 coding.
 PHY_CODED_TERM2_SIZE_BITS = 3
 # Preamble plus Access Address; excludes Coding Indicator on the Coded PHY.
-PHY_1M_ADDRESS_TIME_US = (PDU_PREAMBLE_1M_SIZE + PDU_ACCESS_ADDRESS_SIZE) * PHY_1M_OCTET_TIME_US
-PHY_2M_ADDRESS_TIME_US = (PDU_PREAMBLE_2M_SIZE + PDU_ACCESS_ADDRESS_SIZE) * PHY_2M_OCTET_TIME_US
+PHY_1M_ADDRESS_TIME_US = (
+    PDU_PREAMBLE_1M_SIZE + PDU_ACCESS_ADDRESS_SIZE
+) * PHY_1M_OCTET_TIME_US
+PHY_2M_ADDRESS_TIME_US = (
+    PDU_PREAMBLE_2M_SIZE + PDU_ACCESS_ADDRESS_SIZE
+) * PHY_2M_OCTET_TIME_US
 PHY_CODED_ADDRESS_TIME_US = 336
 # Core Vol 6, Part A, 2.1: primary advertising-channel center frequencies.
 PHY_ADV_CHANNEL_FREQUENCIES_MHZ = {37: 2402, 38: 2426, 39: 2480}
@@ -71,16 +75,26 @@ class Phy(IntEnum):
 
     def airtime_us(self, pdu_size: int, coding: int = PHY_CODED_S8_FACTOR) -> int:
         """Preamble through CRC (and TERM2 for Coded), Core Vol 6, Part B, 2."""
-        if not PDU_HEADER_SIZE <= pdu_size <= PDU_HEADER_SIZE + PDU_ADV_EXT_PAYLOAD_SIZE_MAX:
+        if (
+            not PDU_HEADER_SIZE
+            <= pdu_size
+            <= PDU_HEADER_SIZE + PDU_ADV_EXT_PAYLOAD_SIZE_MAX
+        ):
             raise ValueError('invalid LE PDU size')
         if self == Phy.LE_1M:
-            return (PDU_PREAMBLE_1M_SIZE + PDU_ACCESS_ADDRESS_SIZE + pdu_size + PDU_CRC_SIZE) * PHY_1M_OCTET_TIME_US
+            return (
+                PDU_PREAMBLE_1M_SIZE + PDU_ACCESS_ADDRESS_SIZE + pdu_size + PDU_CRC_SIZE
+            ) * PHY_1M_OCTET_TIME_US
         if self == Phy.LE_2M:
-            return (PDU_PREAMBLE_2M_SIZE + PDU_ACCESS_ADDRESS_SIZE + pdu_size + PDU_CRC_SIZE) * PHY_2M_OCTET_TIME_US
+            return (
+                PDU_PREAMBLE_2M_SIZE + PDU_ACCESS_ADDRESS_SIZE + pdu_size + PDU_CRC_SIZE
+            ) * PHY_2M_OCTET_TIME_US
         if coding not in (PHY_CODED_S2_FACTOR, PHY_CODED_S8_FACTOR):
             raise ValueError('LE Coded requires S=2 or S=8')
         return (
-            PHY_CODED_FEC1_TIME_US + ((pdu_size + PDU_CRC_SIZE) * PHY_OCTET_BITS + PHY_CODED_TERM2_SIZE_BITS) * coding
+            PHY_CODED_FEC1_TIME_US
+            + ((pdu_size + PDU_CRC_SIZE) * PHY_OCTET_BITS + PHY_CODED_TERM2_SIZE_BITS)
+            * coding
         )
 
 
@@ -143,7 +157,9 @@ class RadioSwitch:
         if self.switch_time_us < 0:
             raise ValueError('radio switching time must be nonnegative')
 
-    def earliest_start_us(self, now_us: int, channel: int, phy: Phy, *, transmit: bool) -> int:
+    def earliest_start_us(
+        self, now_us: int, channel: int, phy: Phy, *, transmit: bool
+    ) -> int:
         switching = self.state is not None and self.state != (channel, phy, transmit)
         return max(now_us + 1, self.end_us + (self.switch_time_us if switching else 0))
 

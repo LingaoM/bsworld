@@ -37,15 +37,25 @@ if TYPE_CHECKING:
     from bscontroller.linklayer.connection import Connection
     from bscontroller.linklayer.listener import EncryptionListener
 
-PROCEDURE_COLLISION = ErrorCode.LMP_ERROR_TRANSACTION_COLLISION_OR_LL_PROCEDURE_COLLISION_ERROR
+PROCEDURE_COLLISION = (
+    ErrorCode.LMP_ERROR_TRANSACTION_COLLISION_OR_LL_PROCEDURE_COLLISION_ERROR
+)
 Opcode = ControlOpcode
 ENC_REQUEST = struct.Struct(
     f'<{LL_ENCRYPTION_RANDOM_SIZE}sH{LL_ENCRYPTION_SKD_HALF_SIZE}s{LL_ENCRYPTION_IV_HALF_SIZE}s'
 )
-ENC_RESPONSE = struct.Struct(f'<{LL_ENCRYPTION_SKD_HALF_SIZE}s{LL_ENCRYPTION_IV_HALF_SIZE}s')
+ENC_RESPONSE = struct.Struct(
+    f'<{LL_ENCRYPTION_SKD_HALF_SIZE}s{LL_ENCRYPTION_IV_HALF_SIZE}s'
+)
 KEY_MISSING_REJECTIONS = (
     bytes([Opcode.LL_REJECT_IND, ErrorCode.PIN_OR_KEY_MISSING_ERROR]),
-    bytes([Opcode.LL_REJECT_EXT_IND, Opcode.LL_ENC_REQ, ErrorCode.PIN_OR_KEY_MISSING_ERROR]),
+    bytes(
+        [
+            Opcode.LL_REJECT_EXT_IND,
+            Opcode.LL_ENC_REQ,
+            ErrorCode.PIN_OR_KEY_MISSING_ERROR,
+        ]
+    ),
 )
 
 
@@ -53,7 +63,10 @@ class PacketCipher:
     """Wire-order IV/SKD and HCI-order LTK; independent counters in each direction."""
 
     def __init__(self, key: bytes, iv: bytes, *, central: bool):
-        if len(key) != LL_ENCRYPTION_KEY_SIZE or len(iv) != 2 * LL_ENCRYPTION_IV_HALF_SIZE:
+        if (
+            len(key) != LL_ENCRYPTION_KEY_SIZE
+            or len(iv) != 2 * LL_ENCRYPTION_IV_HALF_SIZE
+        ):
             raise ValueError('LE encryption requires a 128-bit key and 64-bit IV')
         self.aes = AESCCM(key, tag_length=PDU_DATA_MIC_SIZE)
         self.iv = iv
@@ -68,7 +81,9 @@ class PacketCipher:
         ) + self.iv
 
     def encrypt(self, header: int, payload: bytes) -> bytes:
-        """AES-CCM with a 4-octet MIC; nonce = packetCounter, direction bit and IV (Core Vol 6, Part E, 2)."""
+        """AES-CCM with a 4-octet MIC; nonce = packetCounter, direction bit and IV (Core
+        Vol 6, Part E, 2).
+        """
         if not payload:
             return payload
         result = self.aes.encrypt(
@@ -80,7 +95,9 @@ class PacketCipher:
         return result
 
     def decrypt(self, header: int, payload: bytes, *, duplicate: bool) -> bytes:
-        """AES-CCM verification; a retransmission reuses the previous counter (Core Vol 6, Part E, 2)."""
+        """AES-CCM verification; a retransmission reuses the previous counter (Core Vol
+        6, Part E, 2).
+        """
         if not payload:
             return payload
         if len(payload) <= PDU_DATA_MIC_SIZE:
@@ -143,7 +160,9 @@ class Encryption:
         self.connection.enqueue_control(bytes([opcode]) + payload)
 
     def start(self, rand: bytes, ediv: int, ltk: bytes) -> None:
-        """Host-requested encryption start, or refresh via the Encryption Pause procedure (Core Vol 6, Part B, 5.1.3)."""
+        """Host-requested encryption start, or refresh via the Encryption Pause
+        procedure (Core Vol 6, Part B, 5.1.3).
+        """
         self.rand, self.ediv, self.ltk = rand, ediv, ltk
         self.refresh = self.enabled
         self.deadline_us = 0
@@ -154,7 +173,9 @@ class Encryption:
             self.request()
 
     def request(self) -> None:
-        """Central sends LL_ENC_REQ with fresh SKD_C and IV_C (Core Vol 6, Part B, 5.1.3.1)."""
+        """Central sends LL_ENC_REQ with fresh SKD_C and IV_C (Core Vol 6, Part B,
+        5.1.3.1).
+        """
         generator = self.connection.link.random
         self.skd_c = generator.randbytes(LL_ENCRYPTION_SKD_HALF_SIZE)
         self.iv_c = generator.randbytes(LL_ENCRYPTION_IV_HALF_SIZE)
@@ -167,20 +188,30 @@ class Encryption:
 
     def install(self) -> None:
         # e() exposes little-endian Bluetooth AES; AESCCM expects the AES key order.
-        """Session key e(LTK, SKD), SKD = SKD_P || SKD_C, IV = IV_P || IV_C (Core Vol 6, Part B, 5.1.3.1)."""
+        """Session key e(LTK, SKD), SKD = SKD_P || SKD_C, IV = IV_P || IV_C (Core Vol 6,
+        Part B, 5.1.3.1).
+        """
         key = crypto.e(self.ltk, self.skd_c + self.skd_p)[::-1]
-        self.cipher = PacketCipher(key, self.iv_c + self.iv_p, central=self.connection.role == Role.CENTRAL)
+        self.cipher = PacketCipher(
+            key, self.iv_c + self.iv_p, central=self.connection.role == Role.CENTRAL
+        )
         self.last_received = None
 
     def supply_key(self, ltk: bytes | None) -> None:
-        """Peripheral Host's LTK reply or negative reply (Core Vol 6, Part B, 5.1.3.1)."""
+        """Peripheral Host's LTK reply or negative reply (Core Vol 6, Part B,
+        5.1.3.1).
+        """
         if ltk is None and self.refresh:
             # After an Encryption Pause the link stays paused and is closed by the ACL
             # Termination procedure with PIN or Key Missing, not by a reject PDU.
             self.state = State.REJECT
-            # T_terminate now owns this failure; the aborted encryption timer must not win.
+            # T_terminate now owns this failure; the aborted encryption timer must not
+            # win.
             self.deadline_us = 0
-            self.connection.terminate(ErrorCode.PIN_OR_KEY_MISSING_ERROR, status=ErrorCode.PIN_OR_KEY_MISSING_ERROR)
+            self.connection.terminate(
+                ErrorCode.PIN_OR_KEY_MISSING_ERROR,
+                status=ErrorCode.PIN_OR_KEY_MISSING_ERROR,
+            )
             return
         if ltk is None:
             extended = self.connection.peer_features is not None and bool(
@@ -199,7 +230,9 @@ class Encryption:
         self.enqueue(Opcode.LL_START_ENC_REQ)
 
     def finish(self, status: int = ErrorCode.SUCCESS) -> None:
-        """Complete the procedure and report Encryption Change or Key Refresh Complete (Vol 4, Part E, 7.7.8, 7.7.39)."""
+        """Complete the procedure and report Encryption Change or Key Refresh Complete
+        (Vol 4, Part E, 7.7.8, 7.7.39).
+        """
         self.state = State.IDLE
         self.deadline_us = 0
         self.enabled = not status
@@ -212,14 +245,23 @@ class Encryption:
                 self.connection.complete(status)
 
     def control(self, payload: bytes) -> bool:
-        """Encryption Start/Pause and LE Ping PDUs (Core Vol 6, Part B, 5.1.3, 5.1.8)."""
+        """Encryption Start/Pause and LE Ping PDUs (Core Vol 6, Part B, 5.1.3,
+        5.1.8).
+        """
         opcode, data = payload[0], payload[1:]
         central = self.connection.role == Role.CENTRAL
-        if opcode == Opcode.LL_ENC_REQ and not central and len(data) == ENC_REQUEST.size:
+        if (
+            opcode == Opcode.LL_ENC_REQ
+            and not central
+            and len(data) == ENC_REQUEST.size
+        ):
             if self.enabled and self.state == State.IDLE:
                 # A new start cannot replace active encryption without the pause
-                # handshake; treating it as a refresh would change cipher state mid-link.
-                self.connection.complete(ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR)
+                # handshake; treating it as a refresh would change cipher state
+                # mid-link.
+                self.connection.complete(
+                    ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
+                )
                 return True
             if self.state not in (State.IDLE, State.RESTART):
                 self.connection.controls.reject(
@@ -237,31 +279,54 @@ class Encryption:
             # ENC_RSP starts T_PRT while the Host resolves the LTK. User ACL stays
             # queued in KEY even if the peer continues sending Empty keepalive PDUs.
             self.enqueue(Opcode.LL_ENC_RSP, ENC_RESPONSE.pack(self.skd_p, self.iv_p))
-            self.listener.on_long_term_key_request(self.connection, self.rand, self.ediv)
+            self.listener.on_long_term_key_request(
+                self.connection, self.rand, self.ediv
+            )
             return True
-        if opcode == Opcode.LL_ENC_RSP and central and self.state == State.ENC_RSP and len(data) == ENC_RESPONSE.size:
+        if (
+            opcode == Opcode.LL_ENC_RSP
+            and central
+            and self.state == State.ENC_RSP
+            and len(data) == ENC_RESPONSE.size
+        ):
             self.skd_p, self.iv_p = ENC_RESPONSE.unpack(data)
             # Installing the session key does not enable encryption yet. The
             # Peripheral's unencrypted START_ENC_REQ is the next handshake step.
             self.install()
             self.state = State.START_REQ
             return True
-        if opcode == Opcode.LL_START_ENC_REQ and not data and central and self.state == State.START_REQ:
+        if (
+            opcode == Opcode.LL_START_ENC_REQ
+            and not data
+            and central
+            and self.state == State.START_REQ
+        ):
             self.tx_enabled = self.rx_enabled = True
             self.state = State.START_RSP
             self.enqueue(Opcode.LL_START_ENC_RSP)
             return True
-        if opcode == Opcode.LL_START_ENC_RSP and not data and self.state == State.START_RSP:
+        if (
+            opcode == Opcode.LL_START_ENC_RSP
+            and not data
+            and self.state == State.START_RSP
+        ):
             if central:
                 self.finish()
             else:
-                # Keep the final encrypted response tied to this cipher while it is retried.
+                # Keep the final encrypted response tied to this cipher while it is
+                # retried.
                 # TODO: align Peripheral completion timing with Vol 6, Part B, 5.1.3.1.
                 self.tx_enabled = True
                 self.state = State.START_ACK
                 self.enqueue(Opcode.LL_START_ENC_RSP)
             return True
-        if opcode == Opcode.LL_PAUSE_ENC_REQ and not data and not central and self.enabled and not self.busy:
+        if (
+            opcode == Opcode.LL_PAUSE_ENC_REQ
+            and not data
+            and not central
+            and self.enabled
+            and not self.busy
+        ):
             self.refresh = True
             self.state = State.PAUSE_ACK
             self.enqueue(Opcode.LL_PAUSE_ENC_RSP)
@@ -279,17 +344,21 @@ class Encryption:
                 self.state = State.RESTART
                 return True
         if (
-            opcode in (Opcode.LL_REJECT_IND, Opcode.LL_REJECT_EXT_IND, Opcode.LL_UNKNOWN_RSP)
+            opcode
+            in (Opcode.LL_REJECT_IND, Opcode.LL_REJECT_EXT_IND, Opcode.LL_UNKNOWN_RSP)
             and central
             and self.state in (State.ENC_RSP, State.START_REQ)
         ):
             # Reject/unknown responses complete the Central's pending start.
-            # finish also closes a failed refresh so paused ACL cannot escape in plaintext.
+            # finish also closes a failed refresh so paused ACL cannot escape in
+            # plaintext.
             if opcode == Opcode.LL_UNKNOWN_RSP and data == bytes([Opcode.LL_ENC_REQ]):
                 self.finish(ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR)
                 return True
             if (opcode == Opcode.LL_REJECT_IND and len(data) == 1) or (
-                opcode == Opcode.LL_REJECT_EXT_IND and len(data) == 2 and data[0] == Opcode.LL_ENC_REQ
+                opcode == Opcode.LL_REJECT_EXT_IND
+                and len(data) == 2
+                and data[0] == Opcode.LL_ENC_REQ
             ):
                 self.finish(data[-1])
                 return True
@@ -299,7 +368,10 @@ class Encryption:
         return opcode == Opcode.LL_PING_RSP and not data
 
     def sent(self, payload: bytes) -> None:
-        if payload == bytes([Opcode.LL_START_ENC_REQ]) and self.state == State.START_RSP:
+        if (
+            payload == bytes([Opcode.LL_START_ENC_REQ])
+            and self.state == State.START_RSP
+        ):
             self.rx_enabled = True
         elif (
             payload == bytes([Opcode.LL_PAUSE_ENC_RSP])
@@ -309,11 +381,19 @@ class Encryption:
             self.rx_enabled = False
 
     def acknowledged(self, payload: bytes) -> None:
-        if self.state == State.REJECT and not self.refresh and payload in KEY_MISSING_REJECTIONS:
-            # Core Vol 6, Part B, 5.1.3.1: keep Host ACL paused until rejection is acknowledged.
+        if (
+            self.state == State.REJECT
+            and not self.refresh
+            and payload in KEY_MISSING_REJECTIONS
+        ):
+            # Core Vol 6, Part B, 5.1.3.1: keep Host ACL paused until rejection is
+            # acknowledged.
             self.state = State.IDLE
             self.deadline_us = 0
-        elif payload == bytes([Opcode.LL_START_ENC_RSP]) and self.state == State.START_ACK:
+        elif (
+            payload == bytes([Opcode.LL_START_ENC_RSP])
+            and self.state == State.START_ACK
+        ):
             self.finish()
         elif (
             payload == bytes([Opcode.LL_PAUSE_ENC_RSP])
@@ -323,7 +403,9 @@ class Encryption:
             self.request()
 
     def decrypt(self, header: int, payload: bytes, *, duplicate: bool) -> bytes | None:
-        """Authenticate without committing ACK or procedure state (Core Vol 6, Part E, 2)."""
+        """Authenticate without committing ACK or procedure state (Core Vol 6, Part E,
+        2).
+        """
         if not payload:
             return payload
         authenticated_header = header & PDU_DATA_AUTHENTICATED_HEADER_MASK
@@ -335,7 +417,9 @@ class Encryption:
                 and payload == wire
                 and (
                     authenticated == self.rx_enabled
-                    or (authenticated and self.state in (State.PAUSE_ACK, State.RESTART))
+                    or (
+                        authenticated and self.state in (State.PAUSE_ACK, State.RESTART)
+                    )
                 )
             ):
                 if authenticated:
@@ -348,7 +432,9 @@ class Encryption:
             try:
                 payload = self.cipher.decrypt(header, payload, duplicate=duplicate)
             except (InvalidTag, OverflowError, ValueError):
-                self.connection.complete(ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR)
+                self.connection.complete(
+                    ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
+                )
                 return None
             self.last_authenticated_us = self.connection.radio.now_us
             self.ping_pending = False
@@ -359,7 +445,9 @@ class Encryption:
 
     @property
     def next_deadline_us(self) -> int:
-        """Send LL_PING_REQ early enough for a reply within authenticatedPayloadTO (Core Vol 6, Part B, 5.1.8, 5.4)."""
+        """Send LL_PING_REQ early enough for a reply within authenticatedPayloadTO (Core
+        Vol 6, Part B, 5.1.8, 5.4).
+        """
         if self.busy:
             return self.deadline_us
         if not self.enabled:
@@ -374,10 +462,16 @@ class Encryption:
             * LL_CONN_INTERVAL_UNIT_US
             * (self.connection.parameters.latency + 1),
         )
-        return self.last_authenticated_us + timeout_us - (0 if self.ping_pending else reserve_us)
+        return (
+            self.last_authenticated_us
+            + timeout_us
+            - (0 if self.ping_pending else reserve_us)
+        )
 
     def check_timeout(self) -> bool:
-        """T_PRT for encryption procedures, then the authenticated payload timeout (Core Vol 6, Part B, 5.2, 5.4)."""
+        """T_PRT for encryption procedures, then the authenticated payload timeout (Core
+        Vol 6, Part B, 5.2, 5.4).
+        """
         now = self.connection.radio.now_us
         if self.busy and self.deadline_us and now >= self.deadline_us:
             self.connection.complete(ErrorCode.LMP_OR_LL_RESPONSE_TIMEOUT_ERROR)

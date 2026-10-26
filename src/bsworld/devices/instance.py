@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Application process instance managed by a BluetoothTopology."""
+
 from __future__ import annotations
 
 import subprocess
@@ -88,7 +89,11 @@ class ProcessInstance:
         log(f"{self.label}: started (pid={proc.pid})")
 
     def _resolve_command(self, slot: AppSlot) -> list[str | Path]:
-        command = self._command_factory(slot) if callable(self._command_factory) else self._command_factory
+        command = (
+            self._command_factory(slot)
+            if callable(self._command_factory)
+            else self._command_factory
+        )
         if not command:
             raise ValueError("process command must not be empty")
         return list(command)

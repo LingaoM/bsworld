@@ -16,6 +16,7 @@
 take down the whole process tree, log into a per-process file, and kill in
 reverse spawn order on shutdown.
 """
+
 from __future__ import annotations
 
 import os
@@ -47,12 +48,15 @@ class Proc:
     def alive(self) -> bool:
         return self.popen.poll() is None
 
+
 @dataclass
 class ProcessManager:
     procs: list[Proc] = field(default_factory=list)
     _signals_installed: bool = False
     _signal_handler: SignalHandler | None = field(default=None, init=False, repr=False)
-    _previous_signal_handlers: dict[signal.Signals, SignalHandler] = field(default_factory=dict, init=False, repr=False)
+    _previous_signal_handlers: dict[signal.Signals, SignalHandler] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def spawn(
         self,

@@ -285,9 +285,9 @@ async def _invalid_connection_address(tester, *, central=False, established=True
             )
             assert cleanup is not None, 'post-trial disconnect did not complete'
     if central or not established:
-        assert (
-            qualifying >= MINIMUM_QUALIFYING_TRIALS
-        ), f'only {qualifying}/40 qualifying disconnections'
+        assert qualifying >= MINIMUM_QUALIFYING_TRIALS, (
+            f'only {qualifying}/40 qualifying disconnections'
+        )
     if central and not established:
         assert timing_qualifying >= MINIMUM_QUALIFYING_TRIALS
         if joint_qualifying < MINIMUM_QUALIFYING_TRIALS:

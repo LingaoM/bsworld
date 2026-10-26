@@ -44,12 +44,19 @@ def generate_access_address(generator: Random, used: set[int]) -> int:
             '0' * run in bits
             or '1' * run in bits
             or len(set(value.to_bytes(PDU_ACCESS_ADDRESS_SIZE, 'little'))) == 1
-            or (transitions & ((1 << (width - 1)) - 1)).bit_count() > PDU_ACCESS_ADDRESS_TRANSITIONS_MAX
-            or ((msb ^ (msb >> 1)) & ((1 << (PDU_ACCESS_ADDRESS_MSB_WINDOW_BITS - 1)) - 1)).bit_count()
+            or (transitions & ((1 << (width - 1)) - 1)).bit_count()
+            > PDU_ACCESS_ADDRESS_TRANSITIONS_MAX
+            or (
+                (msb ^ (msb >> 1))
+                & ((1 << (PDU_ACCESS_ADDRESS_MSB_WINDOW_BITS - 1)) - 1)
+            ).bit_count()
             < PDU_ACCESS_ADDRESS_MSB_TRANSITIONS_MIN
             or (value & ((1 << PDU_ACCESS_ADDRESS_CODED_LSB_BITS) - 1)).bit_count()
             < PDU_ACCESS_ADDRESS_CODED_LSB_ONES_MIN
-            or (transitions & ((1 << (PDU_ACCESS_ADDRESS_CODED_TRANSITION_BITS - 1)) - 1)).bit_count()
+            or (
+                transitions
+                & ((1 << (PDU_ACCESS_ADDRESS_CODED_TRANSITION_BITS - 1)) - 1)
+            ).bit_count()
             > PDU_ACCESS_ADDRESS_CODED_TRANSITIONS_MAX
         ):
             continue

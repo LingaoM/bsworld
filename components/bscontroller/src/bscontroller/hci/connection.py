@@ -23,7 +23,10 @@ from bscontroller.hci import (
     HCI_LE_SCAN_INTERVAL_MIN,
     HCI_LE_SCAN_INTERVAL_UNIT_US,
 )
-from bscontroller.hci.capabilities import HCI_AUTHENTICATED_PAYLOAD_TIMEOUT_UNIT_US, HCI_RSSI_NOT_AVAILABLE
+from bscontroller.hci.capabilities import (
+    HCI_AUTHENTICATED_PAYLOAD_TIMEOUT_UNIT_US,
+    HCI_RSSI_NOT_AVAILABLE,
+)
 from bscontroller.hci.context import (
     DISALLOWED,
     INVALID,
@@ -58,14 +61,18 @@ class LeConnectionCommands(LeControllerContext):
 
     def _start_initiating(self, command, parameters, windows):
         """Commit one validated attempt; a rejected command leaves all state intact."""
-        status = self.ll.initiating_status(command.peer_address, bool(command.initiator_filter_policy))
+        status = self.ll.initiating_status(
+            command.peer_address, bool(command.initiator_filter_policy)
+        )
         if status != SUCCESS:
             self.controller._send_hci_command_status(status, command.op_code)
             return
         if (
             command.initiator_filter_policy not in (0, 1)
-            or command.own_address_type not in (hci.OwnAddressType.PUBLIC, hci.OwnAddressType.RANDOM)
-            or command.peer_address_type not in (hci.AddressType.PUBLIC_DEVICE, hci.AddressType.RANDOM_DEVICE)
+            or command.own_address_type
+            not in (hci.OwnAddressType.PUBLIC, hci.OwnAddressType.RANDOM)
+            or command.peer_address_type
+            not in (hci.AddressType.PUBLIC_DEVICE, hci.AddressType.RANDOM_DEVICE)
         ):
             self.controller._send_hci_command_status(UNSUPPORTED, command.op_code)
             return
@@ -223,16 +230,25 @@ class LeConnectionCommands(LeControllerContext):
         '''
         connection = self._connection(command.handle)
         return hci.HCI_Read_RSSI_ReturnParameters(
-            (SUCCESS if connection else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR),
+            (
+                SUCCESS
+                if connection
+                else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
+            ),
             command.handle,
-            (connection.rssi if connection.rssi is not None else HCI_RSSI_NOT_AVAILABLE) if connection else 0,
+            (connection.rssi if connection.rssi is not None else HCI_RSSI_NOT_AVAILABLE)
+            if connection
+            else 0,
         )
 
     def on_hci_le_enable_encryption_command(self, command):
         self._run_ll_request(
             command,
             self.ll.prepare_encryption(
-                command.connection_handle, command.random_number, command.encrypted_diversifier, command.long_term_key
+                command.connection_handle,
+                command.random_number,
+                command.encrypted_diversifier,
+                command.long_term_key,
             ),
         )
 
@@ -240,11 +256,15 @@ class LeConnectionCommands(LeControllerContext):
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.22 LE Encrypt Command
         '''
-        return hci.HCI_LE_Encrypt_ReturnParameters(SUCCESS, crypto.e(command.key, command.plaintext_data))
+        return hci.HCI_LE_Encrypt_ReturnParameters(
+            SUCCESS, crypto.e(command.key, command.plaintext_data)
+        )
 
     def _supply_long_term_key(self, command, key):
         status = self.ll.supply_key(command.connection_handle, key)
-        return hci.HCI_StatusAndConnectionHandleReturnParameters(status, command.connection_handle)
+        return hci.HCI_StatusAndConnectionHandleReturnParameters(
+            status, command.connection_handle
+        )
 
     def on_hci_le_long_term_key_request_reply_command(self, command):
         '''
@@ -254,38 +274,57 @@ class LeConnectionCommands(LeControllerContext):
 
     def on_hci_le_long_term_key_request_negative_reply_command(self, command):
         '''
-        See Bluetooth spec Vol 4, Part E - 7.8.26 LE Long Term Key Request Negative Reply Command
+        See Bluetooth spec Vol 4, Part E - 7.8.26 LE Long Term Key Request Negative
+        Reply Command
         '''
         return self._supply_long_term_key(command, None)
 
     def on_hci_read_authenticated_payload_timeout_command(self, command):
         '''
-        See Bluetooth spec Vol 4, Part E - 7.3.93 Read Authenticated Payload Timeout Command
+        See Bluetooth spec Vol 4, Part E - 7.3.93 Read Authenticated Payload Timeout
+        Command
         '''
         connection = self._connection(command.connection_handle)
         return hci.HCI_Read_Authenticated_Payload_Timeout_ReturnParameters(
-            (SUCCESS if connection else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR),
+            (
+                SUCCESS
+                if connection
+                else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
+            ),
             command.connection_handle,
-            connection.encryption.auth_timeout_us // HCI_AUTHENTICATED_PAYLOAD_TIMEOUT_UNIT_US if connection else 0,
+            connection.encryption.auth_timeout_us
+            // HCI_AUTHENTICATED_PAYLOAD_TIMEOUT_UNIT_US
+            if connection
+            else 0,
         )
 
     def on_hci_write_authenticated_payload_timeout_command(self, command):
         status = self.ll.set_authenticated_timeout(
-            command.connection_handle, command.authenticated_payload_timeout * HCI_AUTHENTICATED_PAYLOAD_TIMEOUT_UNIT_US
+            command.connection_handle,
+            command.authenticated_payload_timeout
+            * HCI_AUTHENTICATED_PAYLOAD_TIMEOUT_UNIT_US,
         )
-        return hci.HCI_StatusAndConnectionHandleReturnParameters(status, command.connection_handle)
+        return hci.HCI_StatusAndConnectionHandleReturnParameters(
+            status, command.connection_handle
+        )
 
     def on_hci_le_rand_command(self, command):
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.23 LE Rand Command
         '''
-        return hci.HCI_LE_Rand_ReturnParameters(SUCCESS, self.link.random.randbytes(LL_ENCRYPTION_RANDOM_SIZE))
+        return hci.HCI_LE_Rand_ReturnParameters(
+            SUCCESS, self.link.random.randbytes(LL_ENCRYPTION_RANDOM_SIZE)
+        )
 
     def on_hci_le_read_remote_features_command(self, command):
-        self._run_ll_request(command, self.ll.prepare_features(command.connection_handle))
+        self._run_ll_request(
+            command, self.ll.prepare_features(command.connection_handle)
+        )
 
     def on_hci_read_remote_version_information_command(self, command):
-        self._run_ll_request(command, self.ll.prepare_version(command.connection_handle))
+        self._run_ll_request(
+            command, self.ll.prepare_version(command.connection_handle)
+        )
 
     def on_hci_le_connection_update_command(self, command):
         self._run_ll_request(
@@ -302,17 +341,29 @@ class LeConnectionCommands(LeControllerContext):
 
     def on_hci_le_remote_connection_parameter_request_reply_command(self, command):
         status = self.ll.reply_parameters(
-            command.connection_handle, command.interval_min, command.interval_max, command.max_latency, command.timeout
+            command.connection_handle,
+            command.interval_min,
+            command.interval_max,
+            command.max_latency,
+            command.timeout,
         )
-        return hci.HCI_StatusAndConnectionHandleReturnParameters(status, command.connection_handle)
+        return hci.HCI_StatusAndConnectionHandleReturnParameters(
+            status, command.connection_handle
+        )
 
-    def on_hci_le_remote_connection_parameter_request_negative_reply_command(self, command):
+    def on_hci_le_remote_connection_parameter_request_negative_reply_command(
+        self, command
+    ):
         status = self.ll.reject_parameters(command.connection_handle, command.reason)
-        return hci.HCI_StatusAndConnectionHandleReturnParameters(status, command.connection_handle)
+        return hci.HCI_StatusAndConnectionHandleReturnParameters(
+            status, command.connection_handle
+        )
 
     def on_hci_le_set_host_channel_classification_command(self, command):
         value = int.from_bytes(command.channel_map, 'little')
-        status = self.ll.classify_channels(value) if valid_channel_map(value) else INVALID
+        status = (
+            self.ll.classify_channels(value) if valid_channel_map(value) else INVALID
+        )
         return hci.HCI_StatusReturnParameters(status)
 
     def on_hci_le_read_channel_map_command(self, command):
@@ -321,9 +372,15 @@ class LeConnectionCommands(LeControllerContext):
         '''
         connection = self._connection(command.connection_handle)
         return hci.HCI_LE_Read_Channel_Map_ReturnParameters(
-            (SUCCESS if connection else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR),
+            (
+                SUCCESS
+                if connection
+                else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
+            ),
             command.connection_handle,
-            (connection.parameters.channel_map if connection else 0).to_bytes(LL_CHANNEL_MAP_SIZE, 'little'),
+            (connection.parameters.channel_map if connection else 0).to_bytes(
+                LL_CHANNEL_MAP_SIZE, 'little'
+            ),
         )
 
     @staticmethod
@@ -333,8 +390,16 @@ class LeConnectionCommands(LeControllerContext):
             or (command.tx_phys | command.rx_phys) & ~CONTROLLER_SUPPORTED_PHY_MASK
         ):
             return None
-        tx = CONTROLLER_SUPPORTED_PHY_MASK if command.all_phys & HCI_LE_ALL_PHYS_TX_MASK else command.tx_phys
-        rx = CONTROLLER_SUPPORTED_PHY_MASK if command.all_phys & HCI_LE_ALL_PHYS_RX_MASK else command.rx_phys
+        tx = (
+            CONTROLLER_SUPPORTED_PHY_MASK
+            if command.all_phys & HCI_LE_ALL_PHYS_TX_MASK
+            else command.tx_phys
+        )
+        rx = (
+            CONTROLLER_SUPPORTED_PHY_MASK
+            if command.all_phys & HCI_LE_ALL_PHYS_RX_MASK
+            else command.rx_phys
+        )
         return (tx, rx) if tx and rx else None
 
     def on_hci_le_read_phy_command(self, command):
@@ -343,7 +408,11 @@ class LeConnectionCommands(LeControllerContext):
         '''
         connection = self._connection(command.connection_handle)
         return hci.HCI_LE_Read_PHY_ReturnParameters(
-            (SUCCESS if connection else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR),
+            (
+                SUCCESS
+                if connection
+                else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
+            ),
             command.connection_handle,
             connection.tx_phy if connection else Phy.LE_1M,
             connection.rx_phy if connection else Phy.LE_1M,
@@ -370,9 +439,16 @@ class LeConnectionCommands(LeControllerContext):
             HCI_LE_PHY_OPTIONS_S8_PREFERRED,
         ):
             parameter_status = INVALID
-        coding = PHY_CODED_S2_FACTOR if command.phy_options == HCI_LE_PHY_OPTIONS_S2_PREFERRED else PHY_CODED_S8_FACTOR
+        coding = (
+            PHY_CODED_S2_FACTOR
+            if command.phy_options == HCI_LE_PHY_OPTIONS_S2_PREFERRED
+            else PHY_CODED_S8_FACTOR
+        )
         self._run_ll_request(
-            command, self.ll.prepare_phy(command.connection_handle, *(phys or (0, 0)), coding, parameter_status)
+            command,
+            self.ll.prepare_phy(
+                command.connection_handle, *(phys or (0, 0)), coding, parameter_status
+            ),
         )
 
     def on_hci_acl_data_packet(self, packet):
@@ -391,15 +467,24 @@ class LeConnectionCommands(LeControllerContext):
             return
         if len(packet.data) > self.controller.le_acl_data_packet_length:
             raise ValueError('ACL payload exceeds the HCI buffer')
-        self.ll.send_acl(packet.connection_handle, packet.pb_flag == hci.HCI_ACL_PB_CONTINUATION, packet.data)
+        self.ll.send_acl(
+            packet.connection_handle,
+            packet.pb_flag == hci.HCI_ACL_PB_CONTINUATION,
+            packet.data,
+        )
 
     def on_hci_le_set_data_length_command(self, command):
-        status = self.ll.set_data_length(command.connection_handle, command.tx_octets, command.tx_time)
-        return hci.HCI_StatusAndConnectionHandleReturnParameters(status, command.connection_handle)
+        status = self.ll.set_data_length(
+            command.connection_handle, command.tx_octets, command.tx_time
+        )
+        return hci.HCI_StatusAndConnectionHandleReturnParameters(
+            status, command.connection_handle
+        )
 
     def on_hci_le_read_suggested_default_data_length_command(self, command):
         '''
-        See Bluetooth spec Vol 4, Part E - 7.8.34 LE Read Suggested Default Data Length Command
+        See Bluetooth spec Vol 4, Part E - 7.8.34 LE Read Suggested Default Data Length
+        Command
         '''
         return hci.HCI_LE_Read_Suggested_Default_Data_Length_ReturnParameters(
             SUCCESS, self.link.default_tx_octets, self.link.default_tx_time
@@ -407,11 +492,16 @@ class LeConnectionCommands(LeControllerContext):
 
     def on_hci_le_write_suggested_default_data_length_command(self, command):
         '''
-        See Bluetooth spec Vol 4, Part E - 7.8.35 LE Write Suggested Default Data Length Command
+        See Bluetooth spec Vol 4, Part E - 7.8.35 LE Write Suggested Default Data Length
+        Command
         '''
-        if not valid_data_length(command.suggested_max_tx_octets, command.suggested_max_tx_time):
+        if not valid_data_length(
+            command.suggested_max_tx_octets, command.suggested_max_tx_time
+        ):
             return hci.HCI_StatusReturnParameters(INVALID)
-        self.ll.set_default_data_length(command.suggested_max_tx_octets, command.suggested_max_tx_time)
+        self.ll.set_default_data_length(
+            command.suggested_max_tx_octets, command.suggested_max_tx_time
+        )
         return hci.HCI_StatusReturnParameters(SUCCESS)
 
     def on_hci_le_read_maximum_data_length_command(self, command):

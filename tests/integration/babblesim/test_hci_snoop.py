@@ -31,7 +31,9 @@ def _receive(sock: socket.socket, length: int) -> bytes:
     return bytes(data)
 
 
-async def test_controller_snoop_preserves_h4_packets_and_controller_timestamps(tmp_path):
+async def test_controller_snoop_preserves_h4_packets_and_controller_timestamps(
+    tmp_path,
+):
     env = Env.detect()
     backend = BabbleSimBackend(env, f"hci_snoop_{uuid.uuid4().hex[:12]}")
     ctl = backend.add_controller(public_address="F0:F1:F2:F3:F4:01")
@@ -70,21 +72,31 @@ async def test_controller_snoop_preserves_h4_packets_and_controller_timestamps(t
     assert before_stop[:16] == _FILE_HEADER
     offset = 16
     for index, packet in enumerate(packets):
-        length, included, flags, drops, timestamp = _RECORD.unpack_from(before_stop, offset)
+        length, included, flags, drops, timestamp = _RECORD.unpack_from(
+            before_stop, offset
+        )
         offset += _RECORD.size
         assert length == included == len(packet)
         assert flags == index % 2
         assert drops == 0
         assert timestamp - _EPOCH_US == 11000 + (index // 2) * 10000
-        assert before_stop[offset:offset + included] == packet
+        assert before_stop[offset : offset + included] == packet
         offset += included
     assert offset == len(before_stop)
 
 
-@pytest.mark.parametrize("controller_type", [ZephyrController, BSController], ids=["zephyr", "python"])
-@pytest.mark.parametrize("custom_path", [False, True], ids=["default-path", "application-path"])
-async def test_snoop_matches_live_h4_traffic_without_host_relay(topo, tmp_path, controller_type, custom_path):
-    ctl = topo.add_controller(controller_type=controller_type, public_address="F0:F1:F2:F3:F4:01")
+@pytest.mark.parametrize(
+    "controller_type", [ZephyrController, BSController], ids=["zephyr", "python"]
+)
+@pytest.mark.parametrize(
+    "custom_path", [False, True], ids=["default-path", "application-path"]
+)
+async def test_snoop_matches_live_h4_traffic_without_host_relay(
+    topo, tmp_path, controller_type, custom_path
+):
+    ctl = topo.add_controller(
+        controller_type=controller_type, public_address="F0:F1:F2:F3:F4:01"
+    )
     if custom_path:
         ctl.hci_snoop_file = tmp_path / "application" / "hci0.snoop"
     await topo.start()
@@ -118,12 +130,14 @@ async def test_snoop_matches_live_h4_traffic_without_host_relay(topo, tmp_path, 
     offset = 16
     timestamps = []
     for index, packet in enumerate(packets):
-        length, included, flags, drops, timestamp = _RECORD.unpack_from(before_stop, offset)
+        length, included, flags, drops, timestamp = _RECORD.unpack_from(
+            before_stop, offset
+        )
         offset += _RECORD.size
         assert length == included == len(packet)
         assert flags == index % 2
         assert drops == 0
-        assert before_stop[offset:offset + included] == packet
+        assert before_stop[offset : offset + included] == packet
         timestamps.append(timestamp - _EPOCH_US)
         offset += included
     assert offset == len(before_stop)

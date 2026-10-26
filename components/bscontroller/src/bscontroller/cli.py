@@ -17,9 +17,14 @@ from .runtime import PhyProcess
 
 async def serve(args):
     controller = RadioController(
-        'controller', args.address, hci_snoop_file=args.btsnoop_file, hci_socket=args.hci_socket
+        'controller',
+        args.address,
+        hci_snoop_file=args.btsnoop_file,
+        hci_socket=args.hci_socket,
     )
-    async with RadioSession(args.sim_id, [(args.dev_id, controller)], clock_dev_id=args.clock_id):
+    async with RadioSession(
+        args.sim_id, [(args.dev_id, controller)], clock_dev_id=args.clock_id
+    ):
         print(f'HCI listening on {args.hci_socket}', flush=True)
         await controller.terminated
 
@@ -40,20 +45,32 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     for name, help_text in [('serve', 'serve H4 HCI over a Unix socket')]:
         command = commands.add_parser(name, help=help_text)
-        command.add_argument('--bsim-dir', type=Path, help='BabbleSim build output (default: BSIM_OUT_PATH)')
+        command.add_argument(
+            '--bsim-dir',
+            type=Path,
+            help='BabbleSim build output (default: BSIM_OUT_PATH)',
+        )
         command.add_argument('--sim-id', default=None)
         command.add_argument('--log-dir', type=Path)
     server = commands.choices['serve']
     server.add_argument('--hci-socket', type=Path, required=True)
-    server.add_argument('--btsnoop-file', type=Path, help='write HCI BTSnoop using the Controller simulation clock')
+    server.add_argument(
+        '--btsnoop-file',
+        type=Path,
+        help='write HCI BTSnoop using the Controller simulation clock',
+    )
     server.add_argument('--address', default='F0:F1:F2:F3:F4:01')
-    server.add_argument('--join', action='store_true', help='join a PHY managed by the caller')
+    server.add_argument(
+        '--join', action='store_true', help='join a PHY managed by the caller'
+    )
     server.add_argument('--dev-id', type=int, default=0)
     server.add_argument('--clock-id', type=int, default=1)
     args = parser.parse_args()
     if args.command == 'serve':
         if args.dev_id < 0 or args.clock_id < 0 or args.dev_id == args.clock_id:
-            parser.error('Controller and clock IDs must be distinct nonnegative integers')
+            parser.error(
+                'Controller and clock IDs must be distinct nonnegative integers'
+            )
         if args.join and args.sim_id is None:
             parser.error('--join requires --sim-id and matching PHY device identities')
         if not args.join and (args.dev_id, args.clock_id) != (0, 1):

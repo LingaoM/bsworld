@@ -94,7 +94,9 @@ def test_dual_phy_windows_preserve_each_twenty_ms_interval(elapsed, phy, cycle, 
         (100_000, Phy.LE_CODED, 2, 120_000),
     ],
 )
-def test_continuous_scan_on_both_phys_shares_radio_without_starvation(elapsed, phy, cycle, end):
+def test_continuous_scan_on_both_phys_shares_radio_without_starvation(
+    elapsed, phy, cycle, end
+):
     windows = (
         ScanWindow(Phy.LE_1M, 20_000, 20_000),
         ScanWindow(Phy.LE_CODED, 20_000, 20_000),
@@ -132,7 +134,9 @@ def test_dual_phy_scan_gaps_do_not_spin_or_advance_a_channel_early(elapsed, phy,
         (50_000, Phy.LE_CODED, 55_000),
     ],
 )
-def test_unequal_intervals_arbitrate_overlaps_without_changing_periods(elapsed, phy, end):
+def test_unequal_intervals_arbitrate_overlaps_without_changing_periods(
+    elapsed, phy, end
+):
     windows = (
         ScanWindow(Phy.LE_1M, 30_000, 10_000),
         ScanWindow(Phy.LE_CODED, 20_000, 5000),
@@ -160,7 +164,8 @@ def test_periodic_map_applies_at_or_across_instant(counter, skip):
             [
                 (
                     AD_CHANNEL_MAP_UPDATE_INDICATION,
-                    channels.to_bytes(LL_CHANNEL_MAP_SIZE, 'little') + instant.to_bytes(2, 'little'),
+                    channels.to_bytes(LL_CHANNEL_MAP_SIZE, 'little')
+                    + instant.to_bytes(2, 'little'),
                 )
             ]
         )
@@ -189,6 +194,12 @@ def test_periodic_map_applies_at_or_across_instant(counter, skip):
 )
 def test_periodic_invalid_channel_map_acad_is_ignored(channels, instant, length):
     sync = PeriodicSync(PEER_ADDRESS, 3, 100_000, 0, counter=10)
-    value = (channels.to_bytes(LL_CHANNEL_MAP_SIZE, 'little') + instant.to_bytes(2, 'little') + b'\x00')[:length]
-    sync.receive_channel_map(bytes(advertising_data([(AD_CHANNEL_MAP_UPDATE_INDICATION, value)])))
+    value = (
+        channels.to_bytes(LL_CHANNEL_MAP_SIZE, 'little')
+        + instant.to_bytes(2, 'little')
+        + b'\x00'
+    )[:length]
+    sync.receive_channel_map(
+        bytes(advertising_data([(AD_CHANNEL_MAP_UPDATE_INDICATION, value)]))
+    )
     assert sync.channel_map_update is None

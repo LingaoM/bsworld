@@ -86,7 +86,9 @@ def test_configure_worker_reuses_controller_run_identity() -> None:
 
 
 def test_nodeid_helpers_are_stable_and_path_safe(tmp_path) -> None:
-    sim_id = plugin._sim_id_for_node("tests/foo/test_bar.py::test_case[param/a]", "abc123")
+    sim_id = plugin._sim_id_for_node(
+        "tests/foo/test_bar.py::test_case[param/a]", "abc123"
+    )
     log_dir = plugin._test_log_dir_for_node(
         "tests/foo/test_bar.py::test_case[param/a]",
         tmp_path,
@@ -97,7 +99,9 @@ def test_nodeid_helpers_are_stable_and_path_safe(tmp_path) -> None:
     assert log_dir == tmp_path / "tests" / "foo" / "test_bar" / "test_case_param_a"
 
 
-def test_topo_fixture_derives_identity_and_log_dir_from_the_node(pytester, monkeypatch) -> None:
+def test_topo_fixture_derives_identity_and_log_dir_from_the_node(
+    pytester, monkeypatch
+) -> None:
     monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
     monkeypatch.setenv("RUN_UID", "abc123")
     test_file = pytester.makepyfile(
@@ -129,7 +133,9 @@ def test_topo_fixture_derives_identity_and_log_dir_from_the_node(pytester, monke
     result.assert_outcomes(passed=1)
 
 
-def test_topo_fixture_honours_an_overridden_controller_default(pytester, monkeypatch) -> None:
+def test_topo_fixture_honours_an_overridden_controller_default(
+    pytester, monkeypatch
+) -> None:
     monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
     # The suites override this fixture instead of patching the topology object.
     test_file = pytester.makepyfile(

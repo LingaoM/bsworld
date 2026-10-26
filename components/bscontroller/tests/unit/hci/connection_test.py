@@ -14,7 +14,10 @@ from bscontroller.capabilities import CONTROLLER_CONNECTION_COUNT
 from bscontroller.hci.backend import RadioBackend
 from bscontroller.hci.capabilities import HCI_RSSI_NOT_AVAILABLE
 from bscontroller.hci.controller import Controller
-from bscontroller.linklayer import PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
+from bscontroller.linklayer import (
+    PDU_DATA_PAYLOAD_SIZE_MAX,
+    PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
+)
 from bscontroller.linklayer.control import InstantUpdate
 from bscontroller.radio.base import Received
 from tests.unit.helpers import add_connection, create_connection
@@ -43,7 +46,9 @@ async def test_radio_random_address_change_is_atomic_during_initiation(initiatin
     event = packets[0]
     assert isinstance(event, hci.HCI_Command_Complete_Event)
     assert event.command_opcode == hci.HCI_LE_SET_RANDOM_ADDRESS_COMMAND
-    assert event.return_parameters.status == (ErrorCode.COMMAND_DISALLOWED_ERROR if initiating else ErrorCode.SUCCESS)
+    assert event.return_parameters.status == (
+        ErrorCode.COMMAND_DISALLOWED_ERROR if initiating else ErrorCode.SUCCESS
+    )
     assert controller.random_address == (old_address if initiating else new_address)
 
 
@@ -60,7 +65,9 @@ def test_read_rssi_uses_received_strength_and_distinguishes_unknown_handle(conne
     asyncio.run(connection.receive(7, 2500))
     assert listener.on_hci_read_rssi_command(command).rssi == -53
     assert (
-        listener.on_hci_read_rssi_command(hci.HCI_Read_RSSI_Command(connection.handle + 1)).status
+        listener.on_hci_read_rssi_command(
+            hci.HCI_Read_RSSI_Command(connection.handle + 1)
+        ).status
         == ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
     )
 
@@ -68,11 +75,15 @@ def test_read_rssi_uses_received_strength_and_distinguishes_unknown_handle(conne
 def test_hci_acl_and_disconnect_route_to_only_the_selected_handle(connection):
     second = add_connection(connection, 1)
     listener = connection.link.listener
-    packet = hci.HCI_AclDataPacket(second.handle, hci.HCI_ACL_PB_FIRST_FLUSHABLE, 0, 6, b'second')
+    packet = hci.HCI_AclDataPacket(
+        second.handle, hci.HCI_ACL_PB_FIRST_FLUSHABLE, 0, 6, b'second'
+    )
     listener.on_hci_acl_data_packet(packet)
     assert not connection.queue and second.queue[-1].payload == b'second'
     listener.on_hci_disconnect_command(
-        hci.HCI_Disconnect_Command(second.handle, ErrorCode.REMOTE_USER_TERMINATED_CONNECTION_ERROR)
+        hci.HCI_Disconnect_Command(
+            second.handle, ErrorCode.REMOTE_USER_TERMINATED_CONNECTION_ERROR
+        )
     )
     assert not connection.queue and len(second.queue) == 2
     second.complete(ErrorCode.CONNECTION_TERMINATED_BY_LOCAL_HOST_ERROR)
@@ -84,20 +95,32 @@ def test_hci_acl_and_disconnect_route_to_only_the_selected_handle(connection):
 def test_peer_duplicates_and_shared_connection_capacity(connection):
     connection.report_created()
     listener = connection.link.listener
-    listener.on_hci_le_create_connection_command(create_connection(peer_address=connection.peer))
-    assert listener.controller.events[-1].status == ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR
+    listener.on_hci_le_create_connection_command(
+        create_connection(peer_address=connection.peer)
+    )
+    assert (
+        listener.controller.events[-1].status
+        == ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR
+    )
     for index in range(1, CONTROLLER_CONNECTION_COUNT):
         add_connection(connection, index, hci.Role(index % 2))
     listener.on_hci_le_create_connection_command(create_connection())
-    assert listener.controller.events[-1].status == ErrorCode.CONNECTION_LIMIT_EXCEEDED_ERROR
+    assert (
+        listener.controller.events[-1].status
+        == ErrorCode.CONNECTION_LIMIT_EXCEEDED_ERROR
+    )
     assert len(connection.link.connections) == CONTROLLER_CONNECTION_COUNT
 
 
 @pytest.mark.parametrize('existing_extended', [False, True])
-def test_rejected_initiating_command_preserves_pending_context(connection, existing_extended):
+def test_rejected_initiating_command_preserves_pending_context(
+    connection, existing_extended
+):
     listener = connection.link.listener
     if existing_extended:
-        listener.on_hci_le_extended_create_connection_command(create_connection(extended=True))
+        listener.on_hci_le_extended_create_connection_command(
+            create_connection(extended=True)
+        )
     else:
         listener.on_hci_le_create_connection_command(create_connection())
     attempt = connection.link.initiating
@@ -139,15 +162,25 @@ def test_host_channel_classification_is_atomic_and_only_targets_centrals(connect
     peripheral = add_connection(connection, 2, hci.Role.PERIPHERAL)
     channel_map = (1 << 2) | (1 << 8)
     second.controls.pending = InstantUpdate(6, channel_map=channel_map)
-    command = hci.HCI_LE_Set_Host_Channel_Classification_Command(channel_map.to_bytes(5, 'little'))
+    command = hci.HCI_LE_Set_Host_Channel_Classification_Command(
+        channel_map.to_bytes(5, 'little')
+    )
     listener = connection.link.listener
     assert (
-        listener.on_hci_le_set_host_channel_classification_command(command).status == ErrorCode.COMMAND_DISALLOWED_ERROR
+        listener.on_hci_le_set_host_channel_classification_command(command).status
+        == ErrorCode.COMMAND_DISALLOWED_ERROR
     )
     assert connection.controls.pending is None
     second.controls.pending = None
-    assert listener.on_hci_le_set_host_channel_classification_command(command).status == ErrorCode.SUCCESS
-    assert connection.controls.pending.channel_map == second.controls.pending.channel_map == channel_map
+    assert (
+        listener.on_hci_le_set_host_channel_classification_command(command).status
+        == ErrorCode.SUCCESS
+    )
+    assert (
+        connection.controls.pending.channel_map
+        == second.controls.pending.channel_map
+        == channel_map
+    )
     assert peripheral.controls.pending is None
 
 
@@ -158,17 +191,25 @@ def test_hci_busy_or_known_unsupported_peer(connection):
         connection.handle, PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
     )
     connection.peer_features = 0
-    assert p.on_hci_le_set_data_length_command(command).status == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
+    assert (
+        p.on_hci_le_set_data_length_command(command).status
+        == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
+    )
     connection.peer_features = int(hci.LeFeatureMask.LE_DATA_PACKET_LENGTH_EXTENSION)
     assert p.on_hci_le_set_data_length_command(command).status == ErrorCode.SUCCESS
-    assert p.on_hci_le_set_data_length_command(command).status == ErrorCode.COMMAND_DISALLOWED_ERROR
+    assert (
+        p.on_hci_le_set_data_length_command(command).status
+        == ErrorCode.COMMAND_DISALLOWED_ERROR
+    )
 
 
 def test_oversize_host_acl_is_rejected_at_hci_ingress(connection):
     connection.report_created()
     controller = connection.link.listener.controller
     data = bytes(controller.le_acl_data_packet_length + 1)
-    packet = hci.HCI_AclDataPacket(connection.handle, hci.HCI_ACL_PB_FIRST_FLUSHABLE, 0, len(data), data)
+    packet = hci.HCI_AclDataPacket(
+        connection.handle, hci.HCI_ACL_PB_FIRST_FLUSHABLE, 0, len(data), data
+    )
     with pytest.raises(ValueError, match='HCI buffer'):
         controller.on_hci_acl_data_packet(packet)
     assert not connection.queue

@@ -99,8 +99,14 @@ class FieldMetadata:
     list_end: bool = False
 
 
-def metadata(spec: FieldSpec, list_begin: bool = False, list_end: bool = False) -> dict[str, Any]:
-    return {"bscontroller.wire": FieldMetadata(spec=spec, list_begin=list_begin, list_end=list_end)}
+def metadata(
+    spec: FieldSpec, list_begin: bool = False, list_end: bool = False
+) -> dict[str, Any]:
+    return {
+        "bscontroller.wire": FieldMetadata(
+            spec=spec, list_begin=list_begin, list_end=list_end
+        )
+    }
 
 
 def bit_flags_to_strings(bits, bit_flag_names):

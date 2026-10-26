@@ -45,7 +45,14 @@ class H4Parser:
 class H4Server:
     """Serve one Host, terminating on disconnect or transport failure."""
 
-    def __init__(self, controller, path: Path, *, queue_size: int = 128, ready: asyncio.Event | None = None):
+    def __init__(
+        self,
+        controller,
+        path: Path,
+        *,
+        queue_size: int = 128,
+        ready: asyncio.Event | None = None,
+    ):
         if queue_size < 1:
             raise ValueError('queue_size must be positive')
         self.controller = controller
@@ -72,7 +79,9 @@ class H4Server:
         try:
             self.queue.put_nowait(bytes(packet))
         except asyncio.QueueFull:
-            self.finished.set_exception(RuntimeError('HCI Host is not draining Controller output'))
+            self.finished.set_exception(
+                RuntimeError('HCI Host is not draining Controller output')
+            )
 
     async def _write(self):
         while True:
@@ -99,7 +108,10 @@ class H4Server:
         try:
             if self.ready is not None:
                 await self.ready.wait()
-            tasks = [asyncio.create_task(self._read(reader)), asyncio.create_task(self._write())]
+            tasks = [
+                asyncio.create_task(self._read(reader)),
+                asyncio.create_task(self._write()),
+            ]
             # Either EOF/read failure or output failure ends the session. Waiting
             # for both would hang with the other direction blocked on I/O or its queue.
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

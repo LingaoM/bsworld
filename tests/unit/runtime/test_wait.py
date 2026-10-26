@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Unit tests for deadline-based wait helpers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +21,12 @@ import asyncio
 import pytest
 
 from bsworld.runtime import wait as wait_mod
-from bsworld.runtime.wait import wait_for, wait_for_path, wait_for_paths, wait_for_paths_async
+from bsworld.runtime.wait import (
+    wait_for,
+    wait_for_path,
+    wait_for_paths,
+    wait_for_paths_async,
+)
 
 
 def test_wait_for_returns_when_predicate_true_immediately() -> None:
@@ -74,7 +80,9 @@ def test_wait_for_paths_detects_all_present(tmp_path) -> None:
     wait_for_paths([a, b], timeout=1.0)
 
 
-async def test_async_path_wait_allows_other_tasks_to_create_paths(tmp_path, monkeypatch):
+async def test_async_path_wait_allows_other_tasks_to_create_paths(
+    tmp_path, monkeypatch
+):
     paths = [tmp_path / "first", tmp_path / "second"]
 
     def unexpected_executor(*args, **kwargs):
@@ -85,7 +93,9 @@ async def test_async_path_wait_allows_other_tasks_to_create_paths(tmp_path, monk
             await asyncio.sleep(0)
             path.touch()
 
-    monkeypatch.setattr(asyncio.get_running_loop(), "run_in_executor", unexpected_executor)
+    monkeypatch.setattr(
+        asyncio.get_running_loop(), "run_in_executor", unexpected_executor
+    )
     producer = asyncio.create_task(create_paths())
     try:
         await wait_for_paths_async(paths, timeout=1, poll=0.001)

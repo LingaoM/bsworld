@@ -19,6 +19,7 @@ The bsworld pytest plugin is registered via the pyproject.toml pytest11
 entry point when installed, or picked up automatically by pytest from
 sys.path when not installed.
 """
+
 from __future__ import annotations
 
 import sys

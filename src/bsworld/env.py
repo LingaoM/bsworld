@@ -17,6 +17,7 @@
 A single Env instance is created per pytest run and threaded through every
 backend, build, and runtime module.
 """
+
 from __future__ import annotations
 
 import os
@@ -55,7 +56,11 @@ def resolve_run_identity(
     where a run writes its artifacts.
     """
     base_dir = out_dir or os.environ.get("OUT_DIR") or "/tmp"
-    return base_dir, now_tag or _now_tag(), run_uid or os.environ.get("RUN_UID") or _run_uid()
+    return (
+        base_dir,
+        now_tag or _now_tag(),
+        run_uid or os.environ.get("RUN_UID") or _run_uid(),
+    )
 
 
 @dataclass(frozen=True)

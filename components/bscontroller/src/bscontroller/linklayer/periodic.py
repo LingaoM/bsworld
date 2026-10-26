@@ -37,9 +37,13 @@ if TYPE_CHECKING:
 
 async def periodic_transmit(link: RadioLink, item: Advertising) -> None:
     # A single radio cannot replay a train anchor that another event occupied.
-    """Transmit one AUX_SYNC_IND train on its CSA #2 channel (Core Vol 6, Part B, 4.4.2.12, 4.5.8.3)."""
+    """Transmit one AUX_SYNC_IND train on its CSA #2 channel (Core Vol 6, Part B,
+    4.4.2.12, 4.5.8.3).
+    """
     interval_us = item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
-    channel = channel_selection_2(item.periodic_counter, item.periodic_aa, LL_DATA_CHANNEL_MAP_ALL)
+    channel = channel_selection_2(
+        item.periodic_counter, item.periodic_aa, LL_DATA_CHANNEL_MAP_ALL
+    )
     if item.periodic_next_us < link.radio.earliest_start_us(
         channel, item.secondary_phy, transmit=True
     ) or higher_priority_overlap(
@@ -67,7 +71,9 @@ async def periodic_transmit(link: RadioLink, item: Advertising) -> None:
 
 
 async def periodic_receive(link: RadioLink, sync: PeriodicSync) -> None:
-    """Receive one periodic event in the Synchronization state (Core Vol 6, Part B, 4.4.5.1, 4.2.4)."""
+    """Receive one periodic event in the Synchronization state (Core Vol 6, Part B,
+    4.4.5.1, 4.2.4).
+    """
     sync.apply_channel_map()
     info = sync.info
     assert info is not None

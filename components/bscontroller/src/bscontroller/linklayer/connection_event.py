@@ -32,7 +32,10 @@ from bscontroller.linklayer import (
     ControlOpcode,
     LlId,
 )
-from bscontroller.linklayer.channel_selection import channel_selection_1, channel_selection_2
+from bscontroller.linklayer.channel_selection import (
+    channel_selection_1,
+    channel_selection_2,
+)
 from bscontroller.linklayer.state import Role
 from bscontroller.linklayer.timing import (
     LL_CONN_EVENT_GUARD_US,
@@ -74,7 +77,9 @@ class ConnectionEvent:
             return
         continuation = continuation and not self.tx_start_pending
         self.tx_start_pending = False
-        self.queue.append(Outbound(LlId.CONTINUATION if continuation else LlId.START, payload, True))
+        self.queue.append(
+            Outbound(LlId.CONTINUATION if continuation else LlId.START, payload, True)
+        )
 
     def enqueue_control(self, payload: bytes, *, priority: bool = False) -> None:
         item = Outbound(LlId.CONTROL, payload)
@@ -98,7 +103,11 @@ class ConnectionEvent:
 
         See Bluetooth Core 6.3, Vol 6, Part B, 4.5.9.
         """
-        if not valid_crc or len(pdu) < PDU_HEADER_SIZE or pdu[1] != len(pdu) - PDU_HEADER_SIZE:
+        if (
+            not valid_crc
+            or len(pdu) < PDU_HEADER_SIZE
+            or pdu[1] != len(pdu) - PDU_HEADER_SIZE
+        ):
             return
         header, _ = pdu[:PDU_HEADER_SIZE]
         payload = self.connection.llcp.receive(
@@ -116,7 +125,11 @@ class ConnectionEvent:
         # a failed receive must leave the pending TX snapshot intact.
         self.connection.last_rx_us = self.connection.radio.now_us
         self.connection.establish()
-        if self.pending is not None and self.sent_pending and bool(header & PDU_DATA_NESN_MASK) != self.tx_sn:
+        if (
+            self.pending is not None
+            and self.sent_pending
+            and bool(header & PDU_DATA_NESN_MASK) != self.tx_sn
+        ):
             # Process NESN even when the peer payload is a duplicate: it may still
             # acknowledge our last TX and release its pending snapshot.
             acknowledged = self.pending
@@ -128,7 +141,9 @@ class ConnectionEvent:
                 self.connection.llcp.acknowledged(acknowledged.payload)
             if acknowledged.host_packet:
                 self.connection.listener.on_acl_completed(self.connection)
-            if acknowledged.llid == LlId.CONTROL and acknowledged.payload[:1] == bytes([Opcode.LL_TERMINATE_IND]):
+            if acknowledged.llid == LlId.CONTROL and acknowledged.payload[:1] == bytes(
+                [Opcode.LL_TERMINATE_IND]
+            ):
                 self.connection.complete(self.connection.termination_status)
                 return
         if bool(header & PDU_DATA_SN_MASK) != self.rx_nesn:
@@ -141,12 +156,18 @@ class ConnectionEvent:
         if llid == LlId.CONTROL:
             self.connection.control(payload)
         elif llid != LlId.RESERVED and payload:
-            self.connection.listener.on_acl_received(self.connection, llid == LlId.CONTINUATION, payload)
+            self.connection.listener.on_acl_received(
+                self.connection, llid == LlId.CONTINUATION, payload
+            )
 
     def _next_outbound(self) -> Outbound:
         if self.connection.encryption.busy:
             return next(
-                (item for item in self.queue if self.connection.llcp.can_send(item.llid, item.payload)),
+                (
+                    item
+                    for item in self.queue
+                    if self.connection.llcp.can_send(item.llid, item.payload)
+                ),
                 Outbound(LlId.CONTINUATION, b''),
             )
         return self.queue[0] if self.queue else Outbound(LlId.CONTINUATION, b'')
@@ -166,8 +187,10 @@ class ConnectionEvent:
             if self.pending.llid != LlId.CONTROL:
                 limit = self.connection.controls.data_length.tx_payload_limit()
                 if len(self.pending.payload) > limit:
-                    # Keep the original HCI packet's single completion credit on the final
-                    # LL fragment; splitting must not create credits (Vol 4, Part E, 7.7.19).
+                    # Keep the original HCI packet's single completion credit on the
+                    # final
+                    # LL fragment; splitting must not create credits (Vol 4, Part E,
+                    # 7.7.19).
                     packet = self.pending
                     self.queue.appendleft(
                         Outbound(
@@ -176,7 +199,9 @@ class ConnectionEvent:
                             packet.host_packet,
                         )
                     )
-                    self.pending = replace(packet, payload=packet.payload[:limit], host_packet=False)
+                    self.pending = replace(
+                        packet, payload=packet.payload[:limit], host_packet=False
+                    )
         elif self.sent_pending:
             self.retries += 1
             self.connection.link.trace(f"LL RETRANSMIT sn={self.tx_sn}")
@@ -188,7 +213,10 @@ class ConnectionEvent:
             self.pending = item
         more = (
             # Paused Host data must not set MD and keep an otherwise idle event open.
-            any(self.connection.llcp.can_send(entry.llid, entry.payload) for entry in self.queue)
+            any(
+                self.connection.llcp.can_send(entry.llid, entry.payload)
+                for entry in self.queue
+            )
             if self.connection.encryption.busy
             else bool(self.queue)
         )
@@ -204,9 +232,13 @@ class ConnectionEvent:
             self.pending_wire = item.payload
             if self.connection.encryption.tx_enabled:
                 assert self.connection.encryption.cipher is not None
-                self.pending_wire = self.connection.encryption.cipher.encrypt(header, self.pending_wire)
+                self.pending_wire = self.connection.encryption.cipher.encrypt(
+                    header, self.pending_wire
+                )
         pdu = bytes([header, len(self.pending_wire)]) + self.pending_wire
-        self.connection.link.trace(f"LL TX event={self.connection.event_counter} ch={channel} pdu={pdu.hex()}")
+        self.connection.link.trace(
+            f"LL TX event={self.connection.event_counter} ch={channel} pdu={pdu.hex()}"
+        )
         await self.connection.radio.transmit(
             channel,
             pdu,
@@ -221,9 +253,13 @@ class ConnectionEvent:
         self.sent_pending = True
         return bool(header & PDU_DATA_MD_MASK)
 
-    async def receive(self, channel: int, until_us: int, *, start_us: int | None = None):
+    async def receive(
+        self, channel: int, until_us: int, *, start_us: int | None = None
+    ):
         # End address search at the next timer; an already found frame is nonpreemptive.
-        """Receive within the connection event; Coded PHY never rejects below 2704 us (Core Vol 6, Part B, 4.5.10)."""
+        """Receive within the connection event; Coded PHY never rejects below 2704 us
+        (Core Vol 6, Part B, 4.5.10).
+        """
         packet = await self.connection.radio.receive(
             channel,
             min(until_us, self.connection.next_deadline_us),
@@ -235,7 +271,9 @@ class ConnectionEvent:
         )
         if packet is not None:
             self.connection.link.trace(
-                f"LL RX event={self.connection.event_counter} ch={channel} crc={int(packet.valid_crc)} pdu={packet.pdu.hex()}"
+                f"LL RX event={self.connection.event_counter} "
+                f"ch={channel} crc={int(packet.valid_crc)} "
+                f"pdu={packet.pdu.hex()}"
             )
             # Connection establishment is a physical reception, independent of CRC.
             self.connection.establish()
@@ -249,14 +287,20 @@ class ConnectionEvent:
                 or packet.end_us - packet.start_us
                 <= max(
                     self.connection.controls.data_length.local.rx_time,
-                    (PDU_DATA_PAYLOAD_TIME_CODED_MIN_US if self.connection.rx_phy == Phy.LE_CODED else 0),
+                    (
+                        PDU_DATA_PAYLOAD_TIME_CODED_MIN_US
+                        if self.connection.rx_phy == Phy.LE_CODED
+                        else 0
+                    ),
                 )
             )
             self.accept(packet.pdu, packet.valid_crc and within_time)
         return packet
 
     def next_exchange_us(self, *, max_rx: bool = True) -> int:
-        """Air time of the next TX plus a maximum effective RX, separated by T_IFS (Core Vol 6, Part B, 4.1.1, 4.5.10)."""
+        """Air time of the next TX plus a maximum effective RX, separated by T_IFS (Core
+        Vol 6, Part B, 4.1.1, 4.5.10).
+        """
         item = self.pending or self._next_outbound()
         lengths = self.connection.controls.data_length
         tx_length = (
@@ -265,7 +309,11 @@ class ConnectionEvent:
             else min(len(item.payload), lengths.tx_payload_limit())
         )
         effective = lengths.effective()
-        tx_length += PDU_DATA_MIC_SIZE if self.connection.encryption.tx_enabled and tx_length else 0
+        tx_length += (
+            PDU_DATA_MIC_SIZE
+            if self.connection.encryption.tx_enabled and tx_length
+            else 0
+        )
         rx_length = (
             max(
                 PDU_CONTROL_PAYLOAD_SIZE_INITIAL_MAX,
@@ -279,20 +327,33 @@ class ConnectionEvent:
             if max_rx
             else 0
         )
-        rx_length += PDU_DATA_MIC_SIZE if self.connection.encryption.rx_enabled and rx_length else 0
+        rx_length += (
+            PDU_DATA_MIC_SIZE
+            if self.connection.encryption.rx_enabled and rx_length
+            else 0
+        )
         return (
-            self.connection.tx_phy.airtime_us(PDU_HEADER_SIZE + tx_length, self.connection.tx_coding)
+            self.connection.tx_phy.airtime_us(
+                PDU_HEADER_SIZE + tx_length, self.connection.tx_coding
+            )
             + self.connection.rx_phy.airtime_us(PDU_HEADER_SIZE + rx_length)
             + 2 * LL_IFS_US
         )
 
-    async def advance_to_us(self, target_us: int, *, radio_until_us: int | None = None) -> int:
-        """Run one connection event: channel selection, exchanges until close (Core Vol 6, Part B, 4.5.1, 4.5.6, 4.5.8)."""
+    async def advance_to_us(
+        self, target_us: int, *, radio_until_us: int | None = None
+    ) -> int:
+        """Run one connection event: channel selection, exchanges until close (Core Vol
+        6, Part B, 4.5.1, 4.5.6, 4.5.8).
+        """
         self.connection.skip_missed_events()
         if self.connection.check_timeout():
             return self.connection.radio.now_us
         deadline = self.connection.next_deadline_us
-        if target_us < self.connection.event_start_us or self.connection.event_start_us >= deadline:
+        if (
+            target_us < self.connection.event_start_us
+            or self.connection.event_start_us >= deadline
+        ):
             await self.connection.radio.advance_to_us(min(target_us, deadline))
             self.connection.check_timeout()
             return self.connection.radio.now_us
@@ -309,7 +370,9 @@ class ConnectionEvent:
                 self.connection.parameters.channel_map,
             )
             if self.connection.csa2
-            else channel_selection_1(self.connection.unmapped_channel, self.connection.parameters.channel_map)
+            else channel_selection_1(
+                self.connection.unmapped_channel, self.connection.parameters.channel_map
+            )
         )
         # Leave room for the next connection event. MD may extend this event,
         # but never beyond its connection interval.
@@ -320,17 +383,23 @@ class ConnectionEvent:
         )
         if radio_until_us is not None:
             event_end_us = min(event_end_us, radio_until_us)
-        if max(self.connection.radio.now_us + 1, self.connection.event_start_us) + self.next_exchange_us(
-            max_rx=False
-        ) >= event_end_us or (
+        if max(
+            self.connection.radio.now_us + 1, self.connection.event_start_us
+        ) + self.next_exchange_us(max_rx=False) >= event_end_us or (
             self.connection.role == Role.CENTRAL
-            and self.connection.radio.earliest_start_us(channel, self.connection.tx_phy, transmit=True)
+            and self.connection.radio.earliest_start_us(
+                channel, self.connection.tx_phy, transmit=True
+            )
             > self.connection.anchor_us
         ):
             # Admit known TX plus an empty ACK. An actual received frame is
             # nonpreemptive; its size must not be guessed from the maximum DLE.
-            self.connection.anchor_us += self.connection.parameters.interval * LL_CONN_INTERVAL_UNIT_US
-            self.connection.event_counter = (self.connection.event_counter + 1) & LL_EVENT_COUNTER_MASK
+            self.connection.anchor_us += (
+                self.connection.parameters.interval * LL_CONN_INTERVAL_UNIT_US
+            )
+            self.connection.event_counter = (
+                self.connection.event_counter + 1
+            ) & LL_EVENT_COUNTER_MASK
             return self.connection.radio.now_us
         self.connection.last_event_us = self.connection.radio.now_us
         if self.connection.role == Role.CENTRAL:
@@ -342,17 +411,23 @@ class ConnectionEvent:
                     break
                 packet = await self.receive(
                     channel,
-                    self.connection.radio.now_us + LL_IFS_US + self.connection.response_window_us,
+                    self.connection.radio.now_us
+                    + LL_IFS_US
+                    + self.connection.response_window_us,
                 )
                 if packet is None or not packet.valid_crc or self.connection.closed:
                     break
                 start_us = packet.end_us + LL_IFS_US
-                if not (more or packet.pdu[0] & PDU_DATA_MD_MASK) or start_us + self.next_exchange_us() >= event_end_us:
+                if (
+                    not (more or packet.pdu[0] & PDU_DATA_MD_MASK)
+                    or start_us + self.next_exchange_us() >= event_end_us
+                ):
                     break
         else:
             # Core Vol 6, Part B, 4.2.4/4.5.5: listen from widening before the anchor.
             widening = window_widening(
-                self.connection.anchor_us - self.connection.last_rx_us, self.connection.parameters.sca
+                self.connection.anchor_us - self.connection.last_rx_us,
+                self.connection.parameters.sca,
             )
             packet = await self.receive(
                 channel,
@@ -361,7 +436,10 @@ class ConnectionEvent:
                 + widening
                 + self.connection.rx_phy.address_us
                 - 1,
-                start_us=max(self.connection.radio.now_us + 1, self.connection.anchor_us - widening),
+                start_us=max(
+                    self.connection.radio.now_us + 1,
+                    self.connection.anchor_us - widening,
+                ),
             )
             if packet is not None:
                 self.connection.update_window = False
@@ -377,14 +455,25 @@ class ConnectionEvent:
                     self.connection.complete(self.connection.remote_termination)
                     break
                 if (
-                    packet.valid_crc and not (more or packet.pdu[0] & PDU_DATA_MD_MASK)
-                ) or self.connection.radio.now_us + self.next_exchange_us() >= event_end_us:
+                    (
+                        packet.valid_crc
+                        and not (more or packet.pdu[0] & PDU_DATA_MD_MASK)
+                    )
+                    or self.connection.radio.now_us + self.next_exchange_us()
+                    >= event_end_us
+                ):
                     break
                 packet = await self.receive(
                     channel,
-                    self.connection.radio.now_us + LL_IFS_US + self.connection.response_window_us,
+                    self.connection.radio.now_us
+                    + LL_IFS_US
+                    + self.connection.response_window_us,
                 )
-        self.connection.anchor_us += self.connection.parameters.interval * LL_CONN_INTERVAL_UNIT_US
-        self.connection.event_counter = (self.connection.event_counter + 1) & LL_EVENT_COUNTER_MASK
+        self.connection.anchor_us += (
+            self.connection.parameters.interval * LL_CONN_INTERVAL_UNIT_US
+        )
+        self.connection.event_counter = (
+            self.connection.event_counter + 1
+        ) & LL_EVENT_COUNTER_MASK
         self.connection.check_timeout()
         return self.connection.radio.now_us

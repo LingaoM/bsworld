@@ -78,7 +78,9 @@ class BsimClock:
         with self._lock_path.open("x") as lock:
             self._resources.callback(self._lock_path.unlink, missing_ok=True)
             # BabbleSim checks PID and /proc start time when inspecting locks.
-            start_time = Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19]
+            start_time = (
+                Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19]
+            )
             lock.write(f"{os.getpid()}\n{start_time}\n")
 
     def _connect_fifos(self, deadline: float) -> None:
@@ -95,13 +97,18 @@ class BsimClock:
                     raise
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError(f"BabbleSim clock device {self.dev_id} did not connect")
+                raise TimeoutError(
+                    f"BabbleSim clock device {self.dev_id} did not connect"
+                )
             time.sleep(min(0.01, remaining))
 
     def _wait_io(self, fd: int, deadline: float, *, write: bool = False) -> None:
         remaining = max(0.0, deadline - time.monotonic())
         readable, writable, _ = select.select(
-            [] if write else [fd], [fd] if write else [], [], remaining,
+            [] if write else [fd],
+            [fd] if write else [],
+            [],
+            remaining,
         )
         if not readable and not writable:
             raise TimeoutError("timed out waiting for BabbleSim PHY")
@@ -114,7 +121,9 @@ class BsimClock:
                 self._wait_io(self._write_fd, deadline, write=True)
                 continue
             except BrokenPipeError as exc:
-                raise RuntimeError("BabbleSim PHY disconnected while advancing time") from exc
+                raise RuntimeError(
+                    "BabbleSim PHY disconnected while advancing time"
+                ) from exc
             if written == 0:
                 raise RuntimeError("BabbleSim PHY request write made no progress")
             packet = packet[written:]
@@ -135,7 +144,9 @@ class BsimClock:
     def advance_to_us(self, target_us: int) -> int:
         target_us = int(target_us)
         if not 0 <= target_us < (1 << 64) - 1:
-            raise ValueError("BabbleSim target must be a finite uint64 time in microseconds")
+            raise ValueError(
+                "BabbleSim target must be a finite uint64 time in microseconds"
+            )
         if self._write_fd is None:
             raise RuntimeError("BabbleSim clock is not connected")
         if target_us <= self._now_us:

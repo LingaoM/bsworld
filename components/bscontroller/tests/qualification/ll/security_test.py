@@ -204,9 +204,9 @@ async def _finish(
         assert await link.control(Opcode.LL_START_ENC_RSP, check_ack=True) == bytes(
             [Opcode.LL_START_ENC_RSP]
         )
-        assert (
-            len(link.received_data) == received_before
-        ), 'user data sent before encryption completed'
+        assert len(link.received_data) == received_before, (
+            'user data sent before encryption completed'
+        )
         _no_encryption_result(tester)
         link.tx_enabled = True
         await link.exchange(bytes([Opcode.LL_START_ENC_RSP]), llid=LlId.CONTROL)
@@ -225,9 +225,9 @@ async def _finish(
             bytes([Opcode.LL_START_ENC_RSP]),
             check_ack=True,
         ) == bytes([Opcode.LL_START_ENC_RSP])
-        assert (
-            len(link.received_data) == received_before
-        ), 'queued data leaked before refresh completed'
+        assert len(link.received_data) == received_before, (
+            'queued data leaked before refresh completed'
+        )
     await link.exchange()
     if not check_event:
         # Event-version procedures verify their own mask-dependent HCI result.
@@ -415,9 +415,9 @@ async def _overlapping(tester, *, features=False, version_exchanged=False):
     await _begin(tester, link)
     await link.exchange(payload, llid=LlId.CONTROL)
     packet = await link.exchange()
-    assert (
-        packet.pdu[PDU_HEADER_SIZE:] == b''
-    ), 'overlapping response sent before encryption completes'
+    assert packet.pdu[PDU_HEADER_SIZE:] == b'', (
+        'overlapping response sent before encryption completes'
+    )
     await _finish(tester, link)
     completed_us = link.last_new_mic_tx_us
     assert completed_us is not None
@@ -459,9 +459,9 @@ def _check_overlapping_responses(controls, opcode, completed_us, *, ignored=Fals
         payload = packet.pdu[PDU_HEADER_SIZE:]
         if payload and payload[0] == opcode:
             assert not ignored, 'IUT answered an already exchanged version'
-            assert (
-                encrypted and packet.start_us > completed_us
-            ), 'overlapping response sent before encryption completes'
+            assert encrypted and packet.start_us > completed_us, (
+                'overlapping response sent before encryption completes'
+            )
             responses.append(payload)
     assert ignored or responses, 'deferred control response not received'
     return responses
@@ -520,9 +520,9 @@ async def _pause_procedure(tester, *, central, send_data=False):
             )
         )
     await _begin(tester, link, refresh=True)
-    assert (
-        len(link.received_data) == queued_before
-    ), 'user data sent during the unencrypted restart handshake'
+    assert len(link.received_data) == queued_before, (
+        'user data sent during the unencrypted restart handshake'
+    )
     assert link.iv != old_iv
     assert link.session_key != old_key, 'session key was reused during refresh'
     _no_encryption_result(tester)

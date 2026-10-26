@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Tests for package version discovery."""
+
 from __future__ import annotations
 
 import importlib.metadata
@@ -32,7 +33,9 @@ def test_version_falls_back_without_distribution_metadata(monkeypatch) -> None:
 
     monkeypatch.setattr(importlib.metadata, "version", missing_distribution)
     package_init = Path(bsworld.__file__)
-    spec = importlib.util.spec_from_file_location("bsworld_without_metadata", package_init)
+    spec = importlib.util.spec_from_file_location(
+        "bsworld_without_metadata", package_init
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)

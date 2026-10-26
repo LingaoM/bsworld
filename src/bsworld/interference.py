@@ -29,8 +29,17 @@ from typing import Final, Literal, get_args
 from .devices import Controller, ProcessInstance
 
 InterfType = Literal[
-    "CW", "WLAN", "BLE",
-    "WN1", "WN2", "WN4", "WN8", "WN16", "WN20", "WN40", "WN80",
+    "CW",
+    "WLAN",
+    "BLE",
+    "WN1",
+    "WN2",
+    "WN4",
+    "WN8",
+    "WN16",
+    "WN20",
+    "WN40",
+    "WN80",
 ]
 
 WlanConfigSet = Literal[
@@ -95,7 +104,9 @@ def _validate_center_freq_mhz(name: str, value: object) -> None:
 def _validate_power_dbm(name: str, value: object) -> None:
     power = _finite_real(name, value)
     if not (BSIM_POWER_MIN_DBM <= power <= BSIM_POWER_MAX_DBM):
-        raise ValueError(f"{name} must be between {BSIM_POWER_MIN_DBM} and {BSIM_POWER_MAX_DBM} dBm")
+        raise ValueError(
+            f"{name} must be between {BSIM_POWER_MIN_DBM} and {BSIM_POWER_MAX_DBM} dBm"
+        )
 
 
 def _validate_choice(name: str, value: str, allowed: tuple[str, ...]) -> None:
@@ -122,9 +133,13 @@ def _integer_time_us(name: str, value: object) -> int:
     return int(time_us)
 
 
-def _validate_windows(name: str, windows: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def _validate_windows(
+    name: str, windows: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
     if len(windows) > BSIM_INTERFERENCE_MAX_WINDOWS:
-        raise ValueError(f"{name} supports at most {BSIM_INTERFERENCE_MAX_WINDOWS} windows")
+        raise ValueError(
+            f"{name} supports at most {BSIM_INTERFERENCE_MAX_WINDOWS} windows"
+        )
 
     normalized: list[tuple[int, int]] = []
     previous_end = 0
@@ -132,7 +147,9 @@ def _validate_windows(name: str, windows: list[tuple[int, int]]) -> list[tuple[i
         try:
             start_raw, end_raw = window
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"{name}[{index}] must be a (start_us, end_us) pair") from exc
+            raise ValueError(
+                f"{name}[{index}] must be a (start_us, end_us) pair"
+            ) from exc
         start = _integer_time_us(f"{name}[{index}].start_us", start_raw)
         end = _integer_time_us(f"{name}[{index}].end_us", end_raw)
         if start <= 0:
@@ -148,7 +165,11 @@ def _validate_windows(name: str, windows: list[tuple[int, int]]) -> list[tuple[i
 
 def _validate_channel_attenuation(name: str, value: object) -> None:
     attenuation = _finite_real(name, value)
-    if not (BSIM_CHANNEL_ATTENUATION_MIN_DB <= attenuation <= BSIM_CHANNEL_ATTENUATION_MAX_DB):
+    if not (
+        BSIM_CHANNEL_ATTENUATION_MIN_DB
+        <= attenuation
+        <= BSIM_CHANNEL_ATTENUATION_MAX_DB
+    ):
         raise ValueError(
             f"{name} must be between {BSIM_CHANNEL_ATTENUATION_MIN_DB} and "
             f"{BSIM_CHANNEL_ATTENUATION_MAX_DB} dB"
@@ -172,6 +193,7 @@ class BurstInterference:
     Maps to bs_device_2G4_burst_interf.
     windows: list of (start_us, end_us) pairs; empty = run for entire simulation.
     """
+
     center_freq_mhz: float
     power_dbm: float = 20.0
     interf_type: InterfType = "CW"
@@ -179,9 +201,13 @@ class BurstInterference:
     rand_seed: int | None = None
 
     def __post_init__(self) -> None:
-        _validate_center_freq_mhz("BurstInterference.center_freq_mhz", self.center_freq_mhz)
+        _validate_center_freq_mhz(
+            "BurstInterference.center_freq_mhz", self.center_freq_mhz
+        )
         _validate_power_dbm("BurstInterference.power_dbm", self.power_dbm)
-        _validate_choice("BurstInterference.interf_type", self.interf_type, SUPPORTED_INTERF_TYPES)
+        _validate_choice(
+            "BurstInterference.interf_type", self.interf_type, SUPPORTED_INTERF_TYPES
+        )
         self.windows = _validate_windows("BurstInterference.windows", self.windows)
         _validate_random_seed("BurstInterference.rand_seed", self.rand_seed)
 
@@ -194,6 +220,7 @@ class WlanInterference:
     Specify either channel (1-14) or center_freq_mhz, not both.
     windows: list of (start_us, end_us) pairs; empty = run for entire simulation.
     """
+
     channel: int | None = None
     center_freq_mhz: float | None = None
     power_dbm: float = 20.0
@@ -204,9 +231,13 @@ class WlanInterference:
 
     def __post_init__(self) -> None:
         if self.channel is None and self.center_freq_mhz is None:
-            raise ValueError("WlanInterference: specify either channel or center_freq_mhz")
+            raise ValueError(
+                "WlanInterference: specify either channel or center_freq_mhz"
+            )
         if self.channel is not None and self.center_freq_mhz is not None:
-            raise ValueError("WlanInterference: specify either channel or center_freq_mhz, not both")
+            raise ValueError(
+                "WlanInterference: specify either channel or center_freq_mhz, not both"
+            )
         if self.channel is not None:
             if isinstance(self.channel, bool) or not isinstance(self.channel, int):
                 raise ValueError("WlanInterference.channel must be an integer")
@@ -216,10 +247,16 @@ class WlanInterference:
                     f"and {BSIM_WLAN_CHANNEL_MAX}"
                 )
         if self.center_freq_mhz is not None:
-            _validate_center_freq_mhz("WlanInterference.center_freq_mhz", self.center_freq_mhz)
+            _validate_center_freq_mhz(
+                "WlanInterference.center_freq_mhz", self.center_freq_mhz
+            )
         _validate_power_dbm("WlanInterference.power_dbm", self.power_dbm)
-        _validate_choice("WlanInterference.config_set", self.config_set, SUPPORTED_WLAN_CONFIG_SETS)
-        _validate_choice("WlanInterference.mod_type", self.mod_type, SUPPORTED_INTERF_TYPES)
+        _validate_choice(
+            "WlanInterference.config_set", self.config_set, SUPPORTED_WLAN_CONFIG_SETS
+        )
+        _validate_choice(
+            "WlanInterference.mod_type", self.mod_type, SUPPORTED_INTERF_TYPES
+        )
         self.windows = _validate_windows("WlanInterference.windows", self.windows)
         _validate_random_seed("WlanInterference.rand_seed", self.rand_seed)
 
@@ -232,6 +269,7 @@ class PlaybackInterference:
     input_file: path prefix (without extension); expects .Tx.csv / .Rx.csv /
     .RSSI.csv / .CCA.csv alongside.
     """
+
     input_file: Path
     tx: bool = True
     rx: bool = True
@@ -252,6 +290,7 @@ class TimedAttenuation:
     times_us: simulation timestamps in microseconds, strictly ascending.
     attenuation_db: attenuation value at the corresponding timestamp.
     """
+
     tx: PathEndpoint
     rx: PathEndpoint
     times_us: list[int]
@@ -259,11 +298,18 @@ class TimedAttenuation:
 
     def __post_init__(self) -> None:
         if len(self.times_us) != len(self.attenuation_db):
-            raise ValueError("TimedAttenuation: times_us and attenuation_db must have the same length")
+            raise ValueError(
+                (
+                    "TimedAttenuation: times_us and attenuation_db must have the same "
+                    "length"
+                )
+            )
         if len(self.times_us) < 2:
             raise ValueError("TimedAttenuation: at least 2 time points required")
         for index, time_us in enumerate(self.times_us):
-            self.times_us[index] = _integer_time_us(f"TimedAttenuation.times_us[{index}]", time_us)
+            self.times_us[index] = _integer_time_us(
+                f"TimedAttenuation.times_us[{index}]", time_us
+            )
         if any(b <= a for a, b in zip(self.times_us, self.times_us[1:])):
             raise ValueError("TimedAttenuation: times_us must be strictly ascending")
         for index, attenuation_db in enumerate(self.attenuation_db):
@@ -278,6 +324,7 @@ class StaticAttenuation:
         InterferenceRef.
     attenuation_db: fixed attenuation for that directed path.
     """
+
     tx: PathEndpoint
     rx: PathEndpoint
     attenuation_db: float
@@ -298,6 +345,7 @@ class ChannelAttenuation:
     static_paths: fixed per-path attenuation profiles.
     timed_paths: time-varying per-path attenuation profiles.
     """
+
     default_attenuation_db: float = 60.0
     extra_attenuation_db: float = 0.0
     matrix_file: Path | None = None
@@ -305,10 +353,19 @@ class ChannelAttenuation:
     timed_paths: list[TimedAttenuation] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        _validate_channel_attenuation("ChannelAttenuation.default_attenuation_db", self.default_attenuation_db)
-        _validate_channel_attenuation("ChannelAttenuation.extra_attenuation_db", self.extra_attenuation_db)
+        _validate_channel_attenuation(
+            "ChannelAttenuation.default_attenuation_db", self.default_attenuation_db
+        )
+        _validate_channel_attenuation(
+            "ChannelAttenuation.extra_attenuation_db", self.extra_attenuation_db
+        )
         if self.matrix_file is not None and (self.static_paths or self.timed_paths):
-            raise ValueError("ChannelAttenuation: use either matrix_file or generated paths, not both")
+            raise ValueError(
+                (
+                    "ChannelAttenuation: use either matrix_file or generated paths, "
+                    "not both"
+                )
+            )
 
 
 InterferenceSource = BurstInterference | WlanInterference | PlaybackInterference

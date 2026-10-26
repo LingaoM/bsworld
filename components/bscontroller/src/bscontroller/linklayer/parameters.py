@@ -36,16 +36,25 @@ CONNECT_DATA = struct.Struct("<I3sBHHHH5sB")
 
 
 def valid_channel_map(value: int) -> bool:
-    return value >= 0 and not value >> LL_DATA_CHANNEL_COUNT and value.bit_count() >= LL_DATA_CHANNEL_COUNT_MIN
+    return (
+        value >= 0
+        and not value >> LL_DATA_CHANNEL_COUNT
+        and value.bit_count() >= LL_DATA_CHANNEL_COUNT_MIN
+    )
 
 
-def valid_timing(interval_min: int, interval_max: int, latency: int, timeout: int) -> bool:
+def valid_timing(
+    interval_min: int, interval_max: int, latency: int, timeout: int
+) -> bool:
     return (
         LL_CONN_INTERVAL_MIN <= interval_min <= interval_max <= LL_CONN_INTERVAL_MAX
         and 0 <= latency <= LL_CONN_LATENCY_MAX
         and LL_SUPERVISION_TIMEOUT_MIN <= timeout <= LL_SUPERVISION_TIMEOUT_MAX
         and timeout * LL_SUPERVISION_TIMEOUT_UNIT_US
-        > LL_SUPERVISION_TIMEOUT_INTERVAL_FACTOR * (latency + 1) * interval_max * LL_CONN_INTERVAL_UNIT_US
+        > LL_SUPERVISION_TIMEOUT_INTERVAL_FACTOR
+        * (latency + 1)
+        * interval_max
+        * LL_CONN_INTERVAL_UNIT_US
     )
 
 
@@ -65,8 +74,12 @@ class Parameters:
     @classmethod
     def decode(cls, data: bytes) -> Parameters:
         if len(data) != CONNECT_DATA.size:
-            raise ValueError(f"CONNECT_IND LLData must contain {CONNECT_DATA.size} octets")
-        aa, crc, size, offset, interval, latency, timeout, channels, hop_sca = CONNECT_DATA.unpack(data)
+            raise ValueError(
+                f"CONNECT_IND LLData must contain {CONNECT_DATA.size} octets"
+            )
+        aa, crc, size, offset, interval, latency, timeout, channels, hop_sca = (
+            CONNECT_DATA.unpack(data)
+        )
         result = cls(
             aa,
             int.from_bytes(crc, "little"),
@@ -82,7 +95,9 @@ class Parameters:
         if not valid_timing(interval, interval, latency, timeout):
             raise ValueError("invalid connection timing")
         if not (
-            LL_CONN_WINDOW_SIZE_MIN <= size <= min(LL_CONN_WINDOW_SIZE_MAX, interval - 1)
+            LL_CONN_WINDOW_SIZE_MIN
+            <= size
+            <= min(LL_CONN_WINDOW_SIZE_MAX, interval - 1)
             and offset <= interval
             and LL_HOP_INCREMENT_MIN <= result.hop <= LL_HOP_INCREMENT_MAX
         ):

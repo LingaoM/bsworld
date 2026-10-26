@@ -16,8 +16,15 @@
 
 from __future__ import annotations
 
-from tests.integration.zephyr.samples.common import load_zephyr_profile, require_binaries, sample_log_subdir
-from tests.integration.zephyr.samples.mesh.devices import ZEPHYR_MESH, ZEPHYR_MESH_PROVISIONER
+from tests.integration.zephyr.samples.common import (
+    load_zephyr_profile,
+    require_binaries,
+    sample_log_subdir,
+)
+from tests.integration.zephyr.samples.mesh.devices import (
+    ZEPHYR_MESH,
+    ZEPHYR_MESH_PROVISIONER,
+)
 
 _TIMEOUT = 180.0
 

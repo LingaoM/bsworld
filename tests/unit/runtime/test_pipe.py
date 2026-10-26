@@ -131,7 +131,10 @@ def test_wait_log_line_notification_prevents_an_extra_simulation_step(tmp_path) 
 
     clock.before_advance = emit_line
     try:
-        assert run_on_clock(capture.wait_log(r"ready", timeout=1.0), clock=clock) == "ready"
+        assert (
+            run_on_clock(capture.wait_log(r"ready", timeout=1.0), clock=clock)
+            == "ready"
+        )
         assert clock.targets_us == [10_000]
     finally:
         capture.stop()

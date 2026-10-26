@@ -54,7 +54,8 @@ def _add_host(topo: BluetoothTopology, role: str) -> ProcessInstance:
         pytest.fail(
             f"TrouBLE adapter binary missing: {binary}\n"
             "Build it with `cargo build` in tests/integration/trouble/source, "
-            "or set BSWORLD_TROUBLE_NATIVE_BIN. See tests/integration/trouble/README.md."
+            "or set BSWORLD_TROUBLE_NATIVE_BIN. See "
+            "tests/integration/trouble/README.md."
         )
 
     def argv(executable: Path, slot: AppSlot) -> list[str | Path]:

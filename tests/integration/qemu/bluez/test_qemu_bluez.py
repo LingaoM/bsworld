@@ -56,7 +56,9 @@ async def _initialize_bluez(guest: ProcessInstance) -> None:
     await guest.shell.run("bluetoothctl")
     await guest.wait_log(r"Agent registered", timeout=10)
     await guest.shell.run("list")
-    await guest.wait_log(rf"Controller {_CONTROLLER_ADDRESS} BlueZ \d+\.\d+ \[default\]", timeout=10)
+    await guest.wait_log(
+        rf"Controller {_CONTROLLER_ADDRESS} BlueZ \d+\.\d+ \[default\]", timeout=10
+    )
     # The adapter may already be powered when bluetoothctl discovers it, so
     # query its state rather than requiring a power-change notification.
     await guest.shell.run("show")
@@ -70,7 +72,9 @@ async def _initialize_bluez(guest: ProcessInstance) -> None:
     )
 
 
-async def test_qemu_bluez_initializes_virtual_controller(topo: BluetoothTopology) -> None:
+async def test_qemu_bluez_initializes_virtual_controller(
+    topo: BluetoothTopology,
+) -> None:
     guest = _load_qemu_bluez(topo)
     await topo.start()
 
@@ -78,9 +82,13 @@ async def test_qemu_bluez_initializes_virtual_controller(topo: BluetoothTopology
     await guest.shell.run("quit")
 
 
-async def test_qemu_bluez_advertises_to_bumble_observer(topo: BluetoothTopology) -> None:
+async def test_qemu_bluez_advertises_to_bumble_observer(
+    topo: BluetoothTopology,
+) -> None:
     guest = _load_qemu_bluez(topo)
-    observer_ctl = add_bumble_controller(topo, "bluez_observer", _BUMBLE_OBSERVER_ADDRESS)
+    observer_ctl = add_bumble_controller(
+        topo, "bluez_observer", _BUMBLE_OBSERVER_ADDRESS
+    )
     topo.set_channel_attenuation(default_db=45.0)
     await topo.start()
 
@@ -105,13 +113,18 @@ async def test_qemu_bluez_advertises_to_bumble_observer(topo: BluetoothTopology)
             await guest.shell.run("menu advertise")
             await guest.shell.run(f"name {_BLUEZ_ADVERTISING_NAME}")
             await guest.shell.run("name")
-            await guest.wait_log(rf"LocalName: {_BLUEZ_ADVERTISING_NAME}", timeout=_TIMEOUT)
+            await guest.wait_log(
+                rf"LocalName: {_BLUEZ_ADVERTISING_NAME}", timeout=_TIMEOUT
+            )
             await guest.shell.run("back")
             await guest.shell.run("advertise on")
             await guest.wait_log(r"Advertising object registered", timeout=_TIMEOUT)
 
             advertisement = await asyncio.wait_for(found, timeout=_TIMEOUT)
-            assert advertisement.address.to_string(with_type_qualifier=False) == _CONTROLLER_ADDRESS
+            assert (
+                advertisement.address.to_string(with_type_qualifier=False)
+                == _CONTROLLER_ADDRESS
+            )
         finally:
             observer.remove_listener("advertisement", on_advertisement)
             await observer.stop_scanning()
@@ -119,9 +132,13 @@ async def test_qemu_bluez_advertises_to_bumble_observer(topo: BluetoothTopology)
             await guest.shell.run("quit")
 
 
-async def test_qemu_bluez_scans_and_connects_bumble_peripheral(topo: BluetoothTopology) -> None:
+async def test_qemu_bluez_scans_and_connects_bumble_peripheral(
+    topo: BluetoothTopology,
+) -> None:
     guest = _load_qemu_bluez(topo)
-    peripheral_ctl = add_bumble_controller(topo, "bluez_peripheral", _BUMBLE_PERIPHERAL_ADDRESS)
+    peripheral_ctl = add_bumble_controller(
+        topo, "bluez_peripheral", _BUMBLE_PERIPHERAL_ADDRESS
+    )
     topo.set_channel_attenuation(default_db=45.0)
     await topo.start()
 

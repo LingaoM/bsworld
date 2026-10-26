@@ -507,9 +507,9 @@ def _check_feature_pdu(declared, pdu, *, opcode=Opcode.LL_FEATURE_RSP):
     if response:
         required &= ~((1 << 8) - 1)
     assert features & required == required, 'required local feature absent'
-    assert not features & (
-        int(forbidden) | ~defined | ~declared
-    ), 'forbidden, RFU or undeclared feature reported to peer'
+    assert not features & (int(forbidden) | ~defined | ~declared), (
+        'forbidden, RFU or undeclared feature reported to peer'
+    )
 
 
 def _check_parameter_pdu(payload):
@@ -1187,9 +1187,9 @@ class _LengthObserver:
                     event.max_rx_time,
                 )
             )
-        assert (
-            events == self.changes[: len(events)]
-        ), 'incorrect effective-length changes'
+        assert events == self.changes[: len(events)], (
+            'incorrect effective-length changes'
+        )
         del self.changes[: len(events)]
         if final:
             assert not self.changes, 'missing effective-length changes'
@@ -1940,9 +1940,9 @@ async def _connection_complete(
     )
     assert isinstance(event, complete_types), 'event preceded Connection Complete'
     if legacy_only:
-        assert isinstance(
-            event, hci.HCI_LE_Connection_Complete_Event
-        ), 'masked Enhanced Connection Complete was emitted'
+        assert isinstance(event, hci.HCI_LE_Connection_Complete_Event), (
+            'masked Enhanced Connection Complete was emitted'
+        )
     assert (event.status, event.role, event.peer_address) == (
         ErrorCode.SUCCESS,
         hci.Role.CENTRAL if link.central else hci.Role.PERIPHERAL,
@@ -2139,9 +2139,9 @@ async def _incoming_connection(tester, links, packet, *, parameters=None):
     assert actual_end == end
     link = PeerLink(tester, parameters, actual_end)
     await _connection_complete(tester, link, peer, legacy_only=True)
-    assert all(
-        link.handle != other.handle for other in links
-    ), 'connection handle reused'
+    assert all(link.handle != other.handle for other in links), (
+        'connection handle reused'
+    )
     return link
 
 
@@ -2232,9 +2232,9 @@ async def _outgoing_connection(tester, links):
             check_access_address(parameters.access_address)
             link = PeerLink(tester, parameters, request.end_us, central=True)
             await _connection_complete(tester, link, peer, legacy_only=True)
-            assert all(
-                link.handle != other.handle for other in links
-            ), 'connection handle reused'
+            assert all(link.handle != other.handle for other in links), (
+                'connection handle reused'
+            )
             return link
         next_start = (
             start + ADV_INTERVAL_US + generator.randrange(LL_ADV_DELAY_MAX_US + 1)
@@ -2291,9 +2291,9 @@ async def _service_peer(links):
     assert packet.pdu[0] & PDU_DATA_LLID_MASK == LlId.CONTINUATION
     assert len(packet.pdu) == PDU_HEADER_SIZE and packet.pdu[1] == 0
     if link.central and link.counter > 1:
-        assert bool(packet.pdu[0] & PDU_DATA_NESN_MASK) != bool(
-            previous_sn
-        ), 'existing ACL stopped acknowledging DATA'
+        assert bool(packet.pdu[0] & PDU_DATA_NESN_MASK) != bool(previous_sn), (
+            'existing ACL stopped acknowledging DATA'
+        )
     return link
 
 
@@ -2499,9 +2499,10 @@ async def _central_response(link, request):
         for _ in range(16):
             if packet.pdu[0] & PDU_DATA_LLID_MASK == LlId.CONTROL:
                 response = packet.pdu[PDU_HEADER_SIZE:]
-                assert (
-                    response[0] == Opcode.LL_PHY_UPDATE_IND
-                ), 'unexpected control after PHY request; Central must not send PHY_RSP'
+                assert response[0] == Opcode.LL_PHY_UPDATE_IND, (
+                    'unexpected control after PHY request; Central must not send '
+                    'PHY_RSP'
+                )
                 return response
             packet = await link.exchange()
         raise AssertionError('Central PHY update indication absent')
@@ -2856,9 +2857,9 @@ async def _phy_update(tester, *, central, local):
     features = int.from_bytes(result.le_features, 'little')
     assert features & int(
         hci.LeFeatureMask.LE_2M_PHY | hci.LeFeatureMask.LE_CODED_PHY
-    ) == int(
-        hci.LeFeatureMask.LE_2M_PHY | hci.LeFeatureMask.LE_CODED_PHY
-    ), 'reduced-feature PHY tables require a separate procedure'
+    ) == int(hci.LeFeatureMask.LE_2M_PHY | hci.LeFeatureMask.LE_CODED_PHY), (
+        'reduced-feature PHY tables require a separate procedure'
+    )
     supported = _bit(Phy.LE_1M) | _bit(Phy.LE_2M) | _bit(Phy.LE_CODED)
     link = await establish(
         tester,
@@ -2872,7 +2873,9 @@ async def _phy_update(tester, *, central, local):
     table = (
         CENTRAL_INITIATING
         if central and local
-        else PERIPHERAL_INITIATING if local else RESPONDING
+        else PERIPHERAL_INITIATING
+        if local
+        else RESPONDING
     )
     rows = list(enumerate(table, 1))
     changes = procedures = 0
@@ -3192,9 +3195,9 @@ async def _phy_collision_peripheral_collision(tester, *, procedure):
             instant,
         )
     packet = await link.exchange(incoming, llid=LlId.CONTROL, check_ack=True)
-    assert (
-        packet.pdu[0] & PDU_DATA_LLID_MASK != LlId.CONTROL
-    ), 'Peripheral rejected or answered the Central before local rejection'
+    assert packet.pdu[0] & PDU_DATA_LLID_MASK != LlId.CONTROL, (
+        'Peripheral rejected or answered the Central before local rejection'
+    )
     reason = (
         PROCEDURE_COLLISION
         if procedure == 'phy'
@@ -3571,7 +3574,9 @@ async def _packet_time_restrictions(
     stream.trigger = (
         Opcode.LL_PHY_UPDATE_IND
         if central
-        else Opcode.LL_PHY_REQ if local else Opcode.LL_PHY_RSP
+        else Opcode.LL_PHY_REQ
+        if local
+        else Opcode.LL_PHY_RSP
     )
     stream.limit = size - 1
     target = Phy.LE_CODED if coded else Phy.LE_1M
@@ -3797,7 +3802,9 @@ async def _retransmissions(tester, *, central=False, mode='crc', latency=False):
         timeout=(
             LL_SUPERVISION_TIMEOUT_MAX
             if latency
-            else ARQ_CENTRAL_TIMEOUT if central else 100
+            else ARQ_CENTRAL_TIMEOUT
+            if central
+            else 100
         ),
         latency=1 if latency else 0,
     )
@@ -4513,9 +4520,9 @@ def _completion_events(tester, link, *, extended=False):
         else:
             terminations.append(event)
     if not link.central and (not extended):
-        assert not selections and (
-            not terminations
-        ), 'legacy Peripheral emitted an ineligible event'
+        assert not selections and (not terminations), (
+            'legacy Peripheral emitted an ineligible event'
+        )
     else:
         assert len(selections) <= 1
         if link.central:
@@ -4575,10 +4582,7 @@ def _central_first_window(
     """Inclusive integer-us bounds from LL.TS.p28 Section 4.3.4's formula."""
     delay = window_delay_us + parameters.window_offset * LL_CONN_INTERVAL_UNIT_US
     size = parameters.window_size * LL_CONN_INTERVAL_UNIT_US
-    ppm = (
-        LL_SCA_PPM[parameters.hop_sca >> PDU_ADV_CONNECT_SCA_SHIFT]
-        + LL_LOCAL_SCA_PPM
-    )
+    ppm = LL_SCA_PPM[parameters.hop_sca >> PDU_ADV_CONNECT_SCA_SHIFT] + LL_LOCAL_SCA_PPM
     return (
         anchor - delay * ppm // PHY_TIME_UNITS_PER_SECOND - LL_CLOCK_JITTER_US,
         anchor
@@ -5046,9 +5050,9 @@ async def _observe_disconnection(tester, earliest, latest):
     while tester.radio.now_us <= latest:
         event = _disconnected(tester)
         if event is not None:
-            assert (
-                tester.radio.now_us >= earliest
-            ), 'disconnection before the allowed expiry window'
+            assert tester.radio.now_us >= earliest, (
+                'disconnection before the allowed expiry window'
+            )
             return event
         if tester.radio.now_us == latest:
             break
@@ -5150,9 +5154,9 @@ async def _procedure_timeout(tester, *, central=True, parameters=False):
         ErrorCode.LMP_OR_LL_RESPONSE_TIMEOUT_ERROR,
     )
     await _check_rf_stopped(link)
-    assert not any(
-        isinstance(event, terminal_types) for event in tester.events
-    ), 'procedure completion or duplicate disconnection after disconnection'
+    assert not any(isinstance(event, terminal_types) for event in tester.events), (
+        'procedure completion or duplicate disconnection after disconnection'
+    )
 
 
 async def _supervision(tester, *, central=False):
@@ -5462,9 +5466,9 @@ async def _responding_version(tester, link, expected, *, duplicate=True):
         )
         versions = [_version_payload(packet) for packet in packets]
         assert all(version in (None, expected) for version in versions)
-        assert versions.count(expected) == int(
-            responded
-        ), 'duplicate Version Indication'
+        assert versions.count(expected) == int(responded), (
+            'duplicate Version Indication'
+        )
         assert _completion(tester) is None, 'unsolicited Host version completion'
         if responded:
             return
@@ -5485,9 +5489,9 @@ async def _quiet_events(link, count, *, no_completion=False):
         packet = await link.exchange(check_ack=True)
         if link.central:
             assert int(bool(packet.pdu[0] & PDU_DATA_NESN_MASK)) != sent_sn
-        assert (
-            _version_payload(packet) is None
-        ), 'extra LL_VERSION_IND in one connection'
+        assert _version_payload(packet) is None, (
+            'extra LL_VERSION_IND in one connection'
+        )
         assert _disconnected(link.tester) is None
         if no_completion:
             assert _completion(link.tester) is None
@@ -5623,9 +5627,9 @@ async def _version_timeout(tester, *, central=False):
                 if isinstance(
                     event, hci.HCI_Read_Remote_Version_Information_Complete_Event
                 ):
-                    assert (
-                        requested
-                    ), 'unsolicited Host completion for autonomous version'
+                    assert requested, (
+                        'unsolicited Host completion for autonomous version'
+                    )
                     _check_completion(
                         event,
                         link.handle,
@@ -5637,9 +5641,9 @@ async def _version_timeout(tester, *, central=False):
             ):
                 assert len(terminal) <= 2
                 event = terminal[-1]
-                assert isinstance(
-                    event, hci.HCI_Disconnection_Complete_Event
-                ), 'version completion followed disconnection'
+                assert isinstance(event, hci.HCI_Disconnection_Complete_Event), (
+                    'version completion followed disconnection'
+                )
                 assert (event.status, event.connection_handle, event.reason) == (
                     ErrorCode.SUCCESS,
                     link.handle,
@@ -5796,9 +5800,9 @@ class _AclStream:
             assert len(payload) <= limits[0]
             assert packet.end_us - packet.start_us <= limits[1]
             if self.restricted:
-                assert (
-                    len(payload) <= self.limit
-                ), 'DATA exceeds post-procedure packet limit'
+                assert len(payload) <= self.limit, (
+                    'DATA exceeds post-procedure packet limit'
+                )
                 self.restricted_octets += len(payload)
             elif (
                 self.initial
@@ -5811,9 +5815,9 @@ class _AclStream:
             assert self.expected, 'unsolicited DATA without a queued Host packet'
             assert llid == (LlId.CONTINUATION if self.partial else LlId.START)
             self.partial += payload
-            assert self.expected[0].startswith(
-                self.partial
-            ), 'ACL bytes/boundaries changed'
+            assert self.expected[0].startswith(self.partial), (
+                'ACL bytes/boundaries changed'
+            )
             if self.partial == self.expected[0]:
                 self.expected.popleft()
                 self.partial = b''
@@ -7012,9 +7016,9 @@ async def reject_existing_connection_request(tester):
             duplicate.anchor += parameters.interval * LL_CONN_INTERVAL_UNIT_US
             duplicate.counter = duplicate.counter + 1 & LL_EVENT_COUNTER_MASK
         _no_creation_events(tester)
-        assert (
-            tester.radio.now_us - last_advertisement <= ADVERTISING_OBSERVATION_US
-        ), 'advertising stopped after duplicate CONNECT_IND'
+        assert tester.radio.now_us - last_advertisement <= ADVERTISING_OBSERVATION_US, (
+            'advertising stopped after duplicate CONNECT_IND'
+        )
     assert tester.radio.now_us - last_advertisement <= ADVERTISING_OBSERVATION_US
     assert (
         observed_advertisements
@@ -8190,9 +8194,9 @@ async def duplicate_connection_request(tester):
         previous_sn = link.sn
         packet = await link.exchange()
         if link.counter > 1:
-            assert bool(packet.pdu[0] & PDU_DATA_NESN_MASK) != bool(
-                previous_sn
-            ), 'original ACL stopped acknowledging peer DATA'
+            assert bool(packet.pdu[0] & PDU_DATA_NESN_MASK) != bool(previous_sn), (
+                'original ACL stopped acknowledging peer DATA'
+            )
 
     await connection_event()
     await advertising_cycle()
@@ -16117,10 +16121,7 @@ PROCEDURES |= procedure_cases(
     parallel_connection_requests_incoming_connect_indication_first,
     {
         'LL/CON/INI/BV-51-C': (
-            (
-                'Parallel connection requests, incoming connect indication '
-                'first, CSA #2'
-            ),
+            ('Parallel connection requests, incoming connect indication first, CSA #2'),
             {},
         ),
     },
@@ -16670,10 +16671,7 @@ PROCEDURES |= procedure_cases(
     responding_to_phy_update_procedure_packet_time_restrictions_le_coded,
     {
         'LL/CON/PER/BV-56-C': (
-            (
-                'Responding to PHY Update Procedure – Packet Time '
-                'Restrictions, LE Coded'
-            ),
+            ('Responding to PHY Update Procedure – Packet Time Restrictions, LE Coded'),
             {},
         ),
     },
@@ -17545,10 +17543,7 @@ PROCEDURES |= procedure_cases(
     responding_to_phy_update_packet_time_limits_le_coded_cen_bv_54,
     {
         'LL/CON/CEN/BV-54-C': (
-            (
-                'Responding to PHY Update Procedure – Packet Time '
-                'Restrictions, LE Coded'
-            ),
+            ('Responding to PHY Update Procedure – Packet Time Restrictions, LE Coded'),
             {},
         ),
     },
@@ -17773,10 +17768,7 @@ PROCEDURES |= procedure_cases(
     data_length_update_preserve_parameters_after_a_phy_change,
     {
         'LL/CON/CEN/BV-126-C': (
-            (
-                'Data Length Update – Preserve Parameters After a PHY '
-                'Change – LE 2M PHY'
-            ),
+            ('Data Length Update – Preserve Parameters After a PHY Change – LE 2M PHY'),
             {'central': True, 'phy': Phy.LE_2M},
         ),
         'LL/CON/CEN/BV-127-C': pytest.param(
@@ -17790,10 +17782,7 @@ PROCEDURES |= procedure_cases(
             ],
         ),
         'LL/CON/PER/BV-129-C': (
-            (
-                'Data Length Update – Preserve Parameters After a PHY '
-                'Change – LE 2M PHY'
-            ),
+            ('Data Length Update – Preserve Parameters After a PHY Change – LE 2M PHY'),
             {'central': False, 'phy': Phy.LE_2M},
         ),
         'LL/CON/PER/BV-130-C': pytest.param(
@@ -17982,10 +17971,7 @@ PROCEDURES |= procedure_cases(
     None,
     {
         'LL/CON/CEN/BI-07-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE 1M PHY'
-            ),
+            ('Data Length Update – Handling Invalid Data Length Responses – LE 1M PHY'),
             {},
             marks=[
                 pytest.mark.source_conflict,
@@ -18003,10 +17989,7 @@ PROCEDURES |= procedure_cases(
             ],
         ),
         'LL/CON/CEN/BI-08-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE 2M PHY'
-            ),
+            ('Data Length Update – Handling Invalid Data Length Responses – LE 2M PHY'),
             {},
             marks=[
                 pytest.mark.source_conflict,
@@ -18045,10 +18028,7 @@ PROCEDURES |= procedure_cases(
             ],
         ),
         'LL/CON/CEN/BI-24-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE 1M PHY'
-            ),
+            ('Data Length Update – Handling Invalid Data Length Responses – LE 1M PHY'),
             {},
             marks=[
                 pytest.mark.source_conflict,
@@ -18066,10 +18046,7 @@ PROCEDURES |= procedure_cases(
             ],
         ),
         'LL/CON/CEN/BI-25-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE 2M PHY'
-            ),
+            ('Data Length Update – Handling Invalid Data Length Responses – LE 2M PHY'),
             {},
             marks=[
                 pytest.mark.source_conflict,
@@ -18108,10 +18085,7 @@ PROCEDURES |= procedure_cases(
             ],
         ),
         'LL/CON/PER/BI-10-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE 1M PHY'
-            ),
+            ('Data Length Update – Handling Invalid Data Length Responses – LE 1M PHY'),
             {},
             marks=[
                 pytest.mark.source_conflict,
@@ -18129,10 +18103,7 @@ PROCEDURES |= procedure_cases(
             ],
         ),
         'LL/CON/PER/BI-11-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE 2M PHY'
-            ),
+            ('Data Length Update – Handling Invalid Data Length Responses – LE 2M PHY'),
             {},
             marks=[
                 pytest.mark.source_conflict,
@@ -18171,10 +18142,7 @@ PROCEDURES |= procedure_cases(
             ],
         ),
         'LL/CON/PER/BI-31-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE 1M PHY'
-            ),
+            ('Data Length Update – Handling Invalid Data Length Responses – LE 1M PHY'),
             {},
             marks=[
                 pytest.mark.source_conflict,
@@ -18192,10 +18160,7 @@ PROCEDURES |= procedure_cases(
             ],
         ),
         'LL/CON/PER/BI-32-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE 2M PHY'
-            ),
+            ('Data Length Update – Handling Invalid Data Length Responses – LE 2M PHY'),
             {},
             marks=[
                 pytest.mark.source_conflict,

@@ -15,7 +15,9 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TextIO
 
-_HEADER = "FileFormat:Bluetooth\n                version=1.0\n\nItemFormat:LE version=1.1\n"
+_HEADER = (
+    "FileFormat:Bluetooth\n                version=1.0\n\nItemFormat:LE version=1.1\n"
+)
 
 
 def convert_tx_csv(tx_files: Iterable[Path], output: TextIO) -> None:

@@ -11,7 +11,10 @@ from typing import TYPE_CHECKING, Protocol
 from bscontroller import hci
 from bscontroller.hci.capabilities import HCI_ACL_BUFFER_SIZE, HCI_SUPPORTED_STATE_MASK
 from bscontroller.hci.le import LeControllerProcedures
-from bscontroller.linklayer import PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
+from bscontroller.linklayer import (
+    PDU_DATA_PAYLOAD_SIZE_MAX,
+    PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
+)
 from bscontroller.radio.base import Radio
 
 if TYPE_CHECKING:
@@ -42,8 +45,13 @@ class RadioBackend:
         | hci.LeFeatureMask.PERIPHERAL_INITIATED_FEATURE_EXCHANGE
         | hci.LeFeatureMask.MINIMUM_NUMBER_OF_USED_CHANNELS_PROCEDURE
     )
-    lmp_features = hci.LmpFeatureMask.LE_SUPPORTED_CONTROLLER | hci.LmpFeatureMask.BR_EDR_NOT_SUPPORTED
-    le_states = HCI_SUPPORTED_STATE_MASK.to_bytes(hci.HCI_LE_SUPPORTED_STATES_SIZE, 'little')
+    lmp_features = (
+        hci.LmpFeatureMask.LE_SUPPORTED_CONTROLLER
+        | hci.LmpFeatureMask.BR_EDR_NOT_SUPPORTED
+    )
+    le_states = HCI_SUPPORTED_STATE_MASK.to_bytes(
+        hci.HCI_LE_SUPPORTED_STATES_SIZE, 'little'
+    )
     total_num_le_acl_data_packets = 8
     supported_commands: frozenset[int] = frozenset(
         {
@@ -133,7 +141,11 @@ class RadioBackend:
         controller.le_states = self.le_states
         controller.total_num_le_acl_data_packets = self.total_num_le_acl_data_packets
         controller.le_acl_data_packet_length = HCI_ACL_BUFFER_SIZE
-        controller.supported_max_rx_octets = controller.supported_max_tx_octets = PDU_DATA_PAYLOAD_SIZE_MAX
-        controller.supported_max_rx_time = controller.supported_max_tx_time = PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
+        controller.supported_max_rx_octets = controller.supported_max_tx_octets = (
+            PDU_DATA_PAYLOAD_SIZE_MAX
+        )
+        controller.supported_max_rx_time = controller.supported_max_tx_time = (
+            PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
+        )
         controller.le_procedures = LeControllerProcedures(controller, self.radio)
         self.link = controller.le_procedures.link

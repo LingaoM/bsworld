@@ -8,7 +8,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from bscontroller import hci
-from bscontroller.hci import HCI_LE_SCAN_INTERVAL_DEFAULT, HCI_LE_SCAN_INTERVAL_UNIT_US, HCI_LE_SCAN_WINDOW_DEFAULT
+from bscontroller.hci import (
+    HCI_LE_SCAN_INTERVAL_DEFAULT,
+    HCI_LE_SCAN_INTERVAL_UNIT_US,
+    HCI_LE_SCAN_WINDOW_DEFAULT,
+)
 from bscontroller.hci.events import LeControllerEvents
 from bscontroller.linklayer.link import RadioLink
 from bscontroller.linklayer.service import LinkLayerService
@@ -65,7 +69,9 @@ class LeControllerContext(LeControllerEvents):
         return replace(
             self.ll.scan_parameters,
             backoff=replace(self.ll.scan_parameters.backoff),
-            windows=tuple(replace(window) for window in self.ll.scan_parameters.windows),
+            windows=tuple(
+                replace(window) for window in self.ll.scan_parameters.windows
+            ),
         )
 
     @property

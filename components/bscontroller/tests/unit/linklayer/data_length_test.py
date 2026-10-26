@@ -46,7 +46,9 @@ def negotiate(
     lengths = connection.controls.data_length
     lengths.request(PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US)
     connection.queue.clear()
-    connection.control(bytes([Opcode.LL_LENGTH_RSP]) + struct.pack('<HHHH', rx, rx_time, tx, tx_time))
+    connection.control(
+        bytes([Opcode.LL_LENGTH_RSP]) + struct.pack('<HHHH', rx, rx_time, tx, tx_time)
+    )
     return lengths
 
 
@@ -85,7 +87,9 @@ def test_coded_limits_follow_connection_interval_and_pending_update(connection):
     assert lengths.effective().tx_time == 12660
     connection.parameters = replace(connection.parameters, interval=48)
     assert lengths.effective().tx_time == PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
-    connection.controls.pending = InstantUpdate(6, parameters=replace(connection.parameters, interval=24))
+    connection.controls.pending = InstantUpdate(
+        6, parameters=replace(connection.parameters, interval=24)
+    )
     assert lengths.tx_payload_limit() == 186
     connection.controls.pending = InstantUpdate(6, peripheral_tx_phy=Phy.LE_1M)
     connection.tx_phy = Phy.LE_2M
@@ -105,7 +109,9 @@ def test_central_prospective_phy_limit_starts_when_indication_is_prepared(connec
 
 
 @pytest.mark.parametrize('local', [False, True])
-def test_peripheral_prospective_limit_tracks_request_response_transmission(connection, local):
+def test_peripheral_prospective_limit_tracks_request_response_transmission(
+    connection, local
+):
     lengths = negotiate(connection, rx=32, rx_time=PDU_DATA_PAYLOAD_TIME_MIN_US)
     connection.tx_phy = connection.rx_phy = Phy.LE_2M
     mask = int(hci.PhyBit.LE_1M)
@@ -125,10 +131,16 @@ def test_peripheral_prospective_limit_tracks_request_response_transmission(conne
 @pytest.mark.parametrize('peer_coded', [False, True])
 def test_request_times_respect_known_peer_phy_features(connection, peer_coded):
     connection.peer_features = int(hci.LeFeatureMask.LE_CODED_PHY) if peer_coded else 0
-    connection.controls.data_length.request(PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US)
+    connection.controls.data_length.request(
+        PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
+    )
     packet = connection.queue[0].payload
     assert packet[0] == Opcode.LL_LENGTH_REQ
-    expected_time = PDU_DATA_PAYLOAD_TIME_CODED_MAX_US if peer_coded else PDU_DATA_PAYLOAD_TIME_UNCODED_MAX_US
+    expected_time = (
+        PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
+        if peer_coded
+        else PDU_DATA_PAYLOAD_TIME_UNCODED_MAX_US
+    )
     assert struct.unpack('<HHHH', packet[1:]) == (
         PDU_DATA_PAYLOAD_SIZE_MAX,
         expected_time,
@@ -180,7 +192,9 @@ def test_invalid_length_parameter_values_are_rejected(connection):
 @pytest.mark.parametrize('opcode', [Opcode.LL_LENGTH_REQ, Opcode.LL_LENGTH_RSP])
 @pytest.mark.parametrize('pending', [False, True])
 @pytest.mark.parametrize('size', [0, 9])
-def test_wrong_length_preserves_the_data_length_procedure(connection, opcode, pending, size):
+def test_wrong_length_preserves_the_data_length_procedure(
+    connection, opcode, pending, size
+):
     lengths = connection.controls.data_length
     if pending:
         lengths.request(PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US)
@@ -193,7 +207,9 @@ def test_wrong_length_preserves_the_data_length_procedure(connection, opcode, pe
         lengths.deadline_us,
     )
     connection.control(bytes([opcode]) + bytes(size))
-    assert [packet.payload for packet in connection.queue] == [bytes([Opcode.LL_UNKNOWN_RSP, opcode])]
+    assert [packet.payload for packet in connection.queue] == [
+        bytes([Opcode.LL_UNKNOWN_RSP, opcode])
+    ]
     assert (
         lengths.local,
         lengths.remote,
@@ -219,7 +235,10 @@ def test_unsupported_peer_and_response_timeout(connection, response):
     lengths.request(PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US)
     connection.radio.now_us = LL_RESPONSE_TIMEOUT_US
     assert lengths.check_timeout() and connection.closed
-    assert connection.link.listener.controller.events[-1].reason == ErrorCode.LMP_OR_LL_RESPONSE_TIMEOUT_ERROR
+    assert (
+        connection.link.listener.controller.events[-1].reason
+        == ErrorCode.LMP_OR_LL_RESPONSE_TIMEOUT_ERROR
+    )
 
 
 def test_unsolicited_response_does_not_change_parameters(connection):
@@ -255,7 +274,9 @@ def test_acl_fragments_preserve_boundaries_and_complete_only_after_final_ack(
             isinstance(event, hci.HCI_Number_Of_Completed_Packets_Event)
             for event in connection.link.listener.controller.events
         )
-        connection.accept(bytes([1 | (connection.tx_sn ^ 1) << 2 | connection.rx_nesn << 3, 0]), True)
+        connection.accept(
+            bytes([1 | (connection.tx_sn ^ 1) << 2 | connection.rx_nesn << 3, 0]), True
+        )
     assert [len(pdu) - PDU_HEADER_SIZE for pdu in fragments] == [100, 100, 51]
     assert [pdu[0] & PDU_DATA_LLID_MASK for pdu in fragments] == [2, 1, 1]
     assert b''.join(pdu[PDU_HEADER_SIZE:] for pdu in fragments) == data
@@ -270,9 +291,16 @@ def test_retransmission_is_not_resized_after_length_reduction(connection):
     asyncio.run(connection.send(7, 1))
     original = connection.radio.sent[-1][2]
     lengths.request(PDU_DATA_PAYLOAD_SIZE_MIN, PDU_DATA_PAYLOAD_TIME_MIN_US)
-    asyncio.run(connection.send(14, connection.radio.earliest_start_us(14, connection.tx_phy, transmit=True)))
+    asyncio.run(
+        connection.send(
+            14, connection.radio.earliest_start_us(14, connection.tx_phy, transmit=True)
+        )
+    )
     assert connection.radio.sent[-1][2][2:] == original[PDU_HEADER_SIZE:]
-    assert connection.pending.host_packet and len(connection.pending.payload) == PDU_DATA_PAYLOAD_SIZE_MAX
+    assert (
+        connection.pending.host_packet
+        and len(connection.pending.payload) == PDU_DATA_PAYLOAD_SIZE_MAX
+    )
 
 
 def test_suggested_defaults_are_captured_only_at_connection_creation(connection):
@@ -316,7 +344,10 @@ def test_receive_time_limit_does_not_accept_oversized_packet(connection):
     connection.radio.incoming.append(packet)
     asyncio.run(connection.receive(7, 1000))
     assert connection.established and connection.rx_nesn == 0
-    assert not any(isinstance(event, hci.HCI_AclDataPacket) for event in connection.link.listener.controller.events)
+    assert not any(
+        isinstance(event, hci.HCI_AclDataPacket)
+        for event in connection.link.listener.controller.events
+    )
 
 
 @pytest.mark.parametrize(

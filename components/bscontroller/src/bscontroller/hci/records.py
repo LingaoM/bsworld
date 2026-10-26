@@ -18,7 +18,9 @@
 # -----------------------------------------------------------------------------
 # Imports
 # -----------------------------------------------------------------------------
-"""HCI configuration records and views of live Link Layer state (Core 6.3, Vol 4, Part E)."""
+"""HCI configuration records and views of live Link Layer state (Core 6.3, Vol 4, Part
+E).
+"""
 
 from __future__ import annotations
 
@@ -74,7 +76,11 @@ class LegacyAdvertiser:
     @property
     def scan_response_data(self) -> bytes:
         state = self._link_layer_state
-        return bytes(state.scan_response) if state is not None else self._scan_response_data
+        return (
+            bytes(state.scan_response)
+            if state is not None
+            else self._scan_response_data
+        )
 
     @property
     def enabled(self) -> bool:
@@ -97,7 +103,9 @@ class AdvertisingSet:
         self,
         controller: Controller,
         handle: int,
-        parameters: (hci.HCI_LE_Set_Extended_Advertising_Parameters_Command | None) = None,
+        parameters: (
+            hci.HCI_LE_Set_Extended_Advertising_Parameters_Command | None
+        ) = None,
         data: bytearray | None = None,
         scan_response_data: bytearray | None = None,
         periodic_advertising_data: bytearray | None = None,
@@ -108,9 +116,13 @@ class AdvertisingSet:
         self.handle = handle
         self.parameters = parameters
         self._data = data if data is not None else bytearray()
-        self._scan_response_data = scan_response_data if scan_response_data is not None else bytearray()
+        self._scan_response_data = (
+            scan_response_data if scan_response_data is not None else bytearray()
+        )
         self._periodic_advertising_data = (
-            periodic_advertising_data if periodic_advertising_data is not None else bytearray()
+            periodic_advertising_data
+            if periodic_advertising_data is not None
+            else bytearray()
         )
         self._enabled = enabled
         self._random_address = random_address
@@ -128,12 +140,18 @@ class AdvertisingSet:
     @property
     def scan_response_data(self) -> bytes:
         state = self._link_layer_state
-        return bytes(state.scan_response if state is not None else self._scan_response_data)
+        return bytes(
+            state.scan_response if state is not None else self._scan_response_data
+        )
 
     @property
     def periodic_advertising_data(self) -> bytes:
         state = self._link_layer_state
-        return bytes(state.periodic_data if state is not None else self._periodic_advertising_data)
+        return bytes(
+            state.periodic_data
+            if state is not None
+            else self._periodic_advertising_data
+        )
 
     @property
     def enabled(self) -> bool:

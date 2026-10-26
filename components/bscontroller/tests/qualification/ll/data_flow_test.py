@@ -8,7 +8,12 @@ import struct
 import pytest
 
 from bscontroller import hci
-from bscontroller.linklayer import PDU_DATA_LLID_MASK, PDU_DATA_SN_MASK, PDU_HEADER_SIZE, LlId
+from bscontroller.linklayer import (
+    PDU_DATA_LLID_MASK,
+    PDU_DATA_SN_MASK,
+    PDU_HEADER_SIZE,
+    LlId,
+)
 from tests.qualification.cases import (
     ProcedureMap,
     collect_cases,

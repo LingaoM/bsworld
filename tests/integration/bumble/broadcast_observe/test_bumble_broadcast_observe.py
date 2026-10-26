@@ -47,7 +47,10 @@ async def test_bumble_observer_finds_bumble_advertiser(topo):
         advertiser, observer = await open_bumble_pair(topo, stack)
 
         def on_advertisement(advertisement) -> None:  # noqa: ANN001
-            if advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME) == ADVERTISER_NAME:
+            if (
+                advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME)
+                == ADVERTISER_NAME
+            ):
                 found.set()
 
         observer.on("advertisement", on_advertisement)
@@ -90,10 +93,16 @@ async def test_bumble_targeted_interference_isolates_and_recovers(topo):
     topo.set_channel_attenuation(
         default_db=100.0,
         static_paths=[
-            StaticAttenuation(tx=advertiser_ctl, rx=protected_observer_ctl, attenuation_db=45.0),
-            StaticAttenuation(tx=advertiser_ctl, rx=jammed_observer_ctl, attenuation_db=45.0),
+            StaticAttenuation(
+                tx=advertiser_ctl, rx=protected_observer_ctl, attenuation_db=45.0
+            ),
+            StaticAttenuation(
+                tx=advertiser_ctl, rx=jammed_observer_ctl, attenuation_db=45.0
+            ),
             *(
-                StaticAttenuation(tx=jammer, rx=protected_observer_ctl, attenuation_db=100.0)
+                StaticAttenuation(
+                    tx=jammer, rx=protected_observer_ctl, attenuation_db=100.0
+                )
                 for jammer in jammers
             ),
             *(
@@ -129,11 +138,17 @@ async def test_bumble_targeted_interference_isolates_and_recovers(topo):
         )
 
         def on_protected_advertisement(advertisement) -> None:  # noqa: ANN001
-            if advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME) == ADVERTISER_NAME:
+            if (
+                advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME)
+                == ADVERTISER_NAME
+            ):
                 protected_found.set()
 
         def on_jammed_advertisement(advertisement) -> None:  # noqa: ANN001
-            if advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME) == ADVERTISER_NAME:
+            if (
+                advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME)
+                == ADVERTISER_NAME
+            ):
                 jammed_found.set()
 
         protected_observer.on("advertisement", on_protected_advertisement)

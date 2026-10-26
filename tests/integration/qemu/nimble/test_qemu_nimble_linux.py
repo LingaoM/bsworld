@@ -44,7 +44,9 @@ async def test_qemu_nimble_linux_advertises_and_accepts_connection(
         label="qemu_nimble",
         log_subdir=Path("qemu") / "nimble",
     )
-    central_ctl = add_bumble_controller(topo, "qemu_nimble_central", _BUMBLE_CENTRAL_ADDRESS)
+    central_ctl = add_bumble_controller(
+        topo, "qemu_nimble_central", _BUMBLE_CENTRAL_ADDRESS
+    )
     topo.set_channel_attenuation(default_db=45.0)
     await topo.start()
 
@@ -73,7 +75,10 @@ async def test_qemu_nimble_linux_advertises_and_accepts_connection(
             await guest.shell.run("nimble-linux 0 &")
 
             advertisement = await asyncio.wait_for(found, timeout=_TIMEOUT)
-            assert advertisement.address.to_string(with_type_qualifier=False) == _NIMBLE_ADDRESS
+            assert (
+                advertisement.address.to_string(with_type_qualifier=False)
+                == _NIMBLE_ADDRESS
+            )
 
             await central.stop_scanning()
             connection = await central.connect(advertisement.address, timeout=_TIMEOUT)

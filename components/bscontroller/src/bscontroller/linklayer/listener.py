@@ -1,7 +1,8 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Link Layer notifications to the Controller's upper layer, one interface per procedure.
+"""Link Layer notifications to the Controller's upper layer, one interface per
+procedure.
 
 The Link Layer never imports HCI. Each procedure module depends only on the
 narrow interface it calls; RadioLink requires their union, Listener.
@@ -27,7 +28,9 @@ class ConnectionListener(Protocol):
     def trace(self, message: str) -> None: ...
     def on_connected(self, connection: Connection) -> None: ...
     def on_disconnected(self, connection: Connection, reason: int) -> None: ...
-    def on_acl_received(self, connection: Connection, continuation: bool, data: bytes) -> None: ...
+    def on_acl_received(
+        self, connection: Connection, continuation: bool, data: bytes
+    ) -> None: ...
     def on_acl_completed(self, connection: Connection) -> None: ...
 
 
@@ -53,10 +56,16 @@ class ControlListener(Protocol):
 
 
 class EncryptionListener(Protocol):
-    """Encryption and authenticated payload timeout (Core 6.3, Vol 6, Part B, 5.1.3 and 5.4)."""
+    """Encryption and authenticated payload timeout (Core 6.3, Vol 6, Part B, 5.1.3 and
+    5.4).
+    """
 
-    def on_long_term_key_request(self, connection: Connection, rand: bytes, ediv: int) -> None: ...
-    def on_encryption_changed(self, connection: Connection, status: int, refresh: bool) -> None: ...
+    def on_long_term_key_request(
+        self, connection: Connection, rand: bytes, ediv: int
+    ) -> None: ...
+    def on_encryption_changed(
+        self, connection: Connection, status: int, refresh: bool
+    ) -> None: ...
     def on_authenticated_payload_timeout(self, connection: Connection) -> None: ...
 
 

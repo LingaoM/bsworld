@@ -258,13 +258,12 @@ async def accepting_channel_map_update(tester, *, csa2):
             responses += 1
             assert events == distance
             tester.output.write(
-                f'OLD MAP distance={distance} events={events} '
-                f'responses={responses}\n'
+                f'OLD MAP distance={distance} events={events} responses={responses}\n'
             )
             if distance == STATISTICAL_UPDATE_EVENTS:
-                assert (
-                    responses >= OLD_MAP_MINIMUM_RESPONSES
-                ), f'only {responses}/{events} old-map responses'
+                assert responses >= OLD_MAP_MINIMUM_RESPONSES, (
+                    f'only {responses}/{events} old-map responses'
+                )
     await link.disconnect()
 
 

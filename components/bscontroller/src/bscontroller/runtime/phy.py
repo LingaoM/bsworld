@@ -16,7 +16,9 @@ from bscontroller.radio.babblesim import simulation_directory
 def find_phy(directory: Path | str | None = None) -> Path:
     configured = directory or os.environ.get('BSIM_OUT_PATH')
     if not configured:
-        raise ValueError('set BSIM_OUT_PATH or pass --bsim-dir to select a BabbleSim build')
+        raise ValueError(
+            'set BSIM_OUT_PATH or pass --bsim-dir to select a BabbleSim build'
+        )
     binary = Path(configured).expanduser().resolve() / 'bin' / 'bs_2G4_phy_v1'
     if not binary.is_file() or not os.access(binary, os.X_OK):
         raise ValueError(f'BabbleSim PHY executable missing: {binary}')
@@ -24,9 +26,13 @@ def find_phy(directory: Path | str | None = None) -> Path:
 
 
 class PhyProcess:
-    """Own one fresh simulation and its process; existing simulations are never removed."""
+    """Own one fresh simulation and its process; existing simulations are never
+    removed.
+    """
 
-    def __init__(self, sim_id: str, device_count: int, *, directory=None, log_dir: Path):
+    def __init__(
+        self, sim_id: str, device_count: int, *, directory=None, log_dir: Path
+    ):
         if device_count < 1:
             raise ValueError('device_count must be positive')
         self.sim_id = sim_id
@@ -79,7 +85,8 @@ class PhyProcess:
                         self.process.wait()
                 if exc_type is None and self.process.returncode != 0:
                     raise RuntimeError(
-                        f'PHY exited with status {self.process.returncode}; see {self.log_dir / "phy.log"}'
+                        f'PHY exited with status {self.process.returncode}; '
+                        f'see {self.log_dir / "phy.log"}'
                     )
         finally:
             if self._output is not None:

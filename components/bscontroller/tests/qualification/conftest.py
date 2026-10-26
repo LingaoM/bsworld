@@ -63,7 +63,9 @@ async def air_dut(tmp_path, request, controller_log):
     sim_id = f'bscontroller_ll_{uuid.uuid4().hex[:12]}'
     (tmp_path / 'sim_id.txt').write_text(sim_id)
     worker = RadioControllerWorker(
-        'dut', public_address=str(DUT_ADDRESS).split('/')[0], hci_snoop_file=tmp_path / 'hci.snoop'
+        'dut',
+        public_address=str(DUT_ADDRESS).split('/')[0],
+        hci_snoop_file=tmp_path / 'hci.snoop',
     )
     # The lower tester injects/observes RF without modeling DUT hardware delays.
     radio = BabbleSimRadio(switch_time_us=0)

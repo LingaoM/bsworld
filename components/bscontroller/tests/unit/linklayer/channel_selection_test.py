@@ -7,7 +7,10 @@ import pytest
 from bscontroller.linklayer import (
     LL_DATA_CHANNEL_MAP_ALL,
 )
-from bscontroller.linklayer.channel_selection import channel_selection_1, channel_selection_2
+from bscontroller.linklayer.channel_selection import (
+    channel_selection_1,
+    channel_selection_2,
+)
 
 
 @pytest.mark.parametrize(

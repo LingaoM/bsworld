@@ -39,7 +39,9 @@ ErrorCode = hci.HCI_ErrorCode
 @pytest.mark.asyncio
 @pytest.mark.parametrize('phy', list(Phy))
 @pytest.mark.parametrize('deadline_us', [None, 1150])
-async def test_response_window_waits_for_phy_sync_not_whole_packet(connection, monkeypatch, phy, deadline_us):
+async def test_response_window_waits_for_phy_sync_not_whole_packet(
+    connection, monkeypatch, phy, deadline_us
+):
     calls = []
 
     async def receive(channel, until_us, **parameters):
@@ -63,7 +65,9 @@ async def test_response_window_waits_for_phy_sync_not_whole_packet(connection, m
 @pytest.mark.asyncio
 @pytest.mark.parametrize('high_duty', [False, True])
 @pytest.mark.parametrize('scheduled', [False, True])
-async def test_advertising_duration_expiry_reports_timeout(connection, monkeypatch, high_duty, scheduled):
+async def test_advertising_duration_expiry_reports_timeout(
+    connection, monkeypatch, high_duty, scheduled
+):
     link = connection.link
     link.connections.clear()
     item = Advertising(
@@ -90,7 +94,9 @@ async def test_advertising_duration_expiry_reports_timeout(connection, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_advertising_event_limit_is_not_a_duration_timeout(connection, monkeypatch):
+async def test_advertising_event_limit_is_not_a_duration_timeout(
+    connection, monkeypatch
+):
     link = connection.link
     link.connections.clear()
     item = Advertising(
@@ -127,7 +133,9 @@ async def test_search_without_syncinfo_has_no_established_sync_timeout(connectio
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('skip', [0, 3, hci.HCI_LE_PERIODIC_SYNC_SKIP_MAX])
-async def test_six_missed_acquisition_events_expire_once_without_counter_wrap_errors(connection, monkeypatch, skip):
+async def test_six_missed_acquisition_events_expire_once_without_counter_wrap_errors(
+    connection, monkeypatch, skip
+):
     sync, info, _ = await bind_candidate(connection, skip=skip)
     receive = connection.radio.receive
     attempts = []
@@ -141,7 +149,8 @@ async def test_six_missed_acquisition_events_expire_once_without_counter_wrap_er
     await connection.link.advance_to_us(sync.deadline_us + 1)
     assert len(attempts) == LL_PERIODIC_SYNC_ESTABLISHMENT_EVENTS
     assert [counter for counter, _ in attempts] == [
-        (info.event_counter + index) & LL_EVENT_COUNTER_MASK for index in range(LL_PERIODIC_SYNC_ESTABLISHMENT_EVENTS)
+        (info.event_counter + index) & LL_EVENT_COUNTER_MASK
+        for index in range(LL_PERIODIC_SYNC_ESTABLISHMENT_EVENTS)
     ]
     assert connection.link.sync is None and not connection.link.syncs
     events = [
@@ -150,14 +159,18 @@ async def test_six_missed_acquisition_events_expire_once_without_counter_wrap_er
         if isinstance(event, hci.HCI_LE_Periodic_Advertising_Sync_Established_Event)
     ]
     assert len(events) == 1
-    assert events[0].status == hci.HCI_ErrorCode.CONNECTION_FAILED_TO_BE_ESTABLISHED_ERROR
+    assert (
+        events[0].status == hci.HCI_ErrorCode.CONNECTION_FAILED_TO_BE_ESTABLISHED_ERROR
+    )
 
 
 def test_new_connection_window_avoids_existing_acl_and_uses_distinct_identity(
     connection,
 ):
     connection.established = True
-    parameters = connection.link.connection_parameters(connection.parameters, 0, connection.anchor_us)
+    parameters = connection.link.connection_parameters(
+        connection.parameters, 0, connection.anchor_us
+    )
     assert parameters is not None and parameters.window_offset > 0
     assert parameters.access_address != connection.parameters.access_address
     assert parameters.interval == connection.parameters.interval
@@ -166,7 +179,10 @@ def test_new_connection_window_avoids_existing_acl_and_uses_distinct_identity(
 def test_connection_wire_parameters_are_seeded_and_within_bounds(connection):
     link = connection.link
     random_state = link.random.getstate()
-    values = [link.connection_parameters(connection.parameters, 0, connection.anchor_us) for _ in range(100)]
+    values = [
+        link.connection_parameters(connection.parameters, 0, connection.anchor_us)
+        for _ in range(100)
+    ]
     for parameters in values:
         assert parameters is not None
         check_access_address(parameters.access_address)
@@ -176,12 +192,17 @@ def test_connection_wire_parameters_are_seeded_and_within_bounds(connection):
     assert len({parameters.crc_init for parameters in values}) > 1
     assert len({parameters.hop for parameters in values}) > 1
     link.random.setstate(random_state)
-    assert values == [link.connection_parameters(connection.parameters, 0, connection.anchor_us) for _ in values]
+    assert values == [
+        link.connection_parameters(connection.parameters, 0, connection.anchor_us)
+        for _ in values
+    ]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('offset,transmits', [(200, False), (2000, True)])
-async def test_earlier_periodic_tx_protects_a_later_connection_window(connection, offset, transmits):
+async def test_earlier_periodic_tx_protects_a_later_connection_window(
+    connection, offset, transmits
+):
     connection.role = hci.Role.CENTRAL
     connection.established = True
     connection.anchor_us = 10_000 + offset
@@ -197,9 +218,16 @@ async def test_earlier_periodic_tx_protects_a_later_connection_window(connection
     )
     connection.link.advertisers[0] = item
     await connection.link.advance_to_us(connection.anchor_us + 1500)
-    periodic_packets = [packet for packet in connection.radio.sent if packet[3]['access_address'] == item.periodic_aa]
+    periodic_packets = [
+        packet
+        for packet in connection.radio.sent
+        if packet[3]['access_address'] == item.periodic_aa
+    ]
     assert bool(periodic_packets) is transmits
-    assert any(packet[3]['access_address'] == connection.parameters.access_address for packet in connection.radio.sent)
+    assert any(
+        packet[3]['access_address'] == connection.parameters.access_address
+        for packet in connection.radio.sent
+    )
     assert item.periodic_next_us == 10_000 + 160 * LL_PERIODIC_INTERVAL_UNIT_US
     assert item.periodic_counter == 0
 
@@ -212,7 +240,8 @@ async def test_colliding_acl_anchors_share_the_radio_without_starvation(connecti
     second.established = True
     assert second.anchor_us == connection.anchor_us
     await connection.link.advance_to_us(
-        connection.anchor_us + 5 * connection.parameters.interval * LL_CONN_INTERVAL_UNIT_US
+        connection.anchor_us
+        + 5 * connection.parameters.interval * LL_CONN_INTERVAL_UNIT_US
     )
     by_address = {
         value.parameters.access_address: sum(
@@ -235,7 +264,9 @@ async def test_periodic_wire_identity_is_allocated_on_enable_and_replayed_on_res
         link = tester.input.backend.link
         random_state = link.random.getstate()
         await tester.command(extended_parameters())
-        await tester.command(hci.HCI_LE_Set_Periodic_Advertising_Parameters_Command(0, 32, 32, 0))
+        await tester.command(
+            hci.HCI_LE_Set_Periodic_Advertising_Parameters_Command(0, 32, 32, 0)
+        )
         item = link.advertisers[0]
         assert (item.periodic_aa, item.periodic_crc) == (0, 0)
         assert link.random.getstate() == random_state
@@ -252,17 +283,25 @@ async def test_periodic_train_addresses_are_unique_and_reuse_only_free_slots(hci
     handles = [20, 40, 60, 80, 100, 120, 140, 160]
     for handle in handles:
         await tester.command(extended_parameters(advertising_handle=handle))
-        await tester.command(hci.HCI_LE_Set_Periodic_Advertising_Parameters_Command(handle, 32, 32, 0))
-        await tester.command(hci.HCI_LE_Set_Periodic_Advertising_Enable_Command(1, handle))
+        await tester.command(
+            hci.HCI_LE_Set_Periodic_Advertising_Parameters_Command(handle, 32, 32, 0)
+        )
+        await tester.command(
+            hci.HCI_LE_Set_Periodic_Advertising_Enable_Command(1, handle)
+        )
     link = tester.input.backend.link
     addresses = {item.periodic_aa for item in link.advertisers.values()}
     assert len(addresses) == len(handles)
     for address in addresses:
         check_access_address(address)
-    await tester.command(hci.HCI_LE_Set_Periodic_Advertising_Enable_Command(0, handles[0]))
+    await tester.command(
+        hci.HCI_LE_Set_Periodic_Advertising_Enable_Command(0, handles[0])
+    )
     await tester.command(hci.HCI_LE_Remove_Advertising_Set_Command(handles[0]))
     await tester.command(extended_parameters(advertising_handle=200))
-    await tester.command(hci.HCI_LE_Set_Periodic_Advertising_Parameters_Command(200, 32, 32, 0))
+    await tester.command(
+        hci.HCI_LE_Set_Periodic_Advertising_Parameters_Command(200, 32, 32, 0)
+    )
     await tester.command(hci.HCI_LE_Set_Periodic_Advertising_Enable_Command(1, 200))
     assert len({item.periodic_aa for item in link.advertisers.values()}) == len(handles)
 
@@ -291,9 +330,13 @@ def test_advertising_delay_seed_is_per_controller_and_reset_is_repeatable():
 
 def test_wire_identity_allocation_excludes_only_live_owners(connection, monkeypatch):
     link = connection.link
-    periodic = Advertising(connection.peer, periodic_enabled=True, periodic_aa=0x456789AB)
+    periodic = Advertising(
+        connection.peer, periodic_enabled=True, periodic_aa=0x456789AB
+    )
     link.advertisers[0] = periodic
-    candidates = iter([connection.parameters.access_address, periodic.periodic_aa, 0x12345678])
+    candidates = iter(
+        [connection.parameters.access_address, periodic.periodic_aa, 0x12345678]
+    )
     monkeypatch.setattr(link.random, 'getrandbits', lambda width: next(candidates))
     assert link.new_access_address() == 0x12345678
     periodic.periodic_enabled = False
@@ -306,7 +349,9 @@ async def test_expired_sync_removes_only_its_own_handle(controller):
     link = controller.backend.link
     info = SyncInfo(9000, 80, (1 << 37) - 1, 0x456789AB, 0x123456, 0)
     peer = hci.Address('C0:11:22:33:44:55')
-    expired = PeriodicSync(peer, 1, 100_000, 123, info=info, next_us=10_000, established=True, handle=1)
+    expired = PeriodicSync(
+        peer, 1, 100_000, 123, info=info, next_us=10_000, established=True, handle=1
+    )
     active = replace(expired, handle=2, sid=2, deadline_us=500_000)
     link.syncs = {1: expired, 2: active}
     link.radio.now_us = 123
@@ -314,5 +359,7 @@ async def test_expired_sync_removes_only_its_own_handle(controller):
     assert link.syncs == {2: active}
     assert active.deadline_us == 500_000 and active.counter == 0
     assert len(controller.events) == 1
-    assert isinstance(controller.events[0], hci.HCI_LE_Periodic_Advertising_Sync_Lost_Event)
+    assert isinstance(
+        controller.events[0], hci.HCI_LE_Periodic_Advertising_Sync_Lost_Event
+    )
     assert controller.events[0].sync_handle == 1

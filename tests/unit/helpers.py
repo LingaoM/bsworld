@@ -77,5 +77,7 @@ class SpawnRecorder:
 
     def spawn(self, name, command, **kwargs):
         self.calls.append((name, [str(part) for part in command], kwargs))
-        popen = SimpleNamespace(stdin=self.stdin if kwargs.get("stdin") is not None else None)
+        popen = SimpleNamespace(
+            stdin=self.stdin if kwargs.get("stdin") is not None else None
+        )
         return SimpleNamespace(pid=1234, popen=popen, alive=lambda: True)

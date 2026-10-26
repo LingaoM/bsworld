@@ -315,9 +315,9 @@ async def _invalid_observation(tester, link, opcode, payload):
             # Preserve evidence until the full silence period and Ping check.
             tester.events.append(disconnected)
         if tester.radio.now_us >= deadline:
-            assert (
-                'd' in INVALID_LENGTH_CASES[opcode][1]
-            ), 'required control response absent'
+            assert 'd' in INVALID_LENGTH_CASES[opcode][1], (
+                'required control response absent'
+            )
             return None, accepted, None
         if opcode == Opcode.LL_CONNECTION_PARAM_REQ:
             if (parameters := await _parameter_request(tester, link)) is not None:
@@ -421,9 +421,9 @@ async def _complete_encryption_response(tester, link, stimulus, response):
     if stimulus[0] == Opcode.LL_START_ENC_REQ:
         raise AssertionError('START_ENC_RSP without a pending encryption procedure')
     if stimulus[0] == Opcode.LL_PAUSE_ENC_REQ:
-        assert not link.central and getattr(
-            link, 'tx_enabled', False
-        ), 'Pause Encryption response without an encrypted connection'
+        assert not link.central and getattr(link, 'tx_enabled', False), (
+            'Pause Encryption response without an encrypted connection'
+        )
         # Acknowledge the encrypted pause reply before switching to plaintext.
         await link.exchange()
         link.tx_enabled = link.rx_enabled = False
@@ -683,7 +683,7 @@ async def unknown_control_pdus(tester, *, central):
         payload = bytes([opcode]) + bytes(
             UNSUPPORTED_CONTROL_DATA_LENGTHS.get(opcode, 0)
         )
-        tester.output.write(f'UNKNOWN OPCODE 0x{opcode:02x} DATA {len(payload)-1}\n')
+        tester.output.write(f'UNKNOWN OPCODE 0x{opcode:02x} DATA {len(payload) - 1}\n')
         packet = await link.exchange(payload, llid=LlId.CONTROL, check_ack=True)
         for _ in range(16):
             if packet.pdu[0] & PDU_DATA_LLID_MASK == LlId.CONTROL:

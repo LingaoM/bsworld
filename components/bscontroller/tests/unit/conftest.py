@@ -57,7 +57,9 @@ def hci_dut(controller):
         reply = next(
             event
             for event in controller.events[offset:]
-            if isinstance(event, (hci.HCI_Command_Complete_Event, hci.HCI_Command_Status_Event))
+            if isinstance(
+                event, (hci.HCI_Command_Complete_Event, hci.HCI_Command_Status_Event)
+            )
         )
         result = getattr(reply, 'return_parameters', reply)
         assert result.status == status

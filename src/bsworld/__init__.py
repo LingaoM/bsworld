@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Deterministic simulation test framework for Bluetooth LE Applications."""
+
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version

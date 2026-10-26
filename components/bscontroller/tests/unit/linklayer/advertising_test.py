@@ -92,7 +92,9 @@ def test_syncinfo_rfu_bit_preserves_offset_units_and_all_other_fields(offset):
         LL_SCA_50_PPM,
     )
     wire = bytearray(info.encode())
-    wire[:2] = (int.from_bytes(wire[:2], 'little') | PDU_ADV_SYNC_OFFSET_RESERVED_MASK).to_bytes(2, 'little')
+    wire[:2] = (
+        int.from_bytes(wire[:2], 'little') | PDU_ADV_SYNC_OFFSET_RESERVED_MASK
+    ).to_bytes(2, 'little')
     assert SyncInfo.decode(wire) == info
 
 
@@ -146,7 +148,10 @@ def test_extended_header_wire_fields():
         tx_power=-5,
     )
     wire = (
-        bytes.fromhex('c72e267f0102030405060708090a0b0c12cdab64144014003412ffffffffbf7083329a563412efbefb') + b'payload'
+        bytes.fromhex(
+            'c72e267f0102030405060708090a0b0c12cdab64144014003412ffffffffbf7083329a563412efbefb'
+        )
+        + b'payload'
     )
     assert pdu.encode() == wire
     assert ExtendedPdu.decode(wire) == pdu
@@ -214,7 +219,9 @@ def test_extended_header_preserves_acad_separately_from_advertising_data():
         assert ExtendedPdu.decode(pdu.encode()) == pdu
 
 
-@pytest.mark.parametrize('data', [b'', bytes(2), bytes([37, 1, 0]), bytes([1, 0, 0]), bytes([1, 1, 0xE0])])
+@pytest.mark.parametrize(
+    'data', [b'', bytes(2), bytes([37, 1, 0]), bytes([1, 0, 0]), bytes([1, 1, 0xE0])]
+)
 def test_invalid_aux_pointer(data):
     with pytest.raises(ValueError):
         AuxPtr.decode(data)

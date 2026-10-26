@@ -53,14 +53,20 @@ from bscontroller.radio.base import (
 from bscontroller.radio.packet import crc24
 from bscontroller.runtime.event_loop import ControllerEventLoop
 
-requires_runner = pytest.mark.skipif(not hasattr(asyncio, 'Runner'), reason='Controller loops require Python 3.11')
+requires_runner = pytest.mark.skipif(
+    not hasattr(asyncio, 'Runner'), reason='Controller loops require Python 3.11'
+)
 
-requires_pipe2 = pytest.mark.skipif(not hasattr(os, 'pipe2'), reason='FIFO tests require os.pipe2')
+requires_pipe2 = pytest.mark.skipif(
+    not hasattr(os, 'pipe2'), reason='FIFO tests require os.pipe2'
+)
 
 
 @requires_runner
 @pytest.mark.parametrize('buffered', [False, True])
-def test_controller_drains_callbacks_before_wait_and_blocks_until_ack(endpoints, buffered):
+def test_controller_drains_callbacks_before_wait_and_blocks_until_ack(
+    endpoints, buffered
+):
     device, phy = endpoints
     radio = BabbleSimRadio()
     radio.connection = device
@@ -142,7 +148,9 @@ def test_failed_blocking_wait_cannot_reuse_a_late_ack(endpoints):
     assert device.read_fd is None and device.write_fd is None and not device._busy
     with pytest.raises(RuntimeError, match='not connected'):
         device.wait_sync(0, 5)
-    assert os.read(phy.read_fd, 64) == (HEADER.pack(WAIT) + TIME.pack(1000) + HEADER.pack(DISCONNECT))
+    assert os.read(phy.read_fd, 64) == (
+        HEADER.pack(WAIT) + TIME.pack(1000) + HEADER.pack(DISCONNECT)
+    )
 
 
 @requires_runner
@@ -232,7 +240,9 @@ def test_controller_timer_cannot_interrupt_active_radio_reception(endpoints):
             assert os.read(phy.read_fd, HEADER.size) == HEADER.pack(RX_REQUEST)
             assert RX.unpack(os.read(phy.read_fd, RX.size))[:2] == (1, 999)
             assert fired == []
-            os.write(phy.write_fd, HEADER.pack(RX_END) + RX_DONE.pack(4, 0, 1000, 1000, 0))
+            os.write(
+                phy.write_fd, HEADER.pack(RX_END) + RX_DONE.pack(4, 0, 1000, 1000, 0)
+            )
 
         async def exercise():
             loop.call_later(0.00005, lambda: fired.append(radio.now_us))
@@ -341,7 +351,8 @@ async def test_tx_packet_layout_crc_and_completion_time(endpoints):
             NEVER,
             PDU_ADV_ACCESS_ADDRESS,
             MODULATION_LE_1M,
-            (PHY_ADV_CHANNEL_FREQUENCIES_MHZ[37] - BSIM_FREQUENCY_BASE_MHZ) * BSIM_FREQUENCY_SCALE,
+            (PHY_ADV_CHANNEL_FREQUENCIES_MHZ[37] - BSIM_FREQUENCY_BASE_MHZ)
+            * BSIM_FREQUENCY_SCALE,
             0,
             len(packet),
         )
@@ -368,7 +379,9 @@ async def test_tx_switching_rejects_early_start_before_submitting_phy(endpoints)
 @pytest.mark.asyncio
 @pytest.mark.parametrize('start_us', [None, 100])
 @pytest.mark.parametrize('switch_time_us', [0, RADIO_SWITCH_TIME_US])
-async def test_rx_switching_prevents_reception_before_radio_is_ready(endpoints, start_us, switch_time_us):
+async def test_rx_switching_prevents_reception_before_radio_is_ready(
+    endpoints, start_us, switch_time_us
+):
     device, phy = endpoints
     radio = BabbleSimRadio(switch_time_us=switch_time_us)
     radio.connection = device
@@ -380,9 +393,13 @@ async def test_rx_switching_prevents_reception_before_radio_is_ready(endpoints, 
         assert await phy.receive(HEADER.size) == HEADER.pack(RX_REQUEST)
         request = RX.unpack(await phy.receive(RX.size))
         assert request[:2] == (ready_us, 1000 - ready_us)
-        await phy.send(HEADER.pack(RX_END) + RX_DONE.pack(RX_STATUS_NO_SYNC, 0, 1000, 1000, 0))
+        await phy.send(
+            HEADER.pack(RX_END) + RX_DONE.pack(RX_STATUS_NO_SYNC, 0, 1000, 1000, 0)
+        )
 
-    result, _ = await asyncio.gather(radio.receive(37, 1000, start_us=start_us), respond())
+    result, _ = await asyncio.gather(
+        radio.receive(37, 1000, start_us=start_us), respond()
+    )
     assert result is None
 
 
@@ -441,14 +458,18 @@ async def test_rx_window_inside_switching_interval_submits_only_wait(endpoints):
         (RX_STATUS_CRC_ERROR, True, True),
     ],
 )
-async def test_rx_address_handshake_and_crc(endpoints, status, accept_bad_crc, received, search_until_us):
+async def test_rx_address_handshake_and_crc(
+    endpoints, status, accept_bad_crc, received, search_until_us
+):
     device, phy = endpoints
     radio = BabbleSimRadio()
     radio.connection = device
     pdu = b'\x02\x00'
     packet = pdu + crc24(pdu)
     done = RX_DONE.pack(status, len(packet), 139, 179, -45 * BSIM_RSSI_SCALE)
-    acquired = RX_DONE.pack(RX_STATUS_IN_PROGRESS, len(packet), 139, 139, -45 * BSIM_RSSI_SCALE)
+    acquired = RX_DONE.pack(
+        RX_STATUS_IN_PROGRESS, len(packet), 139, 139, -45 * BSIM_RSSI_SCALE
+    )
 
     async def respond():
         assert await phy.receive(HEADER.size) == HEADER.pack(RX_REQUEST)
@@ -458,7 +479,8 @@ async def test_rx_address_handshake_and_crc(endpoints, status, accept_bad_crc, r
             search_until_us - 1,
             PDU_ADV_ACCESS_ADDRESS,
             MODULATION_LE_1M,
-            (PHY_ADV_CHANNEL_FREQUENCIES_MHZ[37] - BSIM_FREQUENCY_BASE_MHZ) * BSIM_FREQUENCY_SCALE,
+            (PHY_ADV_CHANNEL_FREQUENCIES_MHZ[37] - BSIM_FREQUENCY_BASE_MHZ)
+            * BSIM_FREQUENCY_SCALE,
             0,
             BSIM_RX_SYNC_THRESHOLD,
             0,
@@ -481,7 +503,9 @@ async def test_rx_address_handshake_and_crc(endpoints, status, accept_bad_crc, r
         assert radio.now_us == 139
         await phy.send(HEADER.pack(RX_END) + done)
 
-    result, _ = await asyncio.gather(radio.receive(37, search_until_us, accept_bad_crc=accept_bad_crc), respond())
+    result, _ = await asyncio.gather(
+        radio.receive(37, search_until_us, accept_bad_crc=accept_bad_crc), respond()
+    )
     assert radio.now_us == 179
     assert (result is not None) == received
     if result is not None:
@@ -579,7 +603,9 @@ def test_negative_radio_switch_time_is_rejected():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('switch_time_us', [0, RADIO_SWITCH_TIME_US])
-async def test_connect_resets_radio_state_but_preserves_switch_time(monkeypatch, switch_time_us):
+async def test_connect_resets_radio_state_but_preserves_switch_time(
+    monkeypatch, switch_time_us
+):
     from bscontroller.radio.babblesim import PhyConnection
 
     async def connect(connection):

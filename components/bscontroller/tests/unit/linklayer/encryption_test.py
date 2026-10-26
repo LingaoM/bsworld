@@ -59,7 +59,9 @@ def test_encryption_setup_remains_per_connection(connection):
         (State.PAUSE_ACK, Opcode.LL_PAUSE_ENC_RSP),
     ],
 )
-def test_encryption_control_queue_resets_timer_but_retransmission_does_not(connection, state, opcode):
+def test_encryption_control_queue_resets_timer_but_retransmission_does_not(
+    connection, state, opcode
+):
     encryption = connection.encryption
     encryption.state = state
     encryption.deadline_us = 10
@@ -77,10 +79,14 @@ def test_idle_ping_queue_does_not_start_encryption_procedure_timer(connection):
     assert connection.encryption.deadline_us == 0
 
 
-@pytest.mark.parametrize('central,expected', [(True, '9FCDA7F448'), (False, 'A34C13A415')])
+@pytest.mark.parametrize(
+    'central,expected', [(True, '9FCDA7F448'), (False, 'A34C13A415')]
+)
 def test_core_start_encryption_vector(central, expected):
     cipher = PacketCipher(KEY, IV, central=central)
-    assert cipher.encrypt(LlId.CONTROL, bytes([Opcode.LL_START_ENC_RSP])) == bytes.fromhex(expected)
+    assert cipher.encrypt(
+        LlId.CONTROL, bytes([Opcode.LL_START_ENC_RSP])
+    ) == bytes.fromhex(expected)
 
 
 def test_ccm_masks_acknowledgement_bits_and_reuses_receive_counter():
@@ -88,7 +94,9 @@ def test_ccm_masks_acknowledgement_bits_and_reuses_receive_counter():
     rx = PacketCipher(KEY, IV, central=False)
     payload = tx.encrypt(LlId.START, b'encrypted payload')
     assert rx.decrypt(LlId.START, payload, duplicate=False) == b'encrypted payload'
-    assert rx.decrypt(LlId.START | 0x1C, payload, duplicate=True) == b'encrypted payload'
+    assert (
+        rx.decrypt(LlId.START | 0x1C, payload, duplicate=True) == b'encrypted payload'
+    )
     assert rx.rx_counter == tx.tx_counter == 1
     with pytest.raises(InvalidTag):
         rx.decrypt(LlId.CONTINUATION, payload, duplicate=True)
@@ -152,13 +160,17 @@ def test_unexpected_control_during_start_closes_connection(connection):
     'llid,payload',
     [(LlId.START, b'data'), (LlId.CONTROL, bytes([Opcode.LL_VERSION_IND]))],
 )
-def test_no_new_plaintext_procedure_while_host_key_is_pending(connection, llid, payload):
+def test_no_new_plaintext_procedure_while_host_key_is_pending(
+    connection, llid, payload
+):
     connection.encryption.state = State.KEY
     connection.accept(bytes([llid, len(payload)]) + payload, True)
     assert connection.closed and connection.rx_nesn == 0
 
 
-@pytest.mark.parametrize('opcode', [Opcode.LL_VERSION_IND, Opcode.LL_FEATURE_RSP, Opcode.LL_PING_RSP])
+@pytest.mark.parametrize(
+    'opcode', [Opcode.LL_VERSION_IND, Opcode.LL_FEATURE_RSP, Opcode.LL_PING_RSP]
+)
 def test_overlapping_control_is_deferred_until_encryption_completes(connection, opcode):
     from bscontroller.linklayer.connection import Outbound
 
@@ -173,7 +185,11 @@ def test_ping_budget_covers_request_alignment_and_peer_reply(connection):
     encryption = connection.encryption
     encryption.enabled = True
     encryption.last_authenticated_us = 100
-    spacing = connection.parameters.interval * LL_CONN_INTERVAL_UNIT_US * (connection.parameters.latency + 1)
+    spacing = (
+        connection.parameters.interval
+        * LL_CONN_INTERVAL_UNIT_US
+        * (connection.parameters.latency + 1)
+    )
     assert encryption.next_deadline_us == 100 + encryption.auth_timeout_us - 2 * spacing
 
 
@@ -199,10 +215,14 @@ def test_duplicate_pause_packet_survives_rx_mode_transition(connection):
     encryption.rx_enabled = True
     tx = PacketCipher(KEY, IV, central=True)
     wire = tx.encrypt(LlId.CONTROL, bytes([Opcode.LL_PAUSE_ENC_REQ]))
-    assert encryption.receive(LlId.CONTROL, wire, duplicate=False) == bytes([Opcode.LL_PAUSE_ENC_REQ])
+    assert encryption.receive(LlId.CONTROL, wire, duplicate=False) == bytes(
+        [Opcode.LL_PAUSE_ENC_REQ]
+    )
     encryption.rx_enabled = False
     encryption.state = State.PAUSE_ACK
-    assert encryption.receive(LlId.CONTROL, wire, duplicate=True) == bytes([Opcode.LL_PAUSE_ENC_REQ])
+    assert encryption.receive(LlId.CONTROL, wire, duplicate=True) == bytes(
+        [Opcode.LL_PAUSE_ENC_REQ]
+    )
     assert encryption.cipher.rx_counter == 1
 
 
@@ -229,11 +249,15 @@ async def test_paused_user_queue_sends_only_empty_packets_without_md(connection)
 async def _request_key(connection, *, refresh=False, extended=False):
     connection.established = True
     connection.report_created()
-    connection.peer_features = int(hci.LeFeatureMask.EXTENDED_REJECT_INDICATION) if extended else 0
+    connection.peer_features = (
+        int(hci.LeFeatureMask.EXTENDED_REJECT_INDICATION) if extended else 0
+    )
     encryption = connection.encryption
     encryption.enabled = refresh
     encryption.state = State.RESTART if refresh else State.IDLE
-    connection.control(bytes([Opcode.LL_ENC_REQ]) + ENC_REQUEST.pack(bytes(8), 0, bytes(8), bytes(4)))
+    connection.control(
+        bytes([Opcode.LL_ENC_REQ]) + ENC_REQUEST.pack(bytes(8), 0, bytes(8), bytes(4))
+    )
     await connection.send(0, 100)
     connection.accept(bytes([LlId.CONTINUATION | PDU_DATA_NESN_MASK, 0]), True)
     assert encryption.state == State.KEY and encryption.deadline_us
@@ -243,7 +267,8 @@ async def _request_key(connection, *, refresh=False, extended=False):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('acknowledge', [False, True], ids=['timeout', 'ack'])
 async def test_missing_refresh_key_performs_acl_termination(connection, acknowledge):
-    # Core Vol 6, Part B, 5.1.3.1: no LTK after a pause -> ACL Termination, PIN or Key Missing.
+    # Core Vol 6, Part B, 5.1.3.1: no LTK after a pause -> ACL Termination, PIN or Key
+    # Missing.
     encryption = await _request_key(connection, refresh=True)
     old_deadline = encryption.deadline_us
     connection.radio.now_us = connection.last_rx_us = old_deadline - 500_000
@@ -273,15 +298,23 @@ async def test_missing_refresh_key_performs_acl_termination(connection, acknowle
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('extended', [False, True], ids=['reject', 'extended-reject'])
-@pytest.mark.parametrize('peer_data', [b'', b'peer data'], ids=['empty-ack', 'data-ack'])
-async def test_missing_initial_key_keeps_acl_paused_until_rejection_ack(connection, extended, peer_data):
+@pytest.mark.parametrize(
+    'peer_data', [b'', b'peer data'], ids=['empty-ack', 'data-ack']
+)
+async def test_missing_initial_key_keeps_acl_paused_until_rejection_ack(
+    connection, extended, peer_data
+):
     # Core Vol 6, Part B, 5.1.3.1: the Peripheral completes rejection on its ACK.
     encryption = await _request_key(connection, extended=extended)
     user_data = b'queued ACL'
     connection.enqueue_acl(False, user_data)
     encryption.supply_key(None)
     rejection = bytes(
-        [Opcode.LL_REJECT_EXT_IND, Opcode.LL_ENC_REQ, ErrorCode.PIN_OR_KEY_MISSING_ERROR]
+        [
+            Opcode.LL_REJECT_EXT_IND,
+            Opcode.LL_ENC_REQ,
+            ErrorCode.PIN_OR_KEY_MISSING_ERROR,
+        ]
         if extended
         else [Opcode.LL_REJECT_IND, ErrorCode.PIN_OR_KEY_MISSING_ERROR]
     )
@@ -292,8 +325,12 @@ async def test_missing_initial_key_keeps_acl_paused_until_rejection_ack(connecti
     # A bad-CRC ACK or valid packet retaining NESN must not release queued ACL.
     connection.accept(bytes([LlId.CONTINUATION | PDU_DATA_SN_MASK, 0]), False)
     oversized = bytes(connection.controls.data_length.local.rx_octets + 1)
-    connection.accept(bytes([LlId.START | PDU_DATA_SN_MASK, len(oversized)]) + oversized, True)
-    connection.accept(bytes([LlId.CONTINUATION | PDU_DATA_SN_MASK | PDU_DATA_NESN_MASK, 0]), True)
+    connection.accept(
+        bytes([LlId.START | PDU_DATA_SN_MASK, len(oversized)]) + oversized, True
+    )
+    connection.accept(
+        bytes([LlId.CONTINUATION | PDU_DATA_SN_MASK | PDU_DATA_NESN_MASK, 0]), True
+    )
     assert encryption.busy
     await connection.send(0, connection.radio.now_us + 100)
     assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == rejection
@@ -303,24 +340,37 @@ async def test_missing_initial_key_keeps_acl_paused_until_rejection_ack(connecti
     connection.accept(bytes([header, len(peer_data)]) + peer_data, True)
     assert not connection.closed and not encryption.busy
     assert encryption.deadline_us == 0
-    assert not encryption.enabled and not encryption.tx_enabled and not encryption.rx_enabled
-    events = connection.link.listener.controller.events
-    assert [event.data for event in events if isinstance(event, hci.HCI_AclDataPacket)] == (
-        [peer_data] if peer_data else []
+    assert (
+        not encryption.enabled
+        and not encryption.tx_enabled
+        and not encryption.rx_enabled
     )
+    events = connection.link.listener.controller.events
+    assert [
+        event.data for event in events if isinstance(event, hci.HCI_AclDataPacket)
+    ] == ([peer_data] if peer_data else [])
     await connection.send(0, connection.radio.now_us + 100)
     assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == user_data
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('transmit_rejection', [False, True], ids=['not-sent', 'not-acked'])
-async def test_missing_initial_key_rejects_data_without_rejection_ack(connection, transmit_rejection):
+@pytest.mark.parametrize(
+    'transmit_rejection', [False, True], ids=['not-sent', 'not-acked']
+)
+async def test_missing_initial_key_rejects_data_without_rejection_ack(
+    connection, transmit_rejection
+):
     encryption = await _request_key(connection)
     encryption.supply_key(None)
     if transmit_rejection:
         await connection.send(0, connection.radio.now_us + 100)
-    # Neither a guessed ACK before transmission nor data retaining NESN completes rejection.
-    header = LlId.START | PDU_DATA_SN_MASK | (PDU_DATA_NESN_MASK if transmit_rejection else 0)
+    # Neither a guessed ACK before transmission nor data retaining NESN completes
+    # rejection.
+    header = (
+        LlId.START
+        | PDU_DATA_SN_MASK
+        | (PDU_DATA_NESN_MASK if transmit_rejection else 0)
+    )
     connection.accept(bytes([header, 4]) + b'data', True)
     assert connection.closed
     assert (
@@ -340,28 +390,46 @@ async def test_missing_initial_key_rejection_retains_response_timeout(connection
     assert not connection.check_timeout()
     connection.radio.now_us = deadline
     assert connection.check_timeout()
-    assert connection.link.listener.controller.events[-1].reason == ErrorCode.LMP_OR_LL_RESPONSE_TIMEOUT_ERROR
+    assert (
+        connection.link.listener.controller.events[-1].reason
+        == ErrorCode.LMP_OR_LL_RESPONSE_TIMEOUT_ERROR
+    )
 
 
 async def _start_encryption_after_phy_request(connection, *, extended=False):
     connection.established = True
     connection.report_created()
-    connection.peer_features = int(hci.LeFeatureMask.EXTENDED_REJECT_INDICATION) if extended else 0
+    connection.peer_features = (
+        int(hci.LeFeatureMask.EXTENDED_REJECT_INDICATION) if extended else 0
+    )
     connection.controls.request_phy(1, 1)
     await connection.send(0, 100)
-    assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == bytes([Opcode.LL_PHY_REQ, 1, 1])
-    request = bytes([Opcode.LL_ENC_REQ]) + ENC_REQUEST.pack(bytes(8), 0, bytes(8), bytes(4))
-    connection.accept(bytes([LlId.CONTROL | PDU_DATA_NESN_MASK, len(request)]) + request, True)
+    assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == bytes(
+        [Opcode.LL_PHY_REQ, 1, 1]
+    )
+    request = bytes([Opcode.LL_ENC_REQ]) + ENC_REQUEST.pack(
+        bytes(8), 0, bytes(8), bytes(4)
+    )
+    connection.accept(
+        bytes([LlId.CONTROL | PDU_DATA_NESN_MASK, len(request)]) + request, True
+    )
     assert connection.encryption.state == State.KEY
     return connection.encryption
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('extended', [False, True], ids=['reject', 'extended-reject'])
-@pytest.mark.parametrize('key_reply', ['before-enc-rsp', 'after-enc-rsp', 'after-unknown-rsp'])
-async def test_delayed_phy_unknown_rsp_survives_key_rejection(connection, extended, key_reply):
-    # Vol 6, Part B, 5.1.3.1 permits UNKNOWN_RSP for an earlier Peripheral PDU after ENC_RSP.
-    encryption = await _start_encryption_after_phy_request(connection, extended=extended)
+@pytest.mark.parametrize(
+    'key_reply', ['before-enc-rsp', 'after-enc-rsp', 'after-unknown-rsp']
+)
+async def test_delayed_phy_unknown_rsp_survives_key_rejection(
+    connection, extended, key_reply
+):
+    # Vol 6, Part B, 5.1.3.1 permits UNKNOWN_RSP for an earlier Peripheral PDU after
+    # ENC_RSP.
+    encryption = await _start_encryption_after_phy_request(
+        connection, extended=extended
+    )
     user_data = b'queued during encryption'
     connection.enqueue_acl(False, user_data)
     if key_reply == 'before-enc-rsp':
@@ -374,20 +442,33 @@ async def test_delayed_phy_unknown_rsp_survives_key_rejection(connection, extend
 
     # ACK ENC_RSP while answering the PHY request sent before encryption began.
     response = bytes([Opcode.LL_UNKNOWN_RSP, Opcode.LL_PHY_REQ])
-    connection.accept(bytes([LlId.CONTROL | PDU_DATA_SN_MASK, len(response)]) + response, True)
+    connection.accept(
+        bytes([LlId.CONTROL | PDU_DATA_SN_MASK, len(response)]) + response, True
+    )
     assert not connection.closed and encryption.busy
     assert encryption.deadline_us == deadline
     assert not connection.controls.phy_request and connection.controls.deadline_us == 0
     events = connection.link.listener.controller.events
-    phy_events = [event for event in events if isinstance(event, hci.HCI_LE_PHY_Update_Complete_Event)]
-    assert len(phy_events) == 1 and phy_events[0].status == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
+    phy_events = [
+        event
+        for event in events
+        if isinstance(event, hci.HCI_LE_PHY_Update_Complete_Event)
+    ]
+    assert (
+        len(phy_events) == 1
+        and phy_events[0].status == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
+    )
     assert connection.queue[0].payload == user_data
     if key_reply == 'after-unknown-rsp':
         encryption.supply_key(None)
 
     await connection.send(0, connection.radio.now_us + 100)
     rejection = bytes(
-        [Opcode.LL_REJECT_EXT_IND, Opcode.LL_ENC_REQ, ErrorCode.PIN_OR_KEY_MISSING_ERROR]
+        [
+            Opcode.LL_REJECT_EXT_IND,
+            Opcode.LL_ENC_REQ,
+            ErrorCode.PIN_OR_KEY_MISSING_ERROR,
+        ]
         if extended
         else [Opcode.LL_REJECT_IND, ErrorCode.PIN_OR_KEY_MISSING_ERROR]
     )
@@ -397,14 +478,19 @@ async def test_delayed_phy_unknown_rsp_survives_key_rejection(connection, extend
     assert not connection.closed and not encryption.busy
     await connection.send(0, connection.radio.now_us + 100)
     assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == user_data
-    # Keep supervision alive beyond the old procedure deadline: no stale PHY timer may fire.
+    # Keep supervision alive beyond the old procedure deadline: no stale PHY timer may
+    # fire.
     connection.radio.now_us = connection.last_rx_us = deadline + 1
     assert not connection.check_timeout()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('invalid', ['not-sent', 'wrong-opcode', 'wrong-length', 'wrong-llid'])
-async def test_unknown_rsp_exception_requires_a_sent_peripheral_control(connection, invalid):
+@pytest.mark.parametrize(
+    'invalid', ['not-sent', 'wrong-opcode', 'wrong-length', 'wrong-llid']
+)
+async def test_unknown_rsp_exception_requires_a_sent_peripheral_control(
+    connection, invalid
+):
     encryption = await _start_encryption_after_phy_request(connection)
     encryption.supply_key(None)
     if invalid != 'not-sent':
@@ -415,7 +501,9 @@ async def test_unknown_rsp_exception_requires_a_sent_peripheral_control(connecti
         response = bytes([Opcode.LL_UNKNOWN_RSP, Opcode.LL_VERSION_IND])
     elif invalid == 'wrong-length':
         response += b'\x00'
-    header = (LlId.START if invalid == 'wrong-llid' else LlId.CONTROL) | PDU_DATA_SN_MASK
+    header = (
+        LlId.START if invalid == 'wrong-llid' else LlId.CONTROL
+    ) | PDU_DATA_SN_MASK
     connection.accept(bytes([header, len(response)]) + response, True)
     assert connection.closed
     assert (
@@ -426,7 +514,9 @@ async def test_unknown_rsp_exception_requires_a_sent_peripheral_control(connecti
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('mode', ['plaintext', 'encrypted', 'bad-mic'])
-async def test_delayed_unknown_rsp_with_a_key_preserves_encryption_handshake(connection, mode):
+async def test_delayed_unknown_rsp_with_a_key_preserves_encryption_handshake(
+    connection, mode
+):
     encryption = await _start_encryption_after_phy_request(connection)
     encryption.supply_key(KEY)
     await connection.send(0, connection.radio.now_us + 100)
@@ -435,7 +525,9 @@ async def test_delayed_unknown_rsp_with_a_key_preserves_encryption_handshake(con
     if mode != 'plaintext':
         connection.accept(bytes([LlId.CONTINUATION | PDU_DATA_SN_MASK, 0]), True)
         await connection.send(0, connection.radio.now_us + 100)
-        assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == bytes([Opcode.LL_START_ENC_REQ])
+        assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == bytes(
+            [Opcode.LL_START_ENC_REQ]
+        )
         header = LlId.CONTROL | PDU_DATA_NESN_MASK
         peer = PacketCipher(
             crypto.e(KEY, encryption.skd_c + encryption.skd_p)[::-1],
@@ -457,7 +549,9 @@ async def test_delayed_unknown_rsp_with_a_key_preserves_encryption_handshake(con
     else:
         assert not connection.closed and encryption.state == State.START_RSP
         assert encryption.deadline_us == deadline
-        assert not connection.controls.phy_request and connection.controls.deadline_us == 0
+        assert (
+            not connection.controls.phy_request and connection.controls.deadline_us == 0
+        )
         connection.enqueue_acl(False, b'waiting for encrypted START_ENC_RSP')
         await connection.send(0, connection.radio.now_us + 100)
         assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == (

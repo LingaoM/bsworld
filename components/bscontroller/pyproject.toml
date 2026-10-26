@@ -13,7 +13,7 @@ license-files = ["LICENSE", "NOTICE"]
 dependencies = ["cryptography>=44.0.3"]
 
 [project.optional-dependencies]
-test = ["pytest>=8.4", "pytest-asyncio>=1.4", "pytest-xdist>=3", "ruff>=0.8", "build>=1"]
+test = ["pytest>=8.4", "pytest-asyncio>=1.4", "pytest-xdist>=3", "ruff==0.14.10", "build>=1"]
 
 [project.scripts]
 bscontroller = "bscontroller.cli:main"
@@ -30,12 +30,12 @@ asyncio_mode = "auto"
 addopts = "-ra"
 
 [tool.ruff]
+required-version = "==0.14.10"
 target-version = "py311"
-line-length = 120
+line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
-ignore = ["E501"]
 
 [tool.ruff.format]
 quote-style = "preserve"

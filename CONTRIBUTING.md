@@ -33,9 +33,12 @@ We recommend the [Docker test image](docker/README.md#run-tests) with your check
 Run the checks relevant to the change in the [Docker environment](docker/README.md#run-tests) with your checkout mounted, or in the local Python environment. At minimum, framework changes should pass:
 
 ```sh
-ruff check --no-cache src tests
+ruff check --no-cache .
+ruff format --check --no-cache .
 pytest tests/unit/
 ```
+
+Follow the repository's Python [code style](docs/development.md#code-style). The `Code style` workflow checks all maintained Python code on every push and pull request.
 
 Run the affected virtual-system suite when changing process startup, scheduling, HCI, RF behavior, platform configuration, or test Applications. For example:
 
