@@ -24,7 +24,7 @@ def test_masked_version_completion_retains_cache_and_clears_request(connection):
     controller = listener.controller
     controller.event_mask &= ~(1 << (hci.HCI_READ_REMOTE_VERSION_INFORMATION_COMPLETE_EVENT - 1))
     connection.controls.request_version()
-    peer = (hci.HCI_VERSION_BLUETOOTH_CORE_5_0, 1, 2)
+    peer = (hci.SpecificationVersion.BLUETOOTH_CORE_5_0, 1, 2)
     connection.control(bytes([Opcode.LL_VERSION_IND]) + struct.pack('<BHH', *peer))
     assert connection.controls.peer_version == peer
     assert not connection.controls.version_request

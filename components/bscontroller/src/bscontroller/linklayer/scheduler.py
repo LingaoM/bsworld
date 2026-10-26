@@ -30,6 +30,7 @@ class RadioReservation:
         cycles = max(0, (time_us - self.start_us) // self.interval_us)
         start = self.start_us + cycles * self.interval_us
         if start + self.duration_us <= time_us:
+            # Half-open intervals allow a new operation exactly at the old end.
             start += self.interval_us
         return start, start + self.duration_us
 
@@ -67,6 +68,8 @@ def first_radio_gap(
         ]
         if not conflicts:
             return candidate
+        # Jump beyond every conflicting window, then round on the caller's
+        # original grid. Rounding relative to each conflict would drift that grid.
         offset = max(conflicts) - start_us
         candidate = start_us + ((offset + quantum_us - 1) // quantum_us * quantum_us)
     return None

@@ -1,7 +1,7 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""LE Channel Selection Algorithm #2 (Core 6.3, Vol 6, Part B, 4.5.8.3)."""
+"""LE Channel Selection Algorithms #1 and #2 (Core 6.3, Vol 6, Part B, 4.5.8)."""
 
 from bscontroller.linklayer import (
     LL_CHANNEL_ID_BITS,
@@ -13,6 +13,17 @@ from bscontroller.linklayer import (
 )
 from bscontroller.linklayer.parameters import valid_channel_map
 from bscontroller.radio.base import PHY_OCTET_BITS, PHY_OCTET_MASK
+
+
+def channel_selection_1(unmapped_channel: int, channel_map: int) -> int:
+    """Core Vol 6, Part B, 4.5.8.2; remap an unused channel by unmappedChannel mod numUsedChannels.
+
+    The caller owns lastUnmappedChannel and its per-event hopIncrement step.
+    """
+    if channel_map & (1 << unmapped_channel):
+        return unmapped_channel
+    enabled = [index for index in range(LL_DATA_CHANNEL_COUNT) if channel_map & (1 << index)]
+    return enabled[unmapped_channel % len(enabled)]
 
 
 def channel_selection_2(counter: int, access_address: int, channel_map: int) -> int:

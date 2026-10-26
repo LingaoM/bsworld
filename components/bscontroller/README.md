@@ -44,9 +44,37 @@ bscontroller --help
 
 Each Controller implements HCI, the Link Layer, and radio adaptation. Multiple Controllers connect to the same BabbleSim PHY and interact through shared radio channels on a common simulation timeline.
 
-<div align="center"><img src="docs/images/radio_controller_arch.svg" alt="Multiple Radio Controllers sharing a BabbleSim PHY" width="100%"><br><em>Figure 1: Controller protocol architecture and shared PHY</em></div>
+<div align="center"><img src="docs/images/radio_controller_arch.svg" alt="Multiple Radio Controllers sharing a BabbleSim PHY" width="80%"><br><em>Figure 1: Controller protocol architecture and shared PHY</em></div>
 
-The protocol behavior follows Bluetooth Core 6.3. See the [architecture overview](docs/architecture.md) for the layering, command and event flow, and implementation limits relevant to integration and debugging.
+Protocol behavior follows [Bluetooth Core 6.3](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/architecture,-change-history,-and-conventions/architecture.html#UUID-37039e1f-e0cd-37ce-2cf0-15dd6e6cff2e). The specification defines the protocol boundaries between the Host, Controller, LL, and PHY; the modules below are this implementation's organization.
+
+### Internal architecture
+
+The following diagram expands one Controller instance. Each ACL connection has its own connection context, LLCP, and event-execution state; connections and connectionless roles share one RadioResourceManager.
+
+![Internal modules, state ownership and principal interaction paths of one Controller](docs/images/radio_controller_internal_arch.svg)
+
+*Figure 2: Controller internal architecture. [Open the SVG for detail](docs/images/radio_controller_internal_arch.svg).*
+
+Nested boxes show object and state ownership. Black arrows denote operations/control, dashed green arrows denote Listener callbacks, orange denotes activity selection and scheduling windows, blue denotes PDUs and RF results, and dotted gray arrows denote runtime composition, driving, and clock relationships. H4Parser/H4Server describe the socket path; in-process HCI packets enter Controller directly.
+
+| Module | Responsibilities and state ownership |
+| --- | --- |
+| `hci/` | H4 framing, command decoding and parameter conversion, command-family selection, unfinished HCI fragments, event masks, duplicate filtering, and report encoding |
+| `linklayer/service.py` | `LinkLayerService` / `AdvertisingService` commit live role state, initializing scan backoff, publishing payloads and DID, enabling/disabling roles, cancelling sync acquisition, and configuring defaults |
+| `linklayer/connection.py` | `Connection` manages lifetime, current parameters, anchor, and supervision timeout |
+| `linklayer/llcp.py` | `LlcpCoordinator` handles control admission, transmitted requests awaiting replies, encryption-phase TX/RX gates, RX/ACK routing, and deadline aggregation; the shared `ProcedureResponseTimer` records its current procedure owner |
+| `linklayer/control.py`, `encryption.py`, `data_length.py` | Individual control state transitions, collision rules, Instant updates, key/cipher transitions, and data-length negotiation, connected to the event executor by the coordinator |
+| `linklayer/connection_event.py` | `ConnectionEvent` owns the TX queue, SN/NESN, LL fragmentation, and retry snapshot, executing channel selection and exchanges within one connection event |
+| `linklayer/primary.py`, `extended.py`, `periodic.py` | Legacy/extended advertising, scanning, initiating, and periodic TX/RX execution; role contexts are defined in `discovery.py` |
+| `linklayer/resource.py`, `scheduler.py` | `RadioResourceManager` supplies shared reservations, priorities, arbitration, and activity-window release; scheduling helpers find complete, non-preemptive slots |
+| `radio/`, `runtime/` | Radio supplies TX/RX, physical time, and BabbleSim FIFO adaptation; Runtime composes threads, event loops, sessions, and PHY process lifecycle |
+
+Control requests pass through the LL service to LLCP admission. Asynchronous procedures return a `PreparedProcedure`: HCI emits Command Status before calling `start()`, so immediate completion from cached information also follows Command Status. Host ACL data enters the event queue through the LL service. The receive path authenticates, checks admissibility, and then commits the ACK. LL commits state before notifying HCI through `linklayer/listener.py` to encode the result.
+
+Outstanding requests are removed on a matching reply or link teardown; delayed replies during an encryption pause are routed using the same association. The shared response timer records its current procedure owner, so PHY completion stops only its own timer. Public HCI connection identities are read-only, advertising payload views return `bytes`, and scan configuration reads return detached copies. Updates go through HCI commands or LL services.
+
+HCI/LL handle raw payloads; the Host owns L2CAP reassembly, ATT/GATT, SMP pairing, and key storage. Controller-to-Controller packets all pass through the shared PHY. Resource capacities and supported PHY masks are implementation capabilities. See [Threads, clocks, and resource ownership](#threads-clocks-and-resource-ownership) for execution and cleanup order.
 
 ## Running examples
 

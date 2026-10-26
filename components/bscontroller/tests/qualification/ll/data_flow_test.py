@@ -146,12 +146,6 @@ async def _fragmented_header(tester, *, central=False, receive=False):
             buffers.le_acl_data_packet_length,
             buffers.total_num_le_acl_data_packets,
         )
-        if not slots:
-            shared = await tester.command(hci.HCI_Read_Buffer_Size_Command())
-            maximum, slots = (
-                shared.hc_acl_data_packet_length,
-                shared.hc_total_num_acl_data_packets,
-            )
         if maximum < 5 or slots < 1:
             pytest.skip('HCI buffers cannot carry the source-required start fragments')
     for first_length in range(1 if receive else 0, 6):

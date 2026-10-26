@@ -66,7 +66,10 @@ async def bredr_not_supported(tester):
         PDF/printed pages 154-155, Figure 4.83.
         Source reference [1], Section 3.2.
     """
-    command = hci.HCI_Inquiry_Command(0x9E8B00, 1, 1)
+    # Vol 4, Part E, 7.1.1: LAP 0x9E8B00, Inquiry_Length 1, Num_Responses 1.
+    command = hci.HCI_Command(
+        bytes.fromhex('008b9e') + bytes([1, 1]), op_code=hci.hci_command_op_code(0x01, 0x0001)
+    )
     tester.send(bytes(command))
     event = await tester.expect(
         lambda event: (

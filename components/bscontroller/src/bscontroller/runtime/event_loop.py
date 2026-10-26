@@ -53,6 +53,8 @@ class RadioSelector(selectors.BaseSelector):
     def select(self, timeout: float | None = None):
         if self.clock is None:
             return self.delegate.select(timeout)
+        # Drain ready I/O before advancing simulation time, so machine load does
+        # not decide which callbacks run before an RF operation.
         ready = self.delegate.select(0)
         if ready or timeout == 0:
             return ready
@@ -65,6 +67,7 @@ class RadioSelector(selectors.BaseSelector):
             before = self.clock.now_us
             if self.clock.advance_to_us(before + step_us) <= before:
                 raise RuntimeError('BabbleSim clock did not advance')
+        # A PHY grant can make socket/FIFO work ready; poll again at the new time.
         return self.delegate.select(0)
 
 
@@ -119,6 +122,8 @@ class ControllerSelector(RadioSelector):
         if ready or timeout == 0:
             return ready
         start_us, admitted = self.pending
+        # Admit RF only after ready callbacks have drained. Pass the next software
+        # deadline along so address search can yield to an earlier timer.
         deadline = (
             self.clock.now_us + round(timeout * PHY_TIME_UNITS_PER_SECOND)
             if self.clock is not None and timeout is not None

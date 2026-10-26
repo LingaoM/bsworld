@@ -31,6 +31,8 @@ Properties = (
     hci.HCI_LE_Set_Extended_Advertising_Parameters_Command.AdvertisingProperties
 )
 Operation = hci.HCI_LE_Set_Extended_Advertising_Data_Command.Operation
+# Vol 4, Part E, 7.1.20: BR/EDR Remote Name Request Cancel, the source note's exception.
+REMOTE_NAME_REQUEST_CANCEL_OPCODE = hci.hci_command_op_code(0x01, 0x001A)
 SYNC_TRANSFER_PARAMETERS_OPCODE = (
     hci.HCI_LE_SET_PERIODIC_ADVERTISING_SYNC_TRANSFER_PARAMETERS_COMMAND
 )
@@ -56,7 +58,7 @@ def _check_unknown_command(event, opcode):
             ErrorCode.UNSPECIFIED_ERROR_ERROR,
             ErrorCode.COMMAND_DISALLOWED_ERROR,
         )
-        if opcode == hci.HCI_REMOTE_NAME_REQUEST_CANCEL_COMMAND
+        if opcode == REMOTE_NAME_REQUEST_CANCEL_OPCODE
         else (ErrorCode.UNKNOWN_HCI_COMMAND_ERROR,)
     )
     assert status in allowed, (opcode, status)

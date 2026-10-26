@@ -20,6 +20,19 @@
 # -----------------------------------------------------------------------------
 from __future__ import annotations
 
+# Re-exported so Link Layer modules keep one constant namespace.
+from bscontroller.radio.packet import (  # noqa: F401
+    LL_DATA_CHANNEL_COUNT,
+    PDU_ACCESS_ADDRESS_SIZE,
+    PDU_ADV_ACCESS_ADDRESS,
+    PDU_ADV_CRC_INIT,
+    PDU_ADV_EXT_PAYLOAD_SIZE_MAX,
+    PDU_CRC_POLYNOMIAL_REFLECTED,
+    PDU_CRC_SIZE,
+    PDU_HEADER_SIZE,
+    PDU_PREAMBLE_1M_SIZE,
+    PDU_PREAMBLE_2M_SIZE,
+)
 from bscontroller.serialization import OpenIntEnum
 
 # -----------------------------------------------------------------------------
@@ -29,10 +42,8 @@ from bscontroller.serialization import OpenIntEnum
 # SIZE is in octets; time values end in _US; MASK values are encoded bit masks.
 # Normative references in this section use Bluetooth Core 6.3.
 
-# Physical packet fields: Core Vol 6, Part B, 2. Sizes exclude other fields.
-PDU_PREAMBLE_1M_SIZE = 1
-PDU_PREAMBLE_2M_SIZE = 2
-PDU_ACCESS_ADDRESS_SIZE = 4
+# Physical packet fields (preamble, Access Address, header, CRC, advertising
+# Access Address/CRC init, extended payload bound) live in radio.packet.
 # Core Vol 6, Part B, 2.1.2: data Access Address bit-pattern constraints.
 PDU_ACCESS_ADDRESS_CONSECUTIVE_BITS_MAX = 6
 PDU_ACCESS_ADDRESS_TRANSITIONS_MAX = 24
@@ -43,8 +54,6 @@ PDU_ACCESS_ADDRESS_CODED_LSB_BITS = 8
 PDU_ACCESS_ADDRESS_CODED_LSB_ONES_MIN = 3
 PDU_ACCESS_ADDRESS_CODED_TRANSITION_BITS = 16
 PDU_ACCESS_ADDRESS_CODED_TRANSITIONS_MAX = 11
-PDU_HEADER_SIZE = 2
-PDU_CRC_SIZE = 3
 # Core Vol 6, Part E, 2: encrypted payload MIC length in octets.
 PDU_DATA_MIC_SIZE = 4
 # Core Vol 6, Part E, 1: the LE session key is 128 bits.
@@ -67,8 +76,6 @@ LL_ENCRYPTION_DIRECTION_MASK = 1 << 39
 PDU_DATA_AUTHENTICATED_HEADER_MASK = 0xE3
 # Channel map field in advertising and control PDUs.
 LL_CHANNEL_MAP_SIZE = 5
-# Core Vol 6, Part B, 3.1.1: polynomial in the CRC engine's LSB-first form.
-PDU_CRC_POLYNOMIAL_REFLECTED = 0xDA6000
 
 # Advertising header: Core Vol 6, Part B, 2.3.1.
 PDU_ADV_TYPE_MASK = 0x0F
@@ -80,16 +87,10 @@ PDU_ADV_CHSEL_MASK = 1 << 5
 PDU_ADV_TXADD_MASK = 1 << 6
 # Receiver address type: 1 = random.
 PDU_ADV_RXADD_MASK = 1 << 7
-# Fixed advertising-channel Access Address.
-PDU_ADV_ACCESS_ADDRESS = 0x8E89BED6
-# Fixed advertising-channel CRC initialization.
-PDU_ADV_CRC_INIT = 0x555555
 
 # Advertising data: Core Vol 6, Part B, 2.3.1 and 2.3.4.
 # AdvData/ScanRspData only; excludes AdvA.
 PDU_ADV_LEGACY_DATA_SIZE_MAX = 31
-# Includes extended header; excludes LL header.
-PDU_ADV_EXT_PAYLOAD_SIZE_MAX = 255
 # ExtHdrLen width in the common extended format.
 PDU_ADV_EXT_HEADER_LENGTH_BITS = 6
 # ExtHdrLen excludes the octet containing AdvMode and ExtHdrLen itself.
@@ -197,7 +198,6 @@ PDU_DATA_EMPTY_TIME_CODED_S8_US = 976
 PDU_CONTROL_PAYLOAD_SIZE_INITIAL_MAX = 27
 
 # Channel selection and clock accuracy: Core Vol 6, Part B, 2.3.3 and 4.5.8.
-LL_DATA_CHANNEL_COUNT = 37
 LL_DATA_CHANNEL_COUNT_MIN = 2
 LL_ADV_PRIMARY_CHANNELS = (37, 38, 39)
 LL_ADV_PRIMARY_CHANNEL_MAP_ALL = (1 << len(LL_ADV_PRIMARY_CHANNELS)) - 1

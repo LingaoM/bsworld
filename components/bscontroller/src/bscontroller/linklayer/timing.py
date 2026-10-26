@@ -34,6 +34,7 @@ LL_CONN_RX_WINDOW_UNCODED_US = 100
 
 LL_CONN_RX_WINDOW_CODED_US = 400
 
+# Core Vol 6, Part B, 5.5.1: (Instant - connEventCount) mod 65536 >= 32767 is in the past.
 LL_INSTANT_PAST_THRESHOLD = 0x7FFF
 
 

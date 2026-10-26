@@ -195,6 +195,8 @@ class SyncInfo:
     def decode(cls, data: bytes):
         if len(data) != PDU_ADV_SYNC_INFO_SIZE:
             raise ValueError('invalid SyncInfo size')
+        # Separate the timing flags from the offset, and SCA from the channel map
+        # (Vol 6, Part B, 2.3.4.6).
         offset, interval = struct.unpack_from('<HH', data)
         unit = PDU_ADV_OFFSET_UNIT_300_US if offset & PDU_ADV_SYNC_OFFSET_UNITS_MASK else PDU_ADV_OFFSET_UNIT_30_US
         channels = int.from_bytes(
@@ -253,6 +255,8 @@ class ExtendedPdu:
             None if self.sync_info is None else self.sync_info.encode(),
             (None if self.tx_power is None else self.tx_power.to_bytes(PDU_ADV_TX_POWER_SIZE, 'little', signed=True)),
         )
+        # Encode optional fields in flag order, including present fields whose
+        # value is zero. ACAD follows those fields (Vol 6, Part B, 2.3.4).
         flags = sum(1 << bit for bit, value in enumerate(fields) if value is not None)
         header = (
             bytes([flags]) + b''.join(value for value in fields if value is not None) + self.acad
@@ -301,6 +305,7 @@ class ExtendedPdu:
         if mode == PDU_ADV_EXT_MODE_RESERVED or PDU_ADV_EXT_HEADER_OFFSET + size > len(pdu):
             raise ValueError('invalid extended advertising header')
         if not size:
+            # With ExtHdrLen=0 there is no flags octet; AdvData starts immediately.
             return cls(
                 data=pdu[PDU_ADV_EXT_HEADER_OFFSET:],
                 mode=mode,
@@ -321,6 +326,8 @@ class ExtendedPdu:
             )
         ):
             if flags & (1 << bit):
+                # Bound each optional field by ExtHdrLen, not the whole PDU:
+                # AdvData must never be consumed as a truncated header field.
                 if offset + length > PDU_ADV_EXT_HEADER_OFFSET + size:
                     raise ValueError('truncated extended header')
                 values.append(pdu[offset : offset + length])

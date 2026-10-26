@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Protocol
 
-from bscontroller.linklayer import (
+from bscontroller.radio.packet import (
     PDU_ACCESS_ADDRESS_SIZE,
     PDU_ADV_ACCESS_ADDRESS,
     PDU_ADV_CRC_INIT,
@@ -17,10 +17,10 @@ from bscontroller.linklayer import (
     PDU_HEADER_SIZE,
     PDU_PREAMBLE_1M_SIZE,
     PDU_PREAMBLE_2M_SIZE,
+    PHY_OCTET_BITS,
 )
 
 # PHY airtime: Core Vol 6, Part B, 2. Bit counts are before FEC encoding.
-PHY_OCTET_BITS = 8
 PHY_1M_OCTET_TIME_US = 8
 PHY_2M_OCTET_TIME_US = 4
 # Preamble, Access Address, Coding Indicator, TERM1.

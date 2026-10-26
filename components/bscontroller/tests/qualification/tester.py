@@ -282,7 +282,7 @@ class AirTester(HciProbe):
             await self.wait(0)
             return end
         # Fault injection changes the on-air CRC, not the DUT's receive result.
-        from bscontroller.linklayer.bitstream import crc24
+        from bscontroller.radio.packet import crc24
 
         crc = crc24(pdu, crc_init)
         # LL.TS common invalid-CRC data inverts all 24 checksum bits.

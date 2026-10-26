@@ -594,6 +594,19 @@ def test_phy_rejection_keeps_remote_parameter_response_timer(connection, host_re
     assert controls.check_timeout() and connection.closed
 
 
+def test_unknown_phy_request_finishes_without_a_stale_response_timer(connection):
+    controls = connection.controls
+    controls.request_phy(1, 1)
+    controls.control(bytes([Opcode.LL_UNKNOWN_RSP, Opcode.LL_PHY_REQ]))
+    assert not controls.phy_request and not controls.phy_request_local
+    assert controls.deadline_us == 0
+    event = connection.link.listener.controller.events[-1]
+    assert isinstance(event, hci.HCI_LE_PHY_Update_Complete_Event)
+    assert event.status == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
+    connection.radio.now_us = LL_RESPONSE_TIMEOUT_US
+    assert not controls.check_timeout() and not connection.closed
+
+
 def test_ll_response_timeout_uses_simulated_time(connection):
     connection.controls.request_parameters(24, 24, 0, 100)
     connection.radio.now_us = LL_RESPONSE_TIMEOUT_US - 1
@@ -886,7 +899,7 @@ def test_version_query_owns_one_indication_and_caches_first_peer_tuple(connectio
     controls = connection.controls
     listener = connection.link.listener
     controller = listener.controller
-    controller.lmp_version = hci.HCI_VERSION_BLUETOOTH_CORE_5_4
+    controller.lmp_version = hci.SpecificationVersion.BLUETOOTH_CORE_5_4
     controller.manufacturer_company_identifier = 0x0059
     controller.lmp_subversion = 0x1234
     command = hci.HCI_Read_Remote_Version_Information_Command(connection.handle)
@@ -896,7 +909,7 @@ def test_version_query_owns_one_indication_and_caches_first_peer_tuple(connectio
     listener.on_hci_read_remote_version_information_command(command)
     assert controller.events[-1].status == ErrorCode.COMMAND_DISALLOWED_ERROR
     assert len(connection.queue) == 1
-    peer = (hci.HCI_VERSION_BLUETOOTH_CORE_5_0, 0x1234, 0x5678)
+    peer = (hci.SpecificationVersion.BLUETOOTH_CORE_5_0, 0x1234, 0x5678)
     connection.control(bytes([Opcode.LL_VERSION_IND]) + struct.pack('<BHH', *peer))
     event = controller.events[-1]
     assert isinstance(event, hci.HCI_Read_Remote_Version_Information_Complete_Event)
@@ -1020,3 +1033,21 @@ def test_periodicity_prefers_peer_value_only_for_a_range(minimum, maximum, prefe
 )
 def test_minimum_channel_argument_boundaries(phys, minimum, expected):
     assert valid_minimum_channels(phys, minimum) is expected
+
+
+def test_queued_procedure_pdu_restarts_response_timer(connection):
+    # Core Vol 6, Part B, 5.2: each queued LL Control PDU resets a running T_PRT.
+    controls = connection.controls
+    controls.request_phy(1, 1)
+    started = controls.deadline_us
+    connection.radio.now_us += 1000
+    controls.enqueue(bytes([0x16, 1, 1]))
+    assert controls.deadline_us == started + 1000
+
+
+def test_connection_update_has_no_response_timer(connection):
+    # Core Vol 6, Part B, 5.2: Connection Update and Channel Map Update have no T_PRT.
+    controls = connection.controls
+    controls.request_update(connection.parameters.interval, 0, connection.parameters.timeout)
+    controls.request_channel_map(connection.parameters.channel_map)
+    assert controls.deadline_us == 0

@@ -5,15 +5,15 @@
 """LE HCI entry point and reset/command-family boundaries."""
 
 from bscontroller import hci
-from bscontroller.capabilities import CONTROLLER_SUPPORTED_PHY_MASK
-from bscontroller.hci import HCI_EVENT_MASK_DEFAULT, HCI_LE_EVENT_MASK_DEFAULT
+from bscontroller.hci import (
+    HCI_EVENT_MASK_DEFAULT,
+    HCI_LE_EVENT_MASK_DEFAULT,
+)
 from bscontroller.hci.advertising import LeAdvertisingCommands
 from bscontroller.hci.connection import LeConnectionCommands
 from bscontroller.hci.context import DISALLOWED, SUCCESS
+from bscontroller.hci.records import LegacyAdvertiser
 from bscontroller.hci.scanning import LeScanningCommands
-from bscontroller.linklayer import LL_DATA_CHANNEL_MAP_ALL
-from bscontroller.linklayer.discovery import Scanning
-from bscontroller.linklayer.timing import LL_DEFAULT_SCAN_INTERVAL_US
 
 # Core Vol 4, Part E, 3.1.1: one advertising command family per reset.
 LEGACY_ADVERTISING_COMMANDS = frozenset(
@@ -75,30 +75,31 @@ class LeControllerProcedures(LeAdvertisingCommands, LeScanningCommands, LeConnec
         return self.extended_commands == extended
 
     def on_hci_reset_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.3.2 Reset Command
+        '''
+        # Drop active LL procedures first, then remove Host-facing views and HCI
+        # staging buffers so no record can refer to a pre-reset connection or train.
         self.link.reset()
         self.controller.le_connections.clear()
         self.controller.advertising_sets.clear()
         self.fragments.clear()
         self.seen.clear()
         self.extended_scan = False
-        self.scan_parameters = Scanning(
-            self.controller.public_address,
-            LL_DEFAULT_SCAN_INTERVAL_US,
-            LL_DEFAULT_SCAN_INTERVAL_US,
-        )
-        self.controller.le_legacy_advertiser.advertising_data = b''
-        self.controller.le_legacy_advertiser.scan_response_data = b''
-        self.controller.le_legacy_advertiser.enabled = False
+        self.ll.reset_configuration(self.controller.public_address)
+        # Recreate the record to restore parameters as well as payload/enabled state.
+        self.controller.le_legacy_advertiser = LegacyAdvertiser(self.controller)
         self.controller.event_mask = HCI_EVENT_MASK_DEFAULT
         self.controller.event_mask_page_2 = 0
         self.controller.le_event_mask = HCI_LE_EVENT_MASK_DEFAULT
-        self.host_channel_map = LL_DATA_CHANNEL_MAP_ALL
-        self.default_tx_phys = self.default_rx_phys = CONTROLLER_SUPPORTED_PHY_MASK
         self.period_duplicate_reset = False
         self.extended_commands = None
         return hci.HCI_StatusReturnParameters(SUCCESS)
 
     def on_hci_le_set_random_address_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.4 LE Set Random Address Command
+        '''
         if self.link.initiating is not None:
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         self.controller.random_address = command.random_address

@@ -692,7 +692,7 @@ async def _feature_or_version(tester, *, central, version=False):
     )
     if version:
         payload = bytes(
-            [Opcode.LL_VERSION_IND, hci.HCI_VERSION_BLUETOOTH_CORE_5_4]
+            [Opcode.LL_VERSION_IND, hci.SpecificationVersion.BLUETOOTH_CORE_5_4]
         ) + struct.pack('<HH', 4660, 0)
         response = await link.control(Opcode.LL_VERSION_IND, payload)
         assert len(response) == 6
@@ -5262,7 +5262,7 @@ async def _timeouts_termination(tester, *, central=False):
 
 
 # Independent peer version information, including nonzero manufacturer/subversion.
-PEER_VERSION = (hci.HCI_VERSION_BLUETOOTH_CORE_5_4, 4660, 22136)
+PEER_VERSION = (hci.SpecificationVersion.BLUETOOTH_CORE_5_4, 4660, 22136)
 VERSION_COLLISION_DELAY_LIMIT = 10
 # Long-interval collision setup: 3 s, strictly greater than the specified 2 s.
 VERSION_COLLISION_INTERVAL = 2400

@@ -16,7 +16,9 @@ from .runtime import PhyProcess
 
 
 async def serve(args):
-    controller = RadioController('controller', args.address, hci_snoop_file=args.btsnoop_file, hci_socket=args.hci_socket)
+    controller = RadioController(
+        'controller', args.address, hci_snoop_file=args.btsnoop_file, hci_socket=args.hci_socket
+    )
     async with RadioSession(args.sim_id, [(args.dev_id, controller)], clock_dev_id=args.clock_id):
         print(f'HCI listening on {args.hci_socket}', flush=True)
         await controller.terminated

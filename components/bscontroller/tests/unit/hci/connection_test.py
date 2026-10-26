@@ -77,8 +77,8 @@ def test_hci_acl_and_disconnect_route_to_only_the_selected_handle(connection):
     assert not connection.queue and len(second.queue) == 2
     second.complete(ErrorCode.CONNECTION_TERMINATED_BY_LOCAL_HOST_ERROR)
     assert connection.link.connections == {connection.handle: connection}
-    assert listener.controller.find_le_connection_by_handle(connection.handle) is not None
-    assert listener.controller.find_le_connection_by_handle(second.handle) is None
+    assert listener.controller.find_connection_by_handle(connection.handle) is not None
+    assert listener.controller.find_connection_by_handle(second.handle) is None
 
 
 def test_peer_duplicates_and_shared_connection_capacity(connection):

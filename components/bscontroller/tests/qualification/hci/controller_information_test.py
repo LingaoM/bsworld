@@ -95,9 +95,9 @@ EXPECTED_COMMANDS = frozenset(
     }
 )
 EXPECTED_LOCAL_VERSION = (
-    hci.HCI_VERSION_BLUETOOTH_CORE_5_0,
+    hci.SpecificationVersion.BLUETOOTH_CORE_5_0,
     0,
-    hci.HCI_VERSION_BLUETOOTH_CORE_5_0,
+    hci.SpecificationVersion.BLUETOOTH_CORE_5_0,
     0xFFFF,
     0,
 )

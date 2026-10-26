@@ -404,7 +404,7 @@ async def _overlapping(tester, *, features=False, version_exchanged=False):
         bytes([Opcode.LL_PERIPHERAL_FEATURE_REQ])
         + peer_features.to_bytes(PDU_CONTROL_FEATURE_SET_SIZE, 'little')
         if features
-        else bytes([Opcode.LL_VERSION_IND, hci.HCI_VERSION_BLUETOOTH_CORE_5_0])
+        else bytes([Opcode.LL_VERSION_IND, hci.SpecificationVersion.BLUETOOTH_CORE_5_0])
         + CONTROLLER_COMPANY_IDENTIFIER.to_bytes(2, 'little')
         + bytes(2)
     )
@@ -862,7 +862,7 @@ async def _unexpected(tester, *, data=False, refresh=False):
     link = await _security_link(tester, True)
     if data:
         version = await tester.command(hci.HCI_Read_Local_Version_Information_Command())
-        if version.lmp_version < hci.HCI_VERSION_BLUETOOTH_CORE_5_0:
+        if version.lmp_version < hci.SpecificationVersion.BLUETOOTH_CORE_5_0:
             pytest.skip(
                 'Legacy pre-5.0 MIC-failure termination path is not implemented'
             )
@@ -912,7 +912,7 @@ async def _unexpected(tester, *, data=False, refresh=False):
     payload = (
         b'\xff'
         if data
-        else bytes([Opcode.LL_VERSION_IND, hci.HCI_VERSION_BLUETOOTH_CORE_5_0])
+        else bytes([Opcode.LL_VERSION_IND, hci.SpecificationVersion.BLUETOOTH_CORE_5_0])
         + CONTROLLER_COMPANY_IDENTIFIER.to_bytes(2, 'little')
         + bytes(2)
     )
@@ -974,7 +974,7 @@ async def _peripheral_unexpected_start_pdu(tester, *, data):
     forbidden = (
         b'\xff'
         if data
-        else bytes([Opcode.LL_VERSION_IND, hci.HCI_VERSION_BLUETOOTH_CORE_5_0])
+        else bytes([Opcode.LL_VERSION_IND, hci.SpecificationVersion.BLUETOOTH_CORE_5_0])
         + CONTROLLER_COMPANY_IDENTIFIER.to_bytes(2, 'little')
         + bytes(2)
     )
