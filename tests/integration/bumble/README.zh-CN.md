@@ -22,3 +22,7 @@ pytest tests/integration/bumble -n auto
 ```
 
 业务程序直接运行在 pytest 中，因此它们的定时器、socket 操作和超时都会使用测试所用的仿真时间 asyncio event loop；虚拟 Controller 仍然是相互独立的 Linux 进程。每个设备的 BTSnoop 文件保存在该测试的 `bumble/<角色>/` 日志目录中，RF 交互则写入共享的 BabbleSim 跟踪文件。
+
+## 添加场景
+
+在对应场景目录添加异步 pytest 测试。启动拓扑前复用 [common/](common/) 中的 `add_bumble_controller()`，启动后通过 `open_bumble_device()` 打开 Host。标准双设备拓扑也可直接使用 `open_bumble_pair()`，由它完成登记和启动。使用 Bumble API 驱动行为并断言收到的事件；这些操作与测试共用仿真时钟。

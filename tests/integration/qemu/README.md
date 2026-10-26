@@ -111,6 +111,10 @@ make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" show-info
 
 After changing the defconfig, Linux fragment, or toolchain selection, choose a fresh `BUILDROOT_OUTPUT`, rerun the defconfig and make commands above, and update the kernel/rootfs exports. Do not reuse an output directory created with the previous toolchain.
 
+## Adding Scenarios
+
+Add an async pytest test under [BlueZ](bluez/README.md) or [NimBLE](nimble/README.md). Reuse `load_qemu_guest()` from [common.py](common.py) before `topo.start()`, then call `login_qemu_guest()` and follow the existing test's Host initialization. Send guest commands through `guest.shell` and verify console output with `wait_log()` or Bluetooth behavior through a peer.
+
 ## Licenses
 
 The external configuration and tests in this repository use Apache License 2.0. QEMU, Linux, and guest software retain their own licenses. For distribution, generate Buildroot's `legal-info` from the actual build output; see [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md).

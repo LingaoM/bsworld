@@ -57,7 +57,7 @@ sudo docker run --rm \
 
 ### 选择测试套件
 
-在镜像名后添加命令，会替换默认的集成测试命令。下面只运行 Zephyr heart rate 测试；也可以将路径换成其他测试目录或单个测试文件，并用 `-k` 筛选用例：
+在镜像名后添加命令，会替换默认的集成测试命令。下面只运行 Zephyr shell 测试；也可以将路径换成其他测试目录或单个测试文件，并用 `-k` 筛选用例：
 
 ```sh
 sudo docker run --rm \
@@ -65,8 +65,8 @@ sudo docker run --rm \
   --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
   -e PYTHONPATH=/workspace \
   ghcr.io/xiaomi/bsworld:latest \
-  pytest tests/integration/zephyr/samples/heart_rate -n 2 \
-    --out-dir /output --junitxml=/output/heart-rate.xml
+  pytest tests/integration/zephyr/shell -n 2 \
+    --out-dir /output --junitxml=/output/zephyr-shell.xml
 ```
 
 `--out-dir /output` 指定日志和抓包的输出位置，`--junitxml` 指定测试报告文件；二者都保存在前面挂载的主机目录中。

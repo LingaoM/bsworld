@@ -36,6 +36,10 @@ cargo test --locked --manifest-path tests/integration/trouble/source/Cargo.toml
 
 应用日志保存为 `trouble/central/central.log` 和 `trouble/peripheral/peripheral.log`。HCI BTSnoop 抓包与 BabbleSim 射频 trace 与其他按用例归档的文件一起保存，详见[日志、Trace 与抓包](../../../docs/zh-CH/artifacts.md)。
 
+## 添加场景
+
+以 [test_trouble_native.py](test_trouble_native.py) 为起点，在 `topo.start()` 前登记各个原生 Host 角色，启动后用 `wait_log()` 验证连接和业务事件。角色及业务行为由 Rust 可执行文件实现，改变这些行为后需要重新编译。
+
 ## 许可
 
 本目录下的测试与适配层以 Apache License 2.0 授权。TrouBLE 以 MIT 或 Apache License 2.0 提供，`source/src/bsim/` 保留其原始形态的 MIT OR Apache-2.0 许可。分发二进制前请查阅[第三方声明](../../../THIRD_PARTY_NOTICES.md)。

@@ -84,74 +84,26 @@ Simulation time only advances once every callback and I/O event at the current t
 
 ## Integrating Application Processes
 
-Each integration suite owns the profile and loader that translate its platform's launch contract into a BSWorld topology. The examples below show both conventions.
+Each integration suite owns the loader that registers its Applications and Controllers with the topology. Native Applications run as `ProcessInstance` objects; Python Host stacks open their Controller's `hci_sock` after startup and run in the test's asyncio event loop. Reuse the suite's existing helpers when adding a scenario; its README describes setup, initialization, and available commands.
 
-### NuttX
-
-`NuttXProcessProfile` defines the Application environment variable, Controller address, and optional shell support. `load_nuttx_profile()` adds the `--sim-bsim-*` device identity and the HCI socket as `--bt-dev=<sock>`:
-
-```python
-from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
-
-MY_DEVICE = NuttXProcessProfile(
-    name="my_device",
-    binary_env="BSWORLD_NUTTX_BTSAK_BIN",
-    controller_address="C0:FF:EE:00:00:01",
-)
-```
-
-The generated command has this form:
-
-```text
-my_device --sim-bsim-sid=<sim_id> --sim-bsim-pid=2G4 \
-  --sim-bsim-dev=<dev_id> --bt-dev=<sock>
-```
-
-### Zephyr
-
-A Host-only Zephyr Application uses native simulator-style device identity arguments:
-
-```python
-from tests.integration.zephyr.samples.common import ZephyrProcessProfile, load_zephyr_profile
-
-ZEPHYR_APP = ZephyrProcessProfile(
-    name="zephyr_app",
-    binary_env="BSWORLD_ZEPHYR_OBSERVER_BIN",
-    controller_address="C0:FF:EE:10:00:01",
-)
-```
-
-`load_zephyr_profile()` generates `-s=<sim_id> -p=<phy_id> -d=<dev_id> -mro=1000` and uses `--bt-dev=<sock>` to connect Zephyr `userchan` to the external Virtual Controller.
-
-Both loaders delegate to the shared `add_application()` in `tests/integration/applications.py`, which resolves the executable from its environment variable, skips when the artifact is absent, allocates a Virtual Controller, and registers a `ProcessInstance` whose argv is built from the device slot assigned by `topo.start()`. A suite supplies only its argv and setup guide. `controller_address` belongs to that Controller. The Virtual Controller receives `-bd-addr=<addr>` and initializes its public BD_ADDR before the Host establishes the HCI connection.
-
-### Python Host Stacks
-
-Python Host stacks do not need a `ProcessInstance`. Bumble tests call `topo.add_controller()`, start the topology, and open the returned Controller's `hci_sock` through a Unix transport. Because Bumble runs in pytest's asyncio event loop, its tasks, I/O, and timeouts automatically use the same simulation clock. See the [Bumble integration tests](../tests/integration/bumble/README.md) for the complete setup.
+| Platform | Test guide |
+|---|---|
+| Bumble | [Bumble integration tests](../tests/integration/bumble/README.md#adding-scenarios) |
+| NuttX | [BTSak and NimBLE](../tests/integration/nuttx/README.md#adding-scenarios) |
+| QEMU Linux | [BlueZ and NimBLE](../tests/integration/qemu/README.md#adding-scenarios) |
+| TrouBLE | [Native TrouBLE tests](../tests/integration/trouble/README.md#adding-scenarios) |
+| Zephyr | [Bluetooth and Mesh shells](../tests/integration/zephyr/shell/README.md#scenario-commands) |
 
 ## Process Shell Commands
 
-Some firmware images expose a shell on standard input. Enable `shell=True` and send commands from the test after `await topo.start()`, which establishes the initial PHY synchronization boundary:
+For a `ProcessInstance` registered with shell support, send commands after `await topo.start()` and the platform's initialization. Given an initialized `dev`, the basic pattern is:
 
 ```python
-from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
-
-NUTTX_APP = NuttXProcessProfile(
-    name="nuttx_app",
-    binary_env="BSWORLD_NUTTX_NIMBLE_BIN",
-    shell=True,
-)
-
-
-async def test_staged(topo):
-    dev = load_nuttx_profile(topo, NUTTX_APP)
-    await topo.start()
-
-    await dev.shell.run("ifup bnep0")
-    await dev.shell.run("bleprph")
+await dev.shell.run("...")
+await dev.wait_log(r"...", timeout=5)
 ```
 
-`await dev.shell.run()` writes one command line to standard input; it does not wait for command completion. Follow it with `wait_log()` or another observable condition when the result matters. The abstraction can drive a Zephyr shell, NuttX NSH, or any process console that accepts line-oriented commands on standard input.
+Replace the placeholders with a command and its expected output from the platform guide. `shell.run()` writes one line to standard input; it does not wait for command completion. Use `wait_log()` or another observable condition to verify the result.
 
 ## RF Conditions and Interference
 
@@ -176,13 +128,10 @@ topo.set_channel_attenuation(
 
 ### Per-Path Attenuation
 
+Here, `peripheral` and `central` are devices already registered with the topology.
+
 ```python
 from bsworld.interference import StaticAttenuation, TimedAttenuation
-from tests.integration.zephyr.samples.common import load_zephyr_profile
-from tests.integration.zephyr.samples.heart_rate.devices import ZEPHYR_CENTRAL_HR, ZEPHYR_PERIPHERAL_HR
-
-peripheral = load_zephyr_profile(topo, ZEPHYR_PERIPHERAL_HR)
-central = load_zephyr_profile(topo, ZEPHYR_CENTRAL_HR)
 
 topo.set_channel_attenuation(
     default_db=50.0,
@@ -262,16 +211,10 @@ BSWorld validates RF inputs before spawning BabbleSim processes:
 
 ## Topology as a pytest Test
 
-The `topo` fixture keeps topology declarations, RF conditions, Application actions, and assertions in one Python test. Process loaders and RF configuration calls record the desired state; `await topo.start()` materializes it as a running simulation.
+The `topo` fixture keeps topology declarations, RF conditions, Application actions, and assertions in one Python test. In this example, suite-local `peripheral` and `central` fixtures register their Application processes before the test starts. RF configuration calls record the desired state; `await topo.start()` materializes it as a running simulation.
 
 ```python
-from tests.integration.zephyr.samples.common import load_zephyr_profile
-from tests.integration.zephyr.samples.heart_rate.devices import ZEPHYR_CENTRAL_HR, ZEPHYR_PERIPHERAL_HR
-
-
-async def test_central_receives_notification(topo):
-    peripheral = load_zephyr_profile(topo, ZEPHYR_PERIPHERAL_HR)
-    central = load_zephyr_profile(topo, ZEPHYR_CENTRAL_HR)
+async def test_central_receives_notification(topo, peripheral, central):
     topo.set_channel_attenuation(default_db=45.0)
 
     await topo.start()
