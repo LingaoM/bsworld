@@ -71,8 +71,6 @@ class Address:
         address_type = AddressType(data[offset - 1])
         return cls.parse_address_with_type(data, offset, address_type)
 
-
-
     def __init__(
         self,
         address: bytes | str,

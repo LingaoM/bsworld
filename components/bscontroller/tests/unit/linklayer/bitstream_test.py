@@ -5,7 +5,8 @@ import random
 
 import pytest
 
-from bscontroller.linklayer.bitstream import crc24, generate_access_address
+from bscontroller.linklayer.bitstream import generate_access_address
+from bscontroller.radio.packet import crc24
 from tests.unit.helpers import check_access_address
 
 

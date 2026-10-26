@@ -36,9 +36,15 @@ from bscontroller.radio.base import PHY_CODED_S8_FACTOR, Phy
 
 if TYPE_CHECKING:
     from bscontroller.linklayer.connection import Connection
+    from bscontroller.linklayer.listener import ControlListener
 
 Opcode = ControlOpcode
 LENGTH_PARAMETERS = struct.Struct('<HHHH')
+
+
+def initial_time_us(phy: Phy) -> int:
+    """Core Vol 6, Part B, 4.5.10: initial connMax*Time is 328 us uncoded or 2704 us Coded."""
+    return PDU_DATA_PAYLOAD_TIME_CODED_MIN_US if phy == Phy.LE_CODED else PDU_DATA_PAYLOAD_TIME_MIN_US
 
 
 def valid_data_length(octets: int, time_us: int) -> bool:
@@ -62,9 +68,7 @@ class DataLengths:
 class DataLengthProcedure:
     def __init__(self, connection: Connection):
         self.connection = connection
-        initial_time = (
-            PDU_DATA_PAYLOAD_TIME_CODED_MIN_US if connection.tx_phy == Phy.LE_CODED else PDU_DATA_PAYLOAD_TIME_MIN_US
-        )
+        initial_time = initial_time_us(connection.tx_phy)
         self.local = DataLengths(
             PDU_DATA_PAYLOAD_SIZE_MIN,
             initial_time,
@@ -81,12 +85,19 @@ class DataLengthProcedure:
         self.deadline_us = 0
         self.reported = self.effective()
 
+    @property
+    def listener(self) -> ControlListener:
+        return self.connection.link.listener
+
     def effective(self, *, tx_phy=None, rx_phy=None, interval_us=None) -> DataLengths:
+        """connEffectiveMax* values, with the Coded PHY minimum of 2704 us (Core Vol 6, Part B, 4.5.10)."""
         connection = self.connection
         tx_phy = connection.tx_phy if tx_phy is None else tx_phy
         rx_phy = connection.rx_phy if rx_phy is None else rx_phy
         interval_us = connection.parameters.interval * LL_CONN_INTERVAL_UNIT_US if interval_us is None else interval_us
         rx_octets = min(self.local.rx_octets, self.remote.tx_octets)
+        # Match each sender maximum against the opposite endpoint's receiver
+        # maximum; the resulting TX and RX limits can differ.
         tx_octets = min(self.local.tx_octets, self.remote.rx_octets)
         rx_time = min(self.local.rx_time, self.remote.tx_time)
         tx_time = min(self.local.tx_time, self.remote.rx_time)
@@ -104,7 +115,7 @@ class DataLengthProcedure:
         effective = self.effective()
         if effective != self.reported:
             self.reported = effective
-            self.connection.link.listener.on_data_length_changed(self.connection)
+            self.listener.on_data_length_changed(self.connection)
 
     def packet_limit(
         self,
@@ -115,6 +126,7 @@ class DataLengthProcedure:
         *,
         encrypted=False,
     ) -> int:
+        """Largest payload that fits the effective packet time on a PHY (Core Vol 6, Part B, 4.5.10)."""
         return next(
             size
             for size in range(octets, -1, -1)
@@ -126,6 +138,7 @@ class DataLengthProcedure:
         )
 
     def tx_payload_limit(self) -> int:
+        """Payload limit during pending PHY or interval changes (Core Vol 6, Part B, 5.1.7.4, 5.1.10.1)."""
         connection, controls = self.connection, self.connection.controls
         tx_phys = {connection.tx_phy}
         rx_phy = connection.rx_phy
@@ -149,6 +162,8 @@ class DataLengthProcedure:
             if rx:
                 rx_phy = Phy(rx)
         elif controls.phy_request and controls.transmitted and connection.role == Role.PERIPHERAL:
+            # Until the Central selects a PHY, a Peripheral must be safe on every
+            # PHY it offered, including one with a slower packet airtime.
             tx_phys.update(phy for phy in Phy if controls.tx_phys & (1 << (phy - 1)))
         limits = []
         for phy in tx_phys:
@@ -166,12 +181,17 @@ class DataLengthProcedure:
                     encrypted=connection.encryption.tx_enabled,
                 )
             )
+        # Choose the tightest limit across the current and candidate PHYs, since
+        # a pending PDU may need retransmission after the transition.
         return min(limits)
 
     def enqueue(self, opcode: int) -> None:
+        """LL_LENGTH_REQ/RSP with local uncoded limits (Core 6.3, Vol 6, Part B, 4.5.10 Table 4.8; 5.1.9)."""
         parameters = self.local
         features = self.connection.peer_features
         if features is not None and not features & LeFeatureMask.LE_CODED_PHY:
+            # Core 6.3, Vol 6, Part B, 5.1.9 allows up to 2128 us without Coded;
+            # Table 4.8 in 4.5.10 sets 2120 us for this implementation's no-CTE case.
             parameters = replace(
                 parameters,
                 rx_time=min(parameters.rx_time, PDU_DATA_PAYLOAD_TIME_UNCODED_MAX_US),
@@ -180,6 +200,7 @@ class DataLengthProcedure:
         self.connection.enqueue_control(bytes([opcode]) + parameters.encode(), priority=True)
 
     def request(self, octets: int, time_us: int) -> None:
+        """Start the Data Length Update procedure (Core Vol 6, Part B, 5.1.9)."""
         self.local = DataLengths(
             PDU_DATA_PAYLOAD_SIZE_MAX,
             PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
@@ -191,15 +212,13 @@ class DataLengthProcedure:
         self.enqueue(Opcode.LL_LENGTH_REQ)
 
     def start_if_needed(self) -> None:
-        initial_time = (
-            PDU_DATA_PAYLOAD_TIME_CODED_MIN_US
-            if self.connection.tx_phy == Phy.LE_CODED
-            else PDU_DATA_PAYLOAD_TIME_MIN_US
-        )
+        # Core Vol 6, Part B, 4.5.10: start the update when local values differ from initial ones.
+        initial_time = initial_time_us(self.connection.tx_phy)
         if self.local.tx_octets != PDU_DATA_PAYLOAD_SIZE_MIN or self.local.tx_time != initial_time:
             self.request(self.local.tx_octets, self.local.tx_time)
 
     def control(self, payload: bytes) -> bool:
+        """Handle LL_LENGTH_REQ/RSP and rejection of LL_LENGTH_REQ (Core Vol 6, Part B, 5.1.9)."""
         opcode = payload[0]
         if opcode in (Opcode.LL_LENGTH_REQ, Opcode.LL_LENGTH_RSP):
             if len(payload) != PDU_CONTROL_OPCODE_SIZE + LENGTH_PARAMETERS.size:
@@ -210,6 +229,7 @@ class DataLengthProcedure:
                 self.connection.controls.reject(opcode, ErrorCode.INVALID_LMP_OR_LL_PARAMETERS_ERROR)
                 return True
             if opcode == Opcode.LL_LENGTH_RSP and not self.pending:
+                # An unsolicited response must not overwrite negotiated limits.
                 return True
             self.remote = DataLengths(rx, rx_time, tx, tx_time)
             if opcode == Opcode.LL_LENGTH_REQ:
@@ -236,11 +256,9 @@ class DataLengthProcedure:
             if self.pending:
                 self.pending = False
                 self.deadline_us = 0
-                initial_time = (
-                    PDU_DATA_PAYLOAD_TIME_CODED_MIN_US
-                    if self.connection.tx_phy == Phy.LE_CODED
-                    else PDU_DATA_PAYLOAD_TIME_MIN_US
-                )
+                # Fall back to the initial limits after rejection, so subsequent packets
+                # do not assume that the peer accepted the larger data length.
+                initial_time = initial_time_us(self.connection.tx_phy)
                 self.local = self.remote = DataLengths(
                     PDU_DATA_PAYLOAD_SIZE_MIN,
                     initial_time,

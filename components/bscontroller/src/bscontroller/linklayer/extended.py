@@ -79,7 +79,11 @@ def auxiliary_offset(pdu: bytes, phy: Phy) -> int:
 
 
 def fragments(first: ExtendedPdu, data: bytes | bytearray, channel: int, phy: Phy):
-    """Bounded AUX_CHAIN sequence; all offsets are measured from packet start."""
+    """Split data around the first PDU's fields and each continuation's AuxPtr.
+
+    Derive pointer offsets from the encoded packet size and PHY airtime.
+    See Bluetooth Core 6.3, Vol 6, Part B, 2.3.1.8 and 2.3.4.5.
+    """
     if len(data) > CONTROLLER_ADV_DATA_SIZE_MAX:
         raise ValueError(f'extended advertising data exceeds {CONTROLLER_ADV_DATA_SIZE_MAX} octets')
     remaining = data
@@ -91,17 +95,23 @@ def fragments(first: ExtendedPdu, data: bytes | bytearray, channel: int, phy: Ph
         if len(remaining) > capacity:
             if first.mode == AdvertisingMode.CONNECTABLE:
                 raise ValueError('connectable advertising data must fit one PDU')
+            # Reserve AuxPtr space before choosing the data chunk: adding the pointer
+            # shrinks the capacity of every non-final fragment (Vol 6, Part B, 2.3.4).
             pdu = replace(pdu, aux_ptr=AuxPtr(channel, RADIO_AUX_OFFSET_DEFAULT_US, phy))
             capacity = pdu.data_capacity()
         count = min(len(remaining), capacity)
         chunk, remaining = bytes(remaining[:count]), remaining[count:]
         pdu = replace(pdu, data=chunk, aux_ptr=None)
         if remaining:
+            # Measure the offset from packet start, covering airtime plus T_MAFS,
+            # then round to a representable unit (Vol 6, Part B, 2.3.4.5; 4.1.2).
             probe = replace(pdu, aux_ptr=AuxPtr(channel, RADIO_AUX_OFFSET_DEFAULT_US, phy)).encode()
             pdu = replace(pdu, aux_ptr=AuxPtr(channel, auxiliary_offset(probe, phy), phy))
         result.append(pdu)
         if not remaining:
             return result
+        # Continuations retain ADI, while the first PDU owns the advertiser's
+        # address/target/SyncInfo fields. This changes each fragment's data capacity.
         pdu = ExtendedPdu(adi=first.adi)
 
 
@@ -130,6 +140,7 @@ def periodic_time_us(item: Advertising) -> int:
 
 
 def primary_offset_us(item: Advertising) -> int:
+    """AuxPtr offset from the first ADV_EXT_IND to the shared AUX_ADV_IND, at least T_MAFS (Core Vol 6, Part B, 4.1.2, 4.4.2.2.2)."""
     primary = ExtendedPdu(
         mode=item.mode,
         adi=item.sid << PDU_ADV_ADI_DID_BITS | item.did,
@@ -146,6 +157,7 @@ def primary_offset_us(item: Advertising) -> int:
 
 
 def advertising_time_us(item: Advertising) -> int:
+    """Air time of one extended advertising event, including any request/response exchange (Core Vol 6, Part B, 4.4.2.2.2)."""
     if not item.extended:
         return 0
     sync = (
@@ -164,6 +176,8 @@ def advertising_time_us(item: Advertising) -> int:
     phy = item.secondary_phy
     duration = primary_offset_us(item) + chain_time_us(fragments(auxiliary_pdu(item, sync), data, 0, phy), phy)
     if item.mode == AdvertisingMode.SCANNABLE:
+        # Budget a possible request and the full response chain up front, so the
+        # radio reservation covers the entire exchange without preemption.
         response = ExtendedPdu(address=bytes(item.address))
         duration += (
             2 * LL_IFS_US
@@ -186,6 +200,7 @@ class ExtendedProcedures:
                 start += pdu.aux_ptr.offset_us
 
     async def follow(self, packet: Received, ext: ExtendedPdu, **parameters):
+        """Receive the auxiliary packet an AuxPtr points to, widened per Core Vol 6, Part B, 4.2.4 Table 4.1."""
         aux = ext.aux_ptr
         assert aux is not None
         start = packet.start_us + aux.offset_us
@@ -207,15 +222,25 @@ class ExtendedProcedures:
         return received if received and received.start_us >= packet.end_us + LL_MAFS_US else None
 
     async def collect(self, packet: Received, first: ExtendedPdu, *, on_fragment=None, **parameters):
-        """Return whole-PDU data, completion status and the last received TxPower."""
+        """Follow an auxiliary chain, retaining a bounded prefix on failure.
+
+        With ``on_fragment``, flush accumulated bytes before following the next
+        PDU and return the unreported tail; otherwise return the assembled bytes.
+        Track cumulative size in both modes and return status and the last TxPower.
+        See Bluetooth Core 6.3, Vol 6, Part B, 2.3.1.8 and Vol 4, Part E, 7.7.65.13.
+        """
         data = first.data
         current = first
         total = len(data)
+        # Any failed follow/decode/identity/size check leaves a truncated report.
+        # Only reaching a PDU without AuxPtr proves the chain is complete.
         status = DataStatus.TRUNCATED
         while current.aux_ptr:
             if current.aux_ptr.phy != packet.phy:
                 break
             if on_fragment is not None and data:
+                # Release delivered chunks when streaming, but retain the cumulative
+                # length so callbacks cannot bypass the assembly limit.
                 on_fragment(
                     data,
                     DataStatus.INCOMPLETE,
@@ -234,6 +259,8 @@ class ExtendedProcedures:
                 or ext.mode
                 or (first.adi is not None and ext.adi != first.adi)
             ):
+                # Stop on a different ADI rather than joining data from two trains
+                # (Vol 6, Part B, 2.3.1.8).
                 break
             if ext.aux_ptr and not ext.data:
                 break
@@ -253,6 +280,7 @@ class ExtendedProcedures:
         )
 
     async def advertise(self, item: Advertising) -> None:
+        """One extended advertising event: ADV_EXT_IND on each used primary channel, then the AUX chain (Core Vol 6, Part B, 4.4.2.2.2)."""
         link = self.link
         start = link.radio.earliest_start_us(
             next(channel for bit, channel in enumerate(LL_ADV_PRIMARY_CHANNELS) if item.channel_map & (1 << bit)),
@@ -310,6 +338,7 @@ class ExtendedProcedures:
                 await self.request(item, aux_channel, packet)
 
     async def request(self, item: Advertising, channel: int, packet: Received) -> bool:
+        """Answer AUX_SCAN_REQ or AUX_CONNECT_REQ on the secondary channel (Core Vol 6, Part B, 4.4.2.5.2, 4.4.2.7, 4.4.4.2)."""
         link, pdu = self.link, packet.pdu
         peer = advertising_request_peer(pdu, item.address, item.target)
         if peer is None:
@@ -354,6 +383,8 @@ class ExtendedProcedures:
                 target=bytes(peer),
                 random_target=peer.is_random,
             )
+            # Unlike a legacy CONNECT_IND, an auxiliary request needs an explicit
+            # AUX_CONNECT_RSP before this advertiser can become a Peripheral.
             await link._transmit(
                 channel,
                 response.encode(),
@@ -380,6 +411,7 @@ class ExtendedProcedures:
         return False
 
     async def scan(self, packet: Received, *, initiating: bool = False) -> None:
+        """Follow ADV_EXT_IND to its AUX_ADV_IND and report it (Core Vol 6, Part B, 4.4.3.3, 4.4.3.4)."""
         link = self.link
         # Primary SyncInfo,CTEInfo,ACAD and AdvData are context-reserved CEAP fields.
         primary = replace(ExtendedPdu.decode(packet.pdu), sync_info=None, cte=None, acad=b'', data=b'')
@@ -433,6 +465,8 @@ class ExtendedProcedures:
         if target is not None and (local is None or target != local.address):
             return
         if initiating:
+            # Initiation consumes only eligible connectable auxiliary events;
+            # it does not produce the scanner reports or active-scan exchange below.
             item = link.initiating
             if item is None:
                 return
@@ -454,6 +488,8 @@ class ExtendedProcedures:
                 else sync.address == address and sync.sid == sid
             )
         ):
+            # SyncInfo predicts the first periodic receive window, not successful
+            # synchronization. periodic_receive publishes success on a valid AUX_SYNC_IND.
             sync.address, sync.sid = address, sid
             sync.info, sync.next_us, sync.counter = (
                 info,
@@ -505,6 +541,8 @@ class ExtendedProcedures:
                     and rsp.random_address == ext.random_address
                     and (rsp.adi is None or rsp.adi == ext.adi)
                 ):
+                    # Bind AUX_SCAN_RSP to this advertiser and data identity before
+                    # following its chain or declaring the active-scan attempt successful.
                     scan.backoff.complete(True, link.random)
                     data, status, tx_power = await self.collect(response, rsp)
                     link.listener.on_advertisement(
@@ -523,6 +561,7 @@ class ExtendedProcedures:
             scan.backoff.complete(False, link.random)
 
     async def initiate(self, channel, packet, ext, address):
+        """AUX_CONNECT_REQ / AUX_CONNECT_RSP exchange on the secondary channel (Core Vol 6, Part B, 4.4.4.2)."""
         link, item = self.link, self.link.initiating
         assert item is not None
         if not link.can_connect(address):
@@ -565,6 +604,8 @@ class ExtendedProcedures:
             or rsp.random_target != item.address.is_random
         ):
             return
+        # Keep the attempt pending on a missing or mismatched response. Only the
+        # confirmed AUX_CONNECT_RSP lets us commit this connection.
         link.initiating = None
         link.create_connection(
             parameters,

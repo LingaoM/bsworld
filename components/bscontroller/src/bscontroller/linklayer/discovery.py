@@ -31,6 +31,10 @@ from bscontroller.linklayer.parameters import Parameters, valid_channel_map
 from bscontroller.linklayer.timing import LL_DEFAULT_ADV_INTERVAL_US, LL_INSTANT_PAST_THRESHOLD
 from bscontroller.radio.base import Phy
 
+# Bluetooth Assigned Numbers, Common Data Types: Channel Map Update Indication,
+# carried in periodic advertising ACAD (Core Vol 6, Part B, 2.3.4.8).
+AD_TYPE_CHANNEL_MAP_UPDATE_INDICATION = 0x28
+
 
 @dataclass
 class Advertising:
@@ -121,10 +125,12 @@ class ScanBackoff:
     failures: int = 0
 
     def permit(self) -> bool:
+        """Decrement backoffCount; a SCAN_REQ may be sent only when it reaches zero (Core Vol 6, Part B, 4.4.3.2)."""
         self.count = max(0, self.count - 1)
         return self.count == 0
 
     def complete(self, success: bool, generator: random.Random) -> None:
+        """Core Vol 6, Part B, 4.4.3.2: two consecutive outcomes halve or double upperLimit."""
         self.successes = self.successes + 1 if success else 0
         self.failures = self.failures + 1 if not success else 0
         if self.successes == LL_SCAN_BACKOFF_OUTCOME_COUNT:
@@ -183,6 +189,7 @@ class PeriodicSync:
     channel_map_update: tuple[int, int] | None = None
 
     def receive_channel_map(self, acad: bytes) -> None:
+        """Keep the last valid future ChM/Instant update; malformed AD structures end parsing."""
         structures = []
         offset = 0
         while offset < len(acad):
@@ -190,7 +197,7 @@ class PeriodicSync:
             end = offset + length + 1
             if length == 0 or end > len(acad):
                 return
-            if acad[offset + 1] == 0x28:  # Channel Map Update Indication AD type.
+            if acad[offset + 1] == AD_TYPE_CHANNEL_MAP_UPDATE_INDICATION:
                 structures.append(acad[offset + 2 : end])
             offset = end
         for value in structures:
@@ -205,6 +212,7 @@ class PeriodicSync:
             self.channel_map_update = (instant, channels)
 
     def apply_channel_map(self) -> None:
+        """Switch to the ACAD channel map once the event counter reaches its Instant (Core Vol 6, Part B, 2.3.4.8)."""
         if self.channel_map_update is None:
             return
         instant, channels = self.channel_map_update

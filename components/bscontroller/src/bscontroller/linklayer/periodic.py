@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 async def periodic_transmit(link: RadioLink, item: Advertising) -> None:
     # A single radio cannot replay a train anchor that another event occupied.
+    """Transmit one AUX_SYNC_IND train on its CSA #2 channel (Core Vol 6, Part B, 4.4.2.12, 4.5.8.3)."""
     interval_us = item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
     channel = channel_selection_2(item.periodic_counter, item.periodic_aa, LL_DATA_CHANNEL_MAP_ALL)
     if item.periodic_next_us < link.radio.earliest_start_us(
@@ -66,10 +67,13 @@ async def periodic_transmit(link: RadioLink, item: Advertising) -> None:
 
 
 async def periodic_receive(link: RadioLink, sync: PeriodicSync) -> None:
+    """Receive one periodic event in the Synchronization state (Core Vol 6, Part B, 4.4.5.1, 4.2.4)."""
     sync.apply_channel_map()
     info = sync.info
     assert info is not None
     widening = window_widening(sync.next_us - sync.last_rx_us, info.sca)
+    # Search on both sides of the predicted anchor, allowing for clock drift,
+    # SyncInfo offset quantization and time needed to recognize the Access Address.
     window_end = sync.next_us + widening + info.unit_us + sync.phy.address_us
     if window_end <= link.now_us or higher_priority_overlap(
         link.reservations(exclude=sync),
@@ -77,6 +81,8 @@ async def periodic_receive(link: RadioLink, sync: PeriodicSync) -> None:
         window_end,
         RadioPriority.PERIODIC_RX,
     ):
+        # Advance the anchor and event counter together when skipping a window;
+        # CSA#2 needs the counter of the next actual listening event.
         step = sync.event_step
         interval_us = info.interval * LL_PERIODIC_INTERVAL_UNIT_US * step
         missed = max(0, (link.now_us - window_end) // interval_us) + 1
@@ -97,6 +103,8 @@ async def periodic_receive(link: RadioLink, sync: PeriodicSync) -> None:
         except ValueError:
             ext = None
         if ext is not None and ext.mode == AdvertisingMode.NONCONNECTABLE_NONSCANNABLE:
+            # Only a valid periodic PDU corrects the anchor and refreshes the sync
+            # timeout; an invalid frame must not extend the synchronization lifetime.
             sync.next_us = packet.start_us
             sync.last_rx_us = packet.start_us
             sync.deadline_us = packet.end_us + sync.timeout_us
@@ -108,6 +116,8 @@ async def periodic_receive(link: RadioLink, sync: PeriodicSync) -> None:
                 link.listener.on_sync_established(sync, ErrorCode.SUCCESS)
 
             def report_fragment(data, status, received):
+                # A reporting callback can remove or replace this sync while collection
+                # continues. Check identity before publishing another fragment.
                 if link.syncs.get(sync.handle) is sync and sync.reports_enabled:
                     link.listener.on_periodic_report(
                         sync,

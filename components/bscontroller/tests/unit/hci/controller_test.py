@@ -10,6 +10,10 @@ from bscontroller.hci.backend import RadioBackend
 from bscontroller.hci.controller import Controller
 
 ErrorCode = hci.HCI_ErrorCode
+# BR/EDR-only opcodes (Vol 4, Part E, 7.1.1, 7.1.5 and 7.4.4); this LE Controller has no codec for them.
+INQUIRY_OPCODE = hci.hci_command_op_code(0x01, 0x0001)
+CREATE_CONNECTION_OPCODE = hci.hci_command_op_code(0x01, 0x0005)
+READ_LOCAL_EXTENDED_FEATURES_OPCODE = hci.hci_command_op_code(0x04, 0x0004)
 
 ADDRESS = hci.Address('F0:F1:F2:F3:F4:01', hci.AddressType.PUBLIC_DEVICE)
 
@@ -36,9 +40,9 @@ async def test_controller_decodes_hci_and_builds_command_complete():
 @pytest.mark.parametrize(
     'opcode,parameters',
     [
-        (hci.HCI_READ_LOCAL_EXTENDED_FEATURES_COMMAND, b''),
-        (hci.HCI_READ_LOCAL_EXTENDED_FEATURES_COMMAND, bytes(255)),
-        (hci.HCI_CREATE_CONNECTION_COMMAND, b'\xff'),
+        (READ_LOCAL_EXTENDED_FEATURES_OPCODE, b''),
+        (READ_LOCAL_EXTENDED_FEATURES_OPCODE, bytes(255)),
+        (CREATE_CONNECTION_OPCODE, b'\xff'),
     ],
 )
 async def test_unsupported_command_is_rejected_before_parameter_decoding(opcode, parameters):
@@ -63,7 +67,7 @@ async def test_unsupported_opcode_does_not_bypass_hci_frame_length_validation():
     controller = Controller('radio', backend=radio_backend())
     packets = []
     controller.send_hci_packet = packets.append
-    packet = bytearray(bytes(hci.HCI_Command(b'', op_code=hci.HCI_INQUIRY_COMMAND)))
+    packet = bytearray(bytes(hci.HCI_Command(b'', op_code=INQUIRY_OPCODE)))
     packet[3] = 1
     with pytest.raises(InvalidPacketError):
         controller.on_packet(packet)

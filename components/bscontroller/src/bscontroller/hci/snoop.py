@@ -41,9 +41,7 @@ class BtsnoopWriter:
             remaining = remaining[written:]
 
     def capture(self, packet: bytes, *, received: bool) -> None:
-        header = _RECORD_HEADER.pack(
-            len(packet), len(packet), int(received), 0, self.clock() + _EPOCH_DELTA_US
-        )
+        header = _RECORD_HEADER.pack(len(packet), len(packet), int(received), 0, self.clock() + _EPOCH_DELTA_US)
         self._write_all(header + packet)
 
     def __enter__(self) -> BtsnoopWriter:

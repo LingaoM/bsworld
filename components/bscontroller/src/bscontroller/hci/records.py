@@ -36,13 +36,13 @@ class LegacyAdvertiser:
     def __init__(
         self,
         controller: Controller,
-        advertising_interval_min: int = 0,
-        advertising_interval_max: int = 0,
+        advertising_interval_min: int = hci.HCI_LE_ADV_INTERVAL_DEFAULT,
+        advertising_interval_max: int = hci.HCI_LE_ADV_INTERVAL_DEFAULT,
         advertising_type: int = 0,
         own_address_type: int = 0,
         peer_address_type: int = 0,
         peer_address: hci.Address = hci.Address.ANY,
-        advertising_channel_map: int = 0,
+        advertising_channel_map: int = hci.HCI_LE_ADV_CHANNEL_MAP_DEFAULT,
         advertising_filter_policy: int = 0,
         advertising_data: bytes = b'',
         scan_response_data: bytes = b'',
@@ -71,39 +71,15 @@ class LegacyAdvertiser:
         state = self._link_layer_state
         return bytes(state.data) if state is not None else self._advertising_data
 
-    @advertising_data.setter
-    def advertising_data(self, value: bytes) -> None:
-        state = self._link_layer_state
-        if state is None:
-            self._advertising_data = value
-        else:
-            state.data = bytearray(value)
-
     @property
     def scan_response_data(self) -> bytes:
         state = self._link_layer_state
         return bytes(state.scan_response) if state is not None else self._scan_response_data
 
-    @scan_response_data.setter
-    def scan_response_data(self, value: bytes) -> None:
-        state = self._link_layer_state
-        if state is None:
-            self._scan_response_data = value
-        else:
-            state.scan_response = bytearray(value)
-
     @property
     def enabled(self) -> bool:
         state = self._link_layer_state
         return state.enabled if state is not None else self._enabled
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None:
-        state = self._link_layer_state
-        if state is None:
-            self._enabled = value
-        else:
-            state.enabled = value
 
     @property
     def address(self) -> hci.Address:
@@ -115,7 +91,7 @@ class LegacyAdvertiser:
 
 
 class AdvertisingSet:
-    """Public advertising record, backed by its radio context when one exists."""
+    """Read-only advertising view; updates go through LL service operations."""
 
     def __init__(
         self,
@@ -145,69 +121,29 @@ class AdvertisingSet:
         return procedures.link.advertisers.get(self.handle) if procedures else None
 
     @property
-    def data(self) -> bytearray:
+    def data(self) -> bytes:
         state = self._link_layer_state
-        return state.data if state is not None else self._data
-
-    @data.setter
-    def data(self, value: bytearray) -> None:
-        state = self._link_layer_state
-        if state is None:
-            self._data = value
-        else:
-            state.data = value
+        return bytes(state.data if state is not None else self._data)
 
     @property
-    def scan_response_data(self) -> bytearray:
+    def scan_response_data(self) -> bytes:
         state = self._link_layer_state
-        return state.scan_response if state is not None else self._scan_response_data
-
-    @scan_response_data.setter
-    def scan_response_data(self, value: bytearray) -> None:
-        state = self._link_layer_state
-        if state is None:
-            self._scan_response_data = value
-        else:
-            state.scan_response = value
+        return bytes(state.scan_response if state is not None else self._scan_response_data)
 
     @property
-    def periodic_advertising_data(self) -> bytearray:
+    def periodic_advertising_data(self) -> bytes:
         state = self._link_layer_state
-        return state.periodic_data if state is not None else self._periodic_advertising_data
-
-    @periodic_advertising_data.setter
-    def periodic_advertising_data(self, value: bytearray) -> None:
-        state = self._link_layer_state
-        if state is None:
-            self._periodic_advertising_data = value
-        else:
-            state.periodic_data = value
+        return bytes(state.periodic_data if state is not None else self._periodic_advertising_data)
 
     @property
     def enabled(self) -> bool:
         state = self._link_layer_state
         return state.enabled if state is not None else self._enabled
 
-    @enabled.setter
-    def enabled(self, value: bool) -> None:
-        state = self._link_layer_state
-        if state is None:
-            self._enabled = value
-        else:
-            state.enabled = value
-
     @property
     def random_address(self) -> hci.Address | None:
         state = self._link_layer_state
         return state.random_address if state is not None else self._random_address
-
-    @random_address.setter
-    def random_address(self, value: hci.Address | None) -> None:
-        state = self._link_layer_state
-        if state is None:
-            self._random_address = value
-        else:
-            state.random_address = value
 
     @property
     def address(self) -> hci.Address | None:
@@ -221,43 +157,27 @@ class AdvertisingSet:
 
 
 class ConnectionRecord:
-    """HCI handle/address lookup backed by one live LE ACL connection."""
+    """Read-only HCI identity lookup backed by one live LE ACL connection."""
 
     def __init__(self, controller: Controller, connection: Connection):
         self.controller = controller
-        self.connection = connection
+        self._connection = connection
 
     @property
     def handle(self) -> int:
-        return self.connection.handle
-
-    @handle.setter
-    def handle(self, value: int) -> None:
-        self.connection.handle = value
+        return self._connection.handle
 
     @property
     def role(self) -> hci.Role:
-        return hci.Role(self.connection.role)
-
-    @role.setter
-    def role(self, value: hci.Role) -> None:
-        self.connection.role = value
+        return hci.Role(self._connection.role)
 
     @property
     def self_address(self) -> hci.Address:
-        return self.connection.self_address or self.controller.public_address
-
-    @self_address.setter
-    def self_address(self, value: hci.Address) -> None:
-        self.connection.self_address = value
+        return self._connection.self_address or self.controller.public_address
 
     @property
     def peer_address(self) -> hci.Address:
-        return self.connection.peer
-
-    @peer_address.setter
-    def peer_address(self, value: hci.Address) -> None:
-        self.connection.peer = value
+        return self._connection.peer
 
     def on_hci_acl_data_packet(self, packet: hci.HCI_AclDataPacket) -> None:
         self.controller.le_procedures.on_hci_acl_data_packet(packet)

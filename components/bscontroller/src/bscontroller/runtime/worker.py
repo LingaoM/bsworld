@@ -161,7 +161,9 @@ class RadioControllerWorker:
                 endpoint = None
                 radio_ready = asyncio.Event()
                 if self.hci_socket is not None:
-                    endpoint = await endpoints.enter_async_context(H4Server(controller, self.hci_socket, ready=radio_ready))
+                    endpoint = await endpoints.enter_async_context(
+                        H4Server(controller, self.hci_socket, ready=radio_ready)
+                    )
                     # Listen before PHY connection: external Hosts must be able
                     # to start and register while this worker is connecting.
                     self._ready.set_result(None)
@@ -172,6 +174,8 @@ class RadioControllerWorker:
                         # PHY can acknowledge this worker's startup barrier.
                         self._ready.set_result(None)
                     await radio.synchronize()
+                    # Host commands can now schedule against simulation time.
+                    # Opening the socket earlier must not let them run on wall-clock time.
                     radio.bind_loop(loop)
                     radio_ready.set()
                     async with asyncio.TaskGroup() as tasks:
@@ -185,6 +189,8 @@ class RadioControllerWorker:
                             input_task = tasks.create_task(self._receive_hci(controller))
                             try:
                                 while True:
+                                    # Drain cross-thread commands before choosing RF work;
+                                    # the input task also wakes a radio loop blocked on time.
                                     self._handle_input(controller)
                                     await backend.link.advance_to_us(radio.now_us + self.max_step_us)
                             finally:

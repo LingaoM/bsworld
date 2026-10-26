@@ -87,6 +87,8 @@ class H4Server:
             raise ValueError('Host disconnected during an H4 packet')
 
     async def _accept(self, reader, writer):
+        # This endpoint belongs to one Host for its lifetime; do not let a late
+        # connection replace the active writer or revive an already finished server.
         if self._closing or self.writer is not None or self.finished.done():
             writer.close()
             await writer.wait_closed()
@@ -98,6 +100,8 @@ class H4Server:
             if self.ready is not None:
                 await self.ready.wait()
             tasks = [asyncio.create_task(self._read(reader)), asyncio.create_task(self._write())]
+            # Either EOF/read failure or output failure ends the session. Waiting
+            # for both would hang with the other direction blocked on I/O or its queue.
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()
@@ -110,6 +114,8 @@ class H4Server:
             if not self.finished.done():
                 self.finished.set_result(None)
         finally:
+            # Join both directions before releasing the writer so shutdown cannot
+            # leave an orphan task accessing a closed socket.
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)

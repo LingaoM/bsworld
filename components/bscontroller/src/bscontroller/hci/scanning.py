@@ -9,7 +9,6 @@ import asyncio
 from bscontroller import hci
 from bscontroller.capabilities import (
     CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE,
-    CONTROLLER_PERIODIC_SYNC_COUNT,
     CONTROLLER_PRIMARY_SCAN_PHY_MASK,
 )
 from bscontroller.hci import (
@@ -31,15 +30,12 @@ from bscontroller.hci.context import (
     DISALLOWED,
     INVALID,
     SUCCESS,
-    UNKNOWN_ADV,
     UNSUPPORTED,
     LeControllerContext,
 )
 from bscontroller.linklayer import PDU_ADV_ADDRESS_SIZE, PDU_ADV_ADI_SID_MAX
 from bscontroller.linklayer.discovery import (
     PeriodicSync,
-    ScanBackoff,
-    Scanning,
     ScanWindow,
 )
 from bscontroller.radio.base import Phy
@@ -57,6 +53,10 @@ class LeScanningCommands(LeControllerContext):
         window,
         maximum_interval=HCI_LE_SCAN_INTERVAL_MAX,
     ):
+        """Validate and replace the saved scan configuration in scheduler units.
+
+        See Bluetooth Core 6.3, Vol 4, Part E, 7.8.10 and 7.8.64.
+        """
         if self.link.scan:
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if scan_type not in (0, 1):
@@ -68,16 +68,21 @@ class LeScanningCommands(LeControllerContext):
             return hci.HCI_StatusReturnParameters(UNSUPPORTED)
         if not HCI_LE_SCAN_INTERVAL_MIN <= window <= interval <= maximum_interval:
             return hci.HCI_StatusReturnParameters(INVALID)
-        self.scan_parameters = Scanning(
+        # Replace the saved configuration only after validation, converting
+        # HCI's 0.625-ms interval/window units to scheduler microseconds.
+        status = self.ll.configure_scanning(
             self._address(own),
             interval * HCI_LE_SCAN_INTERVAL_UNIT_US,
             window * HCI_LE_SCAN_INTERVAL_UNIT_US,
             bool(scan_type),
+            policy,
         )
-        self.scan_parameters.filter_policy = policy
-        return hci.HCI_StatusReturnParameters(SUCCESS)
+        return hci.HCI_StatusReturnParameters(status)
 
     def on_hci_le_set_scan_parameters_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.10 LE Set Scan Parameters Command
+        '''
         result = self._scan_parameters(
             command.own_address_type,
             command.scanning_filter_policy,
@@ -90,10 +95,15 @@ class LeScanningCommands(LeControllerContext):
         return result
 
     def on_hci_le_set_extended_scan_parameters_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.64 LE Set Extended Scan Parameters Command
+        '''
         if not command.scanning_phys:
             return hci.HCI_StatusReturnParameters(INVALID)
         if command.scanning_phys & ~CONTROLLER_PRIMARY_SCAN_PHY_MASK:
             return hci.HCI_StatusReturnParameters(UNSUPPORTED)
+        # HCI arrays are packed in increasing PHY-bit order, with no entry for
+        # an unset bit. LE 2M cannot scan primary advertising channels.
         phys = [
             phy
             for phy, bit in (
@@ -109,6 +119,8 @@ class LeScanningCommands(LeControllerContext):
             for kind, interval, window in zip(command.scan_types, command.scan_intervals, command.scan_windows)
         ):
             return hci.HCI_StatusReturnParameters(INVALID)
+        # Validate all PHY entries before _scan_parameters replaces the live
+        # configuration; a bad later entry must not commit the first one.
         result = self._scan_parameters(
             command.own_address_type,
             command.scanning_filter_policy,
@@ -119,23 +131,26 @@ class LeScanningCommands(LeControllerContext):
         )
         if result.status == SUCCESS:
             self.extended_scan = True
-            self.scan_parameters.windows = tuple(
-                ScanWindow(
-                    phy,
-                    interval * HCI_LE_SCAN_INTERVAL_UNIT_US,
-                    window * HCI_LE_SCAN_INTERVAL_UNIT_US,
-                    bool(kind),
-                )
-                for phy, kind, interval, window in zip(
-                    phys,
-                    command.scan_types,
-                    command.scan_intervals,
-                    command.scan_windows,
+            self.ll.configure_scan_windows(
+                tuple(
+                    ScanWindow(
+                        phy,
+                        interval * HCI_LE_SCAN_INTERVAL_UNIT_US,
+                        window * HCI_LE_SCAN_INTERVAL_UNIT_US,
+                        bool(kind),
+                    )
+                    for phy, kind, interval, window in zip(
+                        phys,
+                        command.scan_types,
+                        command.scan_intervals,
+                        command.scan_windows,
+                    )
                 )
             )
         return result
 
     def _scan_enable(self, enable, duplicates):
+        """Shared checks for LE Set (Extended) Scan Enable (Vol 4, Part E, 7.8.11, 7.8.65)."""
         if enable not in (0, 1) or duplicates not in (
             HCI_LE_SCAN_DUPLICATES_DISABLED,
             HCI_LE_SCAN_DUPLICATES_ENABLED,
@@ -143,18 +158,24 @@ class LeScanningCommands(LeControllerContext):
         ):
             return hci.HCI_StatusReturnParameters(INVALID)
         self.filter_duplicates = bool(duplicates)
+        # Start a new scan epoch with fresh duplicate-filter and backoff history.
+        # The backoff follows the example in Vol 6, Part B, 4.4.3.2.
         self.seen.clear()
-        self.scan_parameters.start_us = self.now_us
-        self.scan_parameters.backoff = ScanBackoff()
-        self.link.scan = self.scan_parameters if enable else None
+        self.ll.enable_scanning(bool(enable))
         return hci.HCI_StatusReturnParameters(SUCCESS)
 
     def on_hci_le_set_scan_enable_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.11 LE Set Scan Enable Command
+        '''
         if command.filter_duplicates not in (0, 1):
             return hci.HCI_StatusReturnParameters(INVALID)
         return self._scan_enable(command.le_scan_enable, command.filter_duplicates)
 
     def on_hci_le_set_extended_scan_enable_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.65 LE Set Extended Scan Enable Command
+        '''
         if (
             command.duration
             and command.period
@@ -163,12 +184,9 @@ class LeScanningCommands(LeControllerContext):
             return hci.HCI_StatusReturnParameters(INVALID)
         result = self._scan_enable(command.enable, command.filter_duplicates)
         if result.status == SUCCESS:
-            scan = self.scan_parameters
-            scan.duration_us, scan.period_us = (
-                command.duration * HCI_LE_DURATION_UNIT_US,
-                command.period * HCI_LE_SCAN_PERIOD_UNIT_US,
+            self.ll.set_scan_period(
+                command.duration * HCI_LE_DURATION_UNIT_US, command.period * HCI_LE_SCAN_PERIOD_UNIT_US
             )
-            scan.deadline_us = self.now_us + scan.duration_us if scan.duration_us else 0
             self.period_duplicate_reset = command.filter_duplicates == HCI_LE_SCAN_DUPLICATES_RESET_EACH_PERIOD
         return result
 
@@ -180,17 +198,18 @@ class LeScanningCommands(LeControllerContext):
         )
 
     def on_hci_le_read_filter_accept_list_size_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.14 LE Read Filter Accept List Size Command
+        '''
         return hci.HCI_LE_Read_Filter_Accept_List_Size_ReturnParameters(
             SUCCESS, self.controller.filter_accept_list_size
         )
 
     def on_hci_le_clear_filter_accept_list_command(self, command):
-        if self._filter_in_use():
-            return hci.HCI_StatusReturnParameters(DISALLOWED)
-        self.link.accept_list.clear()
-        return hci.HCI_StatusReturnParameters(SUCCESS)
+        return hci.HCI_StatusReturnParameters(self.ll.edit_filter(None, False, self.controller.filter_accept_list_size))
 
     def _edit_filter(self, command, add):
+        """Filter Accept List edits, disallowed while the list is in use (Vol 4, Part E, 7.8.16, 7.8.17)."""
         if self._filter_in_use():
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if command.address_type not in (
@@ -207,37 +226,34 @@ class LeScanningCommands(LeControllerContext):
             ),
             command.address_type,
         )
-        if add:
-            if (
-                address not in self.link.accept_list
-                and len(self.link.accept_list) >= self.controller.filter_accept_list_size
-            ):
-                return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR)
-            self.link.accept_list.add(address)
-        else:
-            self.link.accept_list.discard(address)
-        return hci.HCI_StatusReturnParameters(SUCCESS)
+        return hci.HCI_StatusReturnParameters(
+            self.ll.edit_filter(address, add, self.controller.filter_accept_list_size)
+        )
 
     def on_hci_le_add_device_to_filter_accept_list_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.16 LE Add Device To Filter Accept List Command
+        '''
         return self._edit_filter(command, True)
 
     def on_hci_le_remove_device_from_filter_accept_list_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.17 LE Remove Device From Filter Accept List Command
+        '''
         return self._edit_filter(command, False)
 
     def on_hci_le_periodic_advertising_create_sync_command(self, command):
-        if self.link.sync is not None:
-            self.controller._send_hci_command_status(DISALLOWED, command.op_code)
-            return
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.67 LE Periodic Advertising Create Sync Command
+        '''
         use_list = bool(command.options & SyncOptions.USE_PERIODIC_ADVERTISER_LIST)
-        if not use_list and any(
-            active.address == hci.Address(bytes(command.advertiser_address), command.advertiser_address_type)
-            and active.sid == command.advertising_sid
-            for active in self.link.syncs.values()
-        ):
-            self.controller._send_hci_command_status(hci.HCI_ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR, command.op_code)
-            return
-        if len(self.link.syncs) >= CONTROLLER_PERIODIC_SYNC_COUNT:
-            self.controller._send_hci_command_status(hci.HCI_ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR, command.op_code)
+        status = self.ll.synchronization_status(
+            hci.Address(bytes(command.advertiser_address), command.advertiser_address_type),
+            command.advertising_sid,
+            use_list,
+        )
+        if status != SUCCESS:
+            self.controller._send_hci_command_status(status, command.op_code)
             return
         if (
             command.options & ~(HCI_LE_PERIODIC_SYNC_REPORTS_DISABLED_MASK | SyncOptions.USE_PERIODIC_ADVERTISER_LIST)
@@ -262,26 +278,31 @@ class LeScanningCommands(LeControllerContext):
         ):
             self.controller._send_hci_command_status(INVALID, command.op_code)
             return
-        self.link.sync = PeriodicSync(
-            command.advertiser_address,
-            command.advertising_sid,
-            command.sync_timeout * hci.HCI_LE_PERIODIC_SYNC_TIMEOUT_UNIT_US,
-            0,
-            command.skip,
-            not command.options & HCI_LE_PERIODIC_SYNC_REPORTS_DISABLED_MASK,
-            use_list=use_list,
-            handle=next(
-                handle for handle in range(1, CONTROLLER_PERIODIC_SYNC_COUNT + 1) if handle not in self.link.syncs
-            ),
+        # Reserve a free handle for acquisition; publish it as an established
+        # sync only after receiving the periodic train.
+        status = self.ll.start_synchronizing(
+            PeriodicSync(
+                command.advertiser_address,
+                command.advertising_sid,
+                command.sync_timeout * hci.HCI_LE_PERIODIC_SYNC_TIMEOUT_UNIT_US,
+                0,
+                command.skip,
+                not command.options & HCI_LE_PERIODIC_SYNC_REPORTS_DISABLED_MASK,
+                use_list=use_list,
+            )
         )
-        self.controller._send_hci_command_status(SUCCESS, command.op_code)
+        self.controller._send_hci_command_status(status, command.op_code)
 
     def on_hci_le_read_periodic_advertiser_list_size_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.73 LE Read Periodic Advertiser List Size Command
+        '''
         return hci.HCI_LE_Read_Periodic_Advertiser_List_Size_ReturnParameters(
             SUCCESS, CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE
         )
 
     def _edit_periodic_list(self, command, add):
+        """Periodic Advertiser List edits (Vol 4, Part E, 7.8.70, 7.8.71)."""
         if self.link.sync is not None:
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if (
@@ -293,34 +314,33 @@ class LeScanningCommands(LeControllerContext):
             hci.Address(bytes(command.advertiser_address), command.advertiser_address_type),
             command.advertising_sid,
         )
-        items = self.link.periodic_advertiser_list
-        if add:
-            if key in items:
-                return hci.HCI_StatusReturnParameters(INVALID)
-            if len(items) >= CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE:
-                return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR)
-            items.add(key)
-        else:
-            if key not in items:
-                return hci.HCI_StatusReturnParameters(UNKNOWN_ADV)
-            items.remove(key)
-        return hci.HCI_StatusReturnParameters(SUCCESS)
+        return hci.HCI_StatusReturnParameters(
+            self.ll.edit_periodic_list(key, add, CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE)
+        )
 
     def on_hci_le_add_device_to_periodic_advertiser_list_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.70 LE Add Device To Periodic Advertiser List Command
+        '''
         return self._edit_periodic_list(command, True)
 
     def on_hci_le_remove_device_from_periodic_advertiser_list_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.71 LE Remove Device From Periodic Advertiser List Command
+        '''
         return self._edit_periodic_list(command, False)
 
     def on_hci_le_clear_periodic_advertiser_list_command(self, command):
-        if self.link.sync is not None:
-            return hci.HCI_StatusReturnParameters(DISALLOWED)
-        self.link.periodic_advertiser_list.clear()
-        return hci.HCI_StatusReturnParameters(SUCCESS)
+        return hci.HCI_StatusReturnParameters(
+            self.ll.edit_periodic_list(None, False, CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE)
+        )
 
     def on_hci_le_periodic_advertising_create_sync_cancel_command(self, command):
-        sync = self.link.sync
-        if sync is None or sync.established:
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.68 LE Periodic Advertising Create Sync Cancel Command
+        '''
+        sync = self.ll.cancel_synchronizing()
+        if sync is None:
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         asyncio.get_running_loop().call_soon(
             self.on_sync_established,
@@ -330,16 +350,16 @@ class LeScanningCommands(LeControllerContext):
         return hci.HCI_StatusReturnParameters(SUCCESS)
 
     def on_hci_le_periodic_advertising_terminate_sync_command(self, command):
-        if command.sync_handle not in self.link.syncs:
-            return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR)
-        del self.link.syncs[command.sync_handle]
-        return hci.HCI_StatusReturnParameters(SUCCESS)
+        return hci.HCI_StatusReturnParameters(self.ll.terminate_synchronization(command.sync_handle))
 
     def on_hci_le_set_periodic_advertising_receive_enable_command(self, command):
+        '''
+        See Bluetooth spec Vol 4, Part E - 7.8.88 LE Set Periodic Advertising Receive Enable Command
+        '''
         sync = self.link.syncs.get(command.sync_handle)
         if sync is None:
             return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR)
         if command.enable not in (0, 1):
             return hci.HCI_StatusReturnParameters(UNSUPPORTED)
-        sync.reports_enabled = bool(command.enable)
+        self.ll.enable_periodic_reports(command.sync_handle, bool(command.enable))
         return hci.HCI_StatusReturnParameters(SUCCESS)

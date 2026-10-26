@@ -43,13 +43,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Vol 4, Part E, 5.3.1: Connection_Handle values are 12 bits, at most 0x0EFF.
+HCI_CONNECTION_HANDLE_MAX = 0x0EFF
+
 
 class Controller:
     """One LE Controller's Lower HCI endpoint."""
 
-    hci_version = hci.HCI_VERSION_BLUETOOTH_CORE_5_0
+    hci_version = hci.SpecificationVersion.BLUETOOTH_CORE_5_0
     hci_revision = 0
-    lmp_version = hci.HCI_VERSION_BLUETOOTH_CORE_5_0
+    lmp_version = hci.SpecificationVersion.BLUETOOTH_CORE_5_0
     lmp_subversion = 0
     manufacturer_company_identifier = 0xFFFF
     filter_accept_list_size = 8
@@ -71,7 +74,10 @@ class Controller:
         self.le_connections: dict[hci.Address, ConnectionRecord] = {}
         self.advertising_sets: dict[int, AdvertisingSet] = {}
         self.le_legacy_advertiser = LegacyAdvertiser(self)
-        self.event_mask = self.event_mask_page_2 = self.le_event_mask = 0
+        # Vol 4, Part E, 7.3.1, 7.3.69 and 7.8.1: power-on masks equal the Reset defaults.
+        self.event_mask = hci.HCI_EVENT_MASK_DEFAULT
+        self.event_mask_page_2 = 0
+        self.le_event_mask = hci.HCI_LE_EVENT_MASK_DEFAULT
         self._random_address = hci.Address('00:00:00:00:00:00')
         if isinstance(public_address, hci.Address):
             self._public_address = public_address
@@ -153,6 +159,8 @@ class Controller:
                 logger.warning(f'!!! unknown packet type {packet.hci_packet_type}')
 
     def on_hci_command_packet(self, command: hci.HCI_Command) -> None:
+        # Vol 4, Part E, 4.5: unknown and disallowed commands complete with an error
+        # through Command Status (asynchronous) or Command Complete (synchronous).
         handler_name = f'on_{command.name.lower()}'
         if command.op_code not in self.supported_commands:
             if isinstance(command, hci.HCI_AsyncCommand):
@@ -330,11 +338,11 @@ class Controller:
         )
 
     def allocate_connection_handle(self) -> int:
+        '''
+        See Bluetooth spec Vol 4, Part E - 5.3.1 Controller handles (0x0000 to 0x0EFF)
+        '''
         handles = {record.handle for record in self.le_connections.values()}
-        return next(handle for handle in range(1, 0xEFF + 1) if handle not in handles)
+        return next(handle for handle in range(1, HCI_CONNECTION_HANDLE_MAX + 1) if handle not in handles)
 
     def find_connection_by_handle(self, handle: int) -> ConnectionRecord | None:
         return next((record for record in self.le_connections.values() if record.handle == handle), None)
-
-    def find_le_connection_by_handle(self, handle: int) -> ConnectionRecord | None:
-        return self.find_connection_by_handle(handle)

@@ -77,6 +77,7 @@ def advertising_event_time_us(item: Advertising) -> int:
 
 
 async def advertising_request(link: RadioLink, item: Advertising, channel: int, packet: Received) -> bool:
+    """Answer SCAN_REQ with SCAN_RSP or accept CONNECT_IND after T_IFS (Core Vol 6, Part B, 4.4.2.3-4.4.2.5, 4.3.2)."""
     pdu = packet.pdu
     peer = advertising_request_peer(pdu, item.address, item.target)
     if peer is None:
@@ -115,6 +116,8 @@ async def advertising_request(link: RadioLink, item: Advertising, channel: int, 
         except ValueError as error:
             link.trace(f'LL CONNECT REJECTED {error}')
             return False
+        # Commit only a fully decoded CONNECT_IND. create_connection disables this
+        # advertiser as it transfers ownership of the radio activity to the connection.
         link.create_connection(
             parameters,
             peer,
@@ -129,6 +132,7 @@ async def advertising_request(link: RadioLink, item: Advertising, channel: int, 
 
 
 async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
+    """Send CONNECT_IND T_IFS after an accepted ADV_IND/ADV_DIRECT_IND (Core Vol 6, Part B, 4.4.4.1, 4.3.4)."""
     item = link.initiating
     pdu = packet.pdu
     if pdu and pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_EXT_IND:
@@ -155,6 +159,8 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
         return
     if not link.can_connect(peer):
         return
+    # Choose a usable first connection window before sending CONNECT_IND;
+    # its timing becomes shared state as soon as the peer accepts the request.
     request_end = packet.end_us + LL_IFS_US + Phy.LE_1M.airtime_us(PDU_ADV_CONNECT_SIZE)
     parameters = link.connection_parameters(item.parameters, request_end, LL_CONN_INTERVAL_UNIT_US)
     if parameters is None:
@@ -180,6 +186,7 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
 
 
 async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
+    """Report a legacy advertising PDU and run active scanning with backoff (Core Vol 6, Part B, 4.4.3, 4.3.3)."""
     pdu = packet.pdu
     if len(pdu) < PDU_HEADER_SIZE or pdu[1] != len(pdu) - PDU_HEADER_SIZE:
         return
@@ -214,6 +221,8 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
         )
         if target != link.scan.address:
             return
+        # Directed legacy advertising carries a target address instead of AdvData
+        # and cannot be followed by the active-scan exchange below.
         link.listener.on_advertisement(
             address,
             b'',
@@ -225,6 +234,7 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
             target=target,
         )
         return
+    # Report the advertisement independently of whether a scan response arrives.
     link.listener.on_advertisement(
         address,
         pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:],
@@ -240,6 +250,8 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
         and pdu[0] & PDU_ADV_TYPE_MASK in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_SCAN_IND)
         and link.scan.backoff.permit()
     ):
+        # Consume backoff only for an eligible advertisement. A missing response
+        # or one from another advertiser counts as a failed attempt.
         request = scan_request(link.scan.address, address)
         end_us = await link._transmit(channel, request, start_us=packet.end_us + LL_IFS_US)
         response = await link.receive_response(channel, end_us)
@@ -272,6 +284,7 @@ async def scan_extended(link: RadioLink, packet: Received, *, initiating: bool =
 
 
 async def advertise_legacy(link: RadioLink, item: Advertising) -> None:
+    """One legacy advertising event over the used primary channels in ascending order (Core Vol 6, Part B, 4.4.2.1-4.4.2.2)."""
     payload = bytes(item.address) + (bytes(item.target) if item.target else item.data)
     chsel = (
         PDU_ADV_CHSEL_MASK if item.pdu_type in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_DIRECT_IND) else 0
@@ -290,6 +303,7 @@ async def advertise_legacy(link: RadioLink, item: Advertising) -> None:
     )
     for bit, channel in enumerate(LL_ADV_PRIMARY_CHANNELS):
         if item.channel_map & (1 << bit):
+            # Do not start a high-duty packet that would run past advertising expiry.
             if item.high_duty and link.now_us + 1 + Phy.LE_1M.airtime_us(len(pdu)) > item.deadline_us:
                 await link.radio.advance_to_us(item.deadline_us)
                 break
@@ -305,4 +319,6 @@ async def advertise_legacy(link: RadioLink, item: Advertising) -> None:
                     deadline_us=item.deadline_us if item.high_duty else None,
                 )
                 if packet and await link._advertising_request(item, channel, packet):
+                    # A connection ends the entire advertising event, including
+                    # transmissions that were still due on other primary channels.
                     break

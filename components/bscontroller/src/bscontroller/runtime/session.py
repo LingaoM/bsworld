@@ -63,6 +63,8 @@ class BabbleSimSession:
     async def __aenter__(self):
         loop = asyncio.get_running_loop()
         try:
+            # Register all radio participants before requesting the Host's first
+            # PHY grant; startup synchronization needs every configured device present.
             for dev_id, worker in self.controllers:
                 await worker.start(self.sim_id, dev_id)
             if self.clock is not None:
@@ -72,6 +74,8 @@ class BabbleSimSession:
                 self.loop = loop
             return self
         except BaseException as error:
+            # Cancellation during startup has the same cleanup obligations as an
+            # error: workers already started must not keep FIFO endpoints alive.
             await self.__aexit__(type(error), error, error.__traceback__)
             raise
 

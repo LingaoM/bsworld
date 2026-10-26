@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from bscontroller.linklayer import PDU_ADV_ACCESS_ADDRESS, PDU_HEADER_SIZE
-from bscontroller.linklayer.bitstream import crc24
 from bscontroller.radio.babblesim import (
     BSIM_FREQUENCY_BASE_MHZ,
     BSIM_FREQUENCY_SCALE,
@@ -51,6 +50,7 @@ from bscontroller.radio.base import (
     RADIO_SWITCH_TIME_US,
     Phy,
 )
+from bscontroller.radio.packet import crc24
 from bscontroller.runtime.event_loop import ControllerEventLoop
 
 requires_runner = pytest.mark.skipif(not hasattr(asyncio, 'Runner'), reason='Controller loops require Python 3.11')

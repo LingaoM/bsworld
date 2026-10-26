@@ -22,15 +22,6 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from bscontroller.linklayer import (
-    LL_DATA_CHANNEL_COUNT,
-    PDU_ADV_ACCESS_ADDRESS,
-    PDU_ADV_CRC_INIT,
-    PDU_ADV_EXT_PAYLOAD_SIZE_MAX,
-    PDU_CRC_SIZE,
-    PDU_HEADER_SIZE,
-)
-from bscontroller.linklayer.bitstream import crc24
 from bscontroller.radio.base import (
     PHY_1M_BITRATE_BPS,
     PHY_1M_OCTET_TIME_US,
@@ -50,6 +41,15 @@ from bscontroller.radio.base import (
     Phy,
     RadioSwitch,
     Received,
+)
+from bscontroller.radio.packet import (
+    LL_DATA_CHANNEL_COUNT,
+    PDU_ADV_ACCESS_ADDRESS,
+    PDU_ADV_CRC_INIT,
+    PDU_ADV_EXT_PAYLOAD_SIZE_MAX,
+    PDU_CRC_SIZE,
+    PDU_HEADER_SIZE,
+    crc24,
 )
 
 if TYPE_CHECKING:
@@ -398,6 +398,8 @@ class BabbleSimRadio:
         if start_us < ready_us:
             raise ValueError('transmission starts before the radio is ready')
         connection = self._connection()
+        # BabbleSim's end timestamp is the last occupied tick. Radio consumers
+        # use half-open packet bounds, so the returned end below adds that tick back.
         request = TX.pack(
             start_us,
             start_us + duration_us - 1,
@@ -478,6 +480,8 @@ class BabbleSimRadio:
             raise ValueError('reception must start after the current PHY time')
         start_us = max(start_us, self.earliest_start_us(channel, phy, transmit=False))
         if start_us >= until_us:
+            # Switching consumed this search window. Advance to its end so the
+            # scheduler does not retry an already elapsed activity.
             await self.advance_to_us(until_us)
             return None
         connection = self._connection()
@@ -515,6 +519,8 @@ class BabbleSimRadio:
                 if not BSIM_PACKET_SIZE_MIN <= size <= BSIM_PACKET_SIZE_MAX:
                     raise RuntimeError(f'invalid BabbleSim packet size: {size}')
                 packet = await connection.receive(size)
+                # Address detection is an intermediate PHY response. Drain the
+                # candidate bytes, then continue reception to obtain final CRC/status.
                 await connection.send(HEADER.pack(RX_CONTINUE))
                 await connection.response(RX_END)
             elif header != RX_END:
@@ -526,6 +532,8 @@ class BabbleSimRadio:
                 return None
             if len(packet) != size:
                 raise RuntimeError('BabbleSim RX packet size changed')
+            # Check CRC with this connection's CRCInit (Vol 6, Part B, 3.1.1).
+            # accept_bad_crc lets LL observe a failed reception without trusting its ACK.
             valid_crc = status == RX_STATUS_OK and packet[-PDU_CRC_SIZE:] == crc24(packet[:-PDU_CRC_SIZE], crc_init)
             if not valid_crc and not accept_bad_crc:
                 return None
@@ -544,6 +552,8 @@ class BabbleSimRadio:
 
     async def _receive_coded_part(self, channel, start, until, address, coding, prelocked):
         connection = self._connection()
+        # The first part searches for an Access Address. The second inherits
+        # that lock and follows the transmitter's duration at the CI-selected coding rate.
         request = RX_V2.pack(
             start,
             NEVER,

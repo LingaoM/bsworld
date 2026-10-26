@@ -4,15 +4,14 @@
 
 """One HCI configuration and notification context shared by LE command groups."""
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from bscontroller import hci
-from bscontroller.capabilities import CONTROLLER_SUPPORTED_PHY_MASK
+from bscontroller.hci import HCI_LE_SCAN_INTERVAL_DEFAULT, HCI_LE_SCAN_INTERVAL_UNIT_US, HCI_LE_SCAN_WINDOW_DEFAULT
 from bscontroller.hci.events import LeControllerEvents
-from bscontroller.linklayer import LL_DATA_CHANNEL_MAP_ALL
-from bscontroller.linklayer.discovery import Scanning
 from bscontroller.linklayer.link import RadioLink
-from bscontroller.linklayer.timing import LL_DEFAULT_SCAN_INTERVAL_US
+from bscontroller.linklayer.service import LinkLayerService
 from bscontroller.radio.base import Radio
 
 if TYPE_CHECKING:
@@ -38,16 +37,15 @@ class LeControllerContext(LeControllerEvents):
             seed=int.from_bytes(bytes(controller.public_address), 'little'),
         )
         self.extended_scan = False
-        self.scan_parameters = Scanning(
+        self.ll = LinkLayerService(
+            self.link,
             controller.public_address,
-            LL_DEFAULT_SCAN_INTERVAL_US,
-            LL_DEFAULT_SCAN_INTERVAL_US,
+            HCI_LE_SCAN_INTERVAL_DEFAULT * HCI_LE_SCAN_INTERVAL_UNIT_US,
+            HCI_LE_SCAN_WINDOW_DEFAULT * HCI_LE_SCAN_INTERVAL_UNIT_US,
         )
         self.filter_duplicates = False
         self.seen: set[tuple] = set()
         self.fragments: dict[tuple[int, str], bytes] = {}
-        self.host_channel_map = LL_DATA_CHANNEL_MAP_ALL
-        self.default_tx_phys = self.default_rx_phys = CONTROLLER_SUPPORTED_PHY_MASK
         self.period_duplicate_reset = False
         self.extended_commands: bool | None = None
 
@@ -61,3 +59,23 @@ class LeControllerContext(LeControllerEvents):
             if own_address_type == hci.OwnAddressType.RANDOM
             else self.controller.public_address
         )
+
+    @property
+    def scan_parameters(self):
+        return replace(
+            self.ll.scan_parameters,
+            backoff=replace(self.ll.scan_parameters.backoff),
+            windows=tuple(replace(window) for window in self.ll.scan_parameters.windows),
+        )
+
+    @property
+    def host_channel_map(self):
+        return self.ll.host_channel_map
+
+    @property
+    def default_tx_phys(self):
+        return self.ll.default_tx_phys
+
+    @property
+    def default_rx_phys(self):
+        return self.ll.default_rx_phys

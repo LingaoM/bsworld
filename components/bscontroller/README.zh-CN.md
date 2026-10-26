@@ -44,9 +44,28 @@ bscontroller --help
 
 每个 Controller 实现 HCI、Link Layer 和射频适配。多个 Controller 连接同一个 BabbleSim PHY，在共享信道和共同的仿真时间线上进行射频交互。
 
-<div align="center"><img src="docs/images/radio_controller_arch.svg" alt="多个 Radio Controller 共享 BabbleSim PHY" width="100%"><br><em>图 1：Controller 协议架构与共享 PHY</em></div>
+<div align="center"><img src="docs/images/radio_controller_arch.svg" alt="多个 Radio Controller 共享 BabbleSim PHY" width="80%"><br><em>图 1：Controller 协议架构与共享 PHY</em></div>
 
-协议行为遵循 Bluetooth Core 6.3。与集成和调试相关的分层方式、命令与事件流以及实现限制，见[架构概览](docs/architecture.zh-CN.md)。
+### 内部框架
+
+下图展开一个 Controller 实例。每个 ACL 连接独立持有连接上下文、LLCP 和事件执行状态；连接与非连接角色共用一个 RadioResourceManager。
+
+<div align="center"><img src="docs/images/radio_controller_internal_arch.svg" alt="单个 Controller 的内部模块、状态归属与主要交互路径" width="80%"><br><em>图 2：Controller 内部框架</em></div>
+
+嵌套框表示对象和状态归属；黑色箭头表示操作/控制，绿色虚线表示 Listener 回调，橙色表示活动选择和调度窗口，蓝色表示 PDU 与射频结果，灰色点线表示 Runtime 的组合、驱动和时钟关系。H4Parser/H4Server 对应 socket 路径，进程内 HCI 数据包直接进入 Controller。
+
+| 模块 | 职责与状态归属 |
+| --- | --- |
+| `hci/` | H4 分帧、命令解码与参数转换、命令族选择、未完成的 HCI 数据分片，以及事件掩码、重复过滤和报告编码 |
+| `linklayer/service.py` | `LinkLayerService` / `AdvertisingService` 提交活动角色状态，管理扫描 backoff 初始化、广播数据发布与 DID、角色启停、同步取消和默认配置 |
+| `linklayer/connection.py` | `Connection` 管理连接生命周期、当前参数、锚点和监督超时 |
+| `linklayer/llcp.py` | `LlcpCoordinator` 管理控制请求准入、已发送待回复请求、加密阶段收发门禁、RX/ACK 路由和截止时间聚合；共享 `ProcedureResponseTimer` 记录当前过程归属 |
+| `linklayer/control.py`、`encryption.py`、`data_length.py` | 执行各控制过程的状态转换、碰撞规则、Instant 更新、密钥/加密切换和数据长度协商，由协调器连接到事件执行器 |
+| `linklayer/connection_event.py` | `ConnectionEvent` 持有 TX 队列、SN/NESN、LL 分片和重传快照，执行单次连接事件的信道选择与收发时序 |
+| `linklayer/primary.py`、`extended.py`、`periodic.py` | 执行传统/扩展广播、扫描、发起连接以及周期广播收发；角色上下文位于 `discovery.py` |
+| `linklayer/resource.py`、`scheduler.py` | `RadioResourceManager` 统一预约、优先级、冲突仲裁和活动窗口释放；调度辅助函数计算完整、非抢占的可用时隙 |
+| `radio/`、`runtime/` | Radio 提供收发、物理时间与 BabbleSim FIFO 适配；Runtime 组合线程、事件循环、会话与 PHY 进程生命周期 |
+
 
 ## 运行示例
 

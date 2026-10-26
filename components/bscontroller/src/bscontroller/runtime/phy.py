@@ -23,7 +23,6 @@ def find_phy(directory: Path | str | None = None) -> Path:
     return binary
 
 
-
 class PhyProcess:
     """Own one fresh simulation and its process; existing simulations are never removed."""
 
@@ -44,9 +43,20 @@ class PhyProcess:
         try:
             self._output = (self.log_dir / 'phy.log').open('wb')
             self.process = subprocess.Popen(
-                [self.binary, f'-s={self.sim_id}', f'-D={self.device_count}', '-defmodem=BLE_simple',
-                 '-channel=multiatt', '-argschannel', '-at=45', '-argsmain', '-nodump'],
-                cwd=self.binary.parent, stdout=self._output, stderr=subprocess.STDOUT,
+                [
+                    self.binary,
+                    f'-s={self.sim_id}',
+                    f'-D={self.device_count}',
+                    '-defmodem=BLE_simple',
+                    '-channel=multiatt',
+                    '-argschannel',
+                    '-at=45',
+                    '-argsmain',
+                    '-nodump',
+                ],
+                cwd=self.binary.parent,
+                stdout=self._output,
+                stderr=subprocess.STDOUT,
             )
         except BaseException:
             if self._output is not None:
@@ -68,7 +78,9 @@ class PhyProcess:
                         self.process.kill()
                         self.process.wait()
                 if exc_type is None and self.process.returncode != 0:
-                    raise RuntimeError(f'PHY exited with status {self.process.returncode}; see {self.log_dir / "phy.log"}')
+                    raise RuntimeError(
+                        f'PHY exited with status {self.process.returncode}; see {self.log_dir / "phy.log"}'
+                    )
         finally:
             if self._output is not None:
                 self._output.close()

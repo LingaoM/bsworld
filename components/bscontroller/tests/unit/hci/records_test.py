@@ -46,9 +46,9 @@ async def test_radio_connections_use_shared_handles_and_hci_acl_lookup():
     )
     backend.link.connections[connection.handle] = connection
     assert connection.handle == 2
-    assert controller.find_le_connection_by_handle(2) is None
+    assert controller.find_connection_by_handle(2) is None
     connection.establish()
-    record = controller.find_le_connection_by_handle(2)
+    record = controller.find_connection_by_handle(2)
     assert record is not None
     assert record.peer_address == PEER and record.self_address == ADDRESS
     controller.on_packet(
@@ -64,39 +64,42 @@ async def test_radio_connections_use_shared_handles_and_hci_acl_lookup():
     )
     assert connection.queue[-1].payload == b'abc'
     connection.complete(ErrorCode.REMOTE_USER_TERMINATED_CONNECTION_ERROR)
-    assert controller.find_le_connection_by_handle(2) is None
-    assert controller.find_le_connection_by_handle(1) is not None
+    assert controller.find_connection_by_handle(2) is None
+    assert controller.find_connection_by_handle(1) is not None
     assert packets[-1].connection_handle == 2
 
 
 def test_public_connection_record_tracks_the_live_identity(connection):
     connection.report_created()
     controller = connection.link.listener.controller
-    record = controller.find_le_connection_by_handle(connection.handle)
+    record = controller.find_connection_by_handle(connection.handle)
     assert record is not None
     updated = hci.Address('C0:12:34:56:78:9A')
     connection.self_address = updated
     assert record.self_address == updated
-    record.self_address = controller.public_address
-    assert connection.self_address == controller.public_address
+    with pytest.raises(AttributeError):
+        record.self_address = controller.public_address
+    assert connection.self_address == updated
 
 
-def test_public_advertising_buffers_survive_reconfiguration(controller):
+def test_public_advertising_data_is_an_immutable_view(controller):
     from tests.unit.helpers import extended_parameters
 
     commands = controller.le_procedures
     parameters = extended_parameters(advertising_event_properties=16)
     assert commands.on_hci_le_set_extended_advertising_parameters_command(parameters).status == ErrorCode.SUCCESS
     record = controller.advertising_sets[0]
-    data, response = record.data, record.scan_response_data
-    periodic = record.periodic_advertising_data
-    data.extend(b'advertising data')
-    response.extend(b'scan response')
-    periodic.extend(b'periodic data')
+    service = commands.ll.advertising
+    service.store_data(0, 'data', b'advertising data')
+    service.store_data(0, 'scan_response', b'scan response')
+    service.store_data(0, 'periodic_data', b'periodic data')
+    snapshot = record.data
+    assert isinstance(snapshot, bytes)
+    with pytest.raises(AttributeError):
+        record.data = b'bypass LL'
     assert commands.on_hci_le_set_extended_advertising_parameters_command(parameters).status == ErrorCode.SUCCESS
-    runtime = controller.backend.link.advertisers[0]
-    assert record.data is runtime.data is data
-    assert record.scan_response_data is runtime.scan_response is response
-    assert record.periodic_advertising_data is runtime.periodic_data is periodic
-    assert data == b'advertising data' and response == b'scan response'
-    assert periodic == b'periodic data'
+    assert record.data == b'advertising data'
+    assert record.scan_response_data == b'scan response'
+    assert record.periodic_advertising_data == b'periodic data'
+    service.store_data(0, 'data', b'new data')
+    assert record.data == b'new data' and snapshot == b'advertising data'

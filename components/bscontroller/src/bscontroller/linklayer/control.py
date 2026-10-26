@@ -53,6 +53,8 @@ from bscontroller.radio.base import PHY_OCTET_MASK, Phy
 
 if TYPE_CHECKING:
     from bscontroller.linklayer.connection import Connection
+    from bscontroller.linklayer.listener import ControlListener
+    from bscontroller.linklayer.llcp import ProcedureResponseTimer
     from bscontroller.linklayer.parameters import Parameters
 
 UPDATE = struct.Struct('<BHHHHH')
@@ -105,8 +107,9 @@ class InstantUpdate:
 
 
 class ControlProcedures:
-    def __init__(self, connection: Connection):
+    def __init__(self, connection: Connection, response_timer: ProcedureResponseTimer):
         self.connection = connection
+        self.response_timer = response_timer
         self.pending: InstantUpdate | None = None
         self.remote_parameters: bytes | None = None
         self.parameter_request = False
@@ -135,6 +138,21 @@ class ControlProcedures:
         self.host_channel_map = connection.parameters.channel_map
         self.peer_minimum_channel_phys = 0
         self.peer_minimum_used_channels = LL_DATA_CHANNEL_COUNT_MIN
+
+    @property
+    def deadline_us(self) -> int:
+        return self.response_timer.deadline_us
+
+    @deadline_us.setter
+    def deadline_us(self, value: int) -> None:
+        # Retain explicit timer observation/control for existing LL callers.
+        self.response_timer.deadline_us = value
+        if not value:
+            self.response_timer.owner = None
+
+    @property
+    def listener(self) -> ControlListener:
+        return self.connection.link.listener
 
     @property
     def busy(self) -> bool:
@@ -169,17 +187,21 @@ class ControlProcedures:
         return min(deadlines) if deadlines else 0
 
     def enqueue(self, payload: bytes) -> None:
+        # Core Vol 6, Part B, 5.2: each queued procedure PDU restarts a running T_PRT.
+        self.response_timer.restart(self.connection.radio.now_us)
         self.connection.enqueue_control(payload)
 
     def reject(self, opcode: int, reason: int) -> None:
         self.enqueue(bytes([Opcode.LL_REJECT_EXT_IND, opcode, reason]))
 
     def instant(self) -> int:
+        """Follow the recommended six listening-event lead (Core 6.3, Vol 6, Part B, 5.5)."""
         return (
             self.connection.event_counter + LL_INSTANT_MIN_LISTENING_EVENTS * (self.connection.parameters.latency + 1)
         ) & LL_EVENT_COUNTER_MASK
 
     def accept_instant(self, update: InstantUpdate) -> None:
+        """Peripheral acceptance of an Instant; a past Instant loses the connection (Core Vol 6, Part B, 5.5.1)."""
         distance = (update.instant - self.connection.event_counter) & LL_EVENT_COUNTER_MASK
         if distance >= LL_INSTANT_PAST_THRESHOLD:
             self.connection.complete(ErrorCode.INSTANT_PASSED_ERROR)
@@ -199,6 +221,7 @@ class ControlProcedures:
         reference: tuple[int, int] | None = None,
         notify: bool = True,
     ) -> None:
+        """Central sends LL_CONNECTION_UPDATE_IND (Core Vol 6, Part B, 5.1.1)."""
         instant = self.instant()
         offset = anchor_offset(reference, instant, self.connection.parameters.interval, interval) if reference else 0
         parameters = replace(
@@ -223,6 +246,7 @@ class ControlProcedures:
         )
 
     def request_channel_map(self, channel_map: int) -> None:
+        """Central Channel Map Update from the Host classification (Core Vol 6, Part B, 5.1.2; Vol 4, Part E, 7.8.19)."""
         self.host_channel_map = channel_map
         self._start_channel_map(self.selected_channel_map())
 
@@ -273,6 +297,7 @@ class ControlProcedures:
         self.enqueue(bytes([Opcode.LL_MIN_USED_CHANNELS_IND, phys, minimum]))
 
     def prepare(self, payload: bytes) -> bytes:
+        """Local strategy to preserve the recommended Instant lead (Core 6.3, Vol 6, Part B, 5.5)."""
         if self.connection.role == Role.PERIPHERAL and payload[0] in (
             Opcode.LL_PHY_REQ,
             Opcode.LL_PHY_RSP,
@@ -335,18 +360,19 @@ class ControlProcedures:
     def sent(self, payload: bytes) -> None:
         if payload[0] != Opcode.LL_PHY_UPDATE_IND:
             return
-        self.deadline_us = 0
+        self.response_timer.stop(Opcode.LL_PHY_REQ)
         if not (payload[1] or payload[2]):
             self.phy_request = False
             if self.phy_request_local:
-                self.connection.link.listener.on_phy_updated(self.connection, ErrorCode.SUCCESS)
+                self.listener.on_phy_updated(self.connection, ErrorCode.SUCCESS)
             self.phy_request_local = False
 
     def request_parameters(self, minimum: int, maximum: int, latency: int, timeout: int) -> None:
+        """Send LL_CONNECTION_PARAM_REQ (Core Vol 6, Part B, 5.1.7.1)."""
         self.parameter_request = True
         self.requested_interval_min = minimum
         self.requested_parameters = (minimum, maximum, latency, timeout)
-        self.deadline_us = self.connection.radio.now_us + LL_RESPONSE_TIMEOUT_US
+        self.response_timer.start(Opcode.LL_CONNECTION_PARAM_REQ, self.connection.radio.now_us)
         self.enqueue(
             bytes([Opcode.LL_CONNECTION_PARAM_REQ])
             + PARAM_REQUEST.pack(
@@ -369,6 +395,7 @@ class ControlProcedures:
         *,
         notify: bool = True,
     ) -> None:
+        """Answer LL_CONNECTION_PARAM_REQ: Central updates, Peripheral responds (Core Vol 6, Part B, 5.1.7.2)."""
         assert self.remote_parameters is not None
         _, _, _, _, periodicity, reference, *offsets = PARAM_REQUEST.unpack(self.remote_parameters)
         self.remote_parameters = None
@@ -396,9 +423,10 @@ class ControlProcedures:
                     *([PDU_CONTROL_CONN_PARAM_OFFSET_UNSPECIFIED] * PDU_CONTROL_CONN_PARAM_OFFSET_COUNT),
                 )
             )
-        self.deadline_us = self.connection.radio.now_us + LL_RESPONSE_TIMEOUT_US
+        self.response_timer.start(Opcode.LL_CONNECTION_PARAM_REQ, self.connection.radio.now_us)
 
     def request_features(self) -> None:
+        """Start Feature Exchange or report the cached result (Core Vol 6, Part B, 5.1.4)."""
         self.feature_request = True
         if self.connection.peer_features is not None:
             self.finish_features(ErrorCode.SUCCESS)
@@ -416,13 +444,14 @@ class ControlProcedures:
             return
         self.feature_request = False
         self.feature_deadline_us = 0
-        self.connection.link.listener.on_remote_features(self.connection, status)
+        self.listener.on_remote_features(self.connection, status)
 
     def send_version(self) -> None:
+        """Send LL_VERSION_IND at most once per connection (Core Vol 6, Part B, 5.1.5)."""
         if not self.version_sent:
             self.version_sent = True
             self.connection.enqueue_control(
-                bytes([Opcode.LL_VERSION_IND]) + struct.pack('<BHH', *self.connection.link.listener.local_version),
+                bytes([Opcode.LL_VERSION_IND]) + struct.pack('<BHH', *self.listener.local_version),
                 priority=True,
             )
 
@@ -440,14 +469,15 @@ class ControlProcedures:
         self.version_request = False
         self.version_deadline_us = 0
         if status is not None:
-            self.connection.link.listener.on_remote_version(self.connection, status)
+            self.listener.on_remote_version(self.connection, status)
 
     def reject_parameters(self, reason: int) -> None:
+        """Handle a rejected Connection Parameters Request; Unsupported Remote Feature falls back to Connection Update (Core Vol 6, Part B, 5.1.1, 5.1.7)."""
         requested = self.requested_parameters
         self.parameter_request = False
         self.requested_interval_min = 0
         self.requested_parameters = None
-        self.deadline_us = 0
+        self.response_timer.stop(Opcode.LL_CONNECTION_PARAM_REQ)
         if reason == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR:
             self.parameter_request_unsupported = True
             if self.connection.peer_features is not None:
@@ -460,19 +490,19 @@ class ControlProcedures:
             minimum, _, latency, timeout = requested
             self.request_update(minimum, latency, timeout)
         else:
-            self.connection.link.listener.on_connection_updated(self.connection, reason)
+            self.listener.on_connection_updated(self.connection, reason)
             if self.remote_parameters is not None:
                 self.notify_remote_parameters()
 
     def reject_remote_parameters(self, reason: int) -> None:
         self.reject(Opcode.LL_CONNECTION_PARAM_REQ, reason)
         self.remote_parameters = None
-        self.deadline_us = 0
+        self.response_timer.stop(Opcode.LL_CONNECTION_PARAM_REQ)
 
     def notify_remote_parameters(self) -> None:
         assert self.remote_parameters is not None
         minimum, maximum, latency, timeout, *_ = PARAM_REQUEST.unpack(self.remote_parameters)
-        self.deadline_us = self.connection.radio.now_us + LL_RESPONSE_TIMEOUT_US
+        self.response_timer.start(Opcode.LL_CONNECTION_PARAM_REQ, self.connection.radio.now_us)
         parameters = self.connection.parameters
         if (
             minimum == maximum == parameters.interval
@@ -481,15 +511,26 @@ class ControlProcedures:
         ):
             self.reply_parameters(minimum, maximum, latency, timeout, notify=False)
             return
-        self.connection.link.listener.on_remote_parameters(self.connection, minimum, maximum, latency, timeout)
+        self.listener.on_remote_parameters(self.connection, minimum, maximum, latency, timeout)
 
     def request_phy(self, tx_phys: int, rx_phys: int) -> None:
+        """Send LL_PHY_REQ (Core Vol 6, Part B, 5.1.10)."""
         self.tx_phys, self.rx_phys = tx_phys, rx_phys
         self.phy_request = True
         self.phy_request_local = True
         self.transmitted = False
-        self.deadline_us = self.connection.radio.now_us + LL_RESPONSE_TIMEOUT_US
+        self.response_timer.start(Opcode.LL_PHY_REQ, self.connection.radio.now_us)
         self.enqueue(bytes([Opcode.LL_PHY_REQ, tx_phys, rx_phys]))
+
+    def reject_phy(self, reason: int) -> None:
+        """Finish a rejected PHY request and retain any other procedure's response timer."""
+        self.phy_request = False
+        self.phy_request_local = False
+        self.response_timer.stop(Opcode.LL_PHY_REQ)
+        self.listener.on_phy_updated(self.connection, reason)
+        if self.remote_phy_request is not None:
+            request, self.remote_phy_request = self.remote_phy_request, None
+            self.control(request)
 
     @staticmethod
     def choose_phy(mask: int, current: int) -> int:
@@ -501,6 +542,7 @@ class ControlProcedures:
         )
 
     def _phy_update(self, peer_tx: int, peer_rx: int) -> None:
+        """Central chooses PHYs and sends LL_PHY_UPDATE_IND (Core Vol 6, Part B, 5.1.10)."""
         connection = self.connection
         peer_tx &= CONTROLLER_SUPPORTED_PHY_MASK
         peer_rx &= CONTROLLER_SUPPORTED_PHY_MASK
@@ -532,6 +574,7 @@ class ControlProcedures:
             self.transmitted = self.acknowledged = False
 
     def control(self, payload: bytes) -> bool:
+        """Handle a received LL Control PDU, applying collision rules (Core Vol 6, Part B, 5.1, 5.3)."""
         connection = self.connection
         if self.data_length.control(payload):
             return True
@@ -541,6 +584,8 @@ class ControlProcedures:
             and len(payload) == PDU_CONTROL_FEATURE_SIZE
         ):
             connection.peer_features = int.from_bytes(payload[1:], 'little')
+            # Use the first-octet feature intersection and retain local higher octets
+            # for FEATURE_RSP (Vol 6, Part B, 5.1.4.1; 5.1.4.2).
             features = (connection.link.features & ~PHY_OCTET_MASK) | (connection.link.features & payload[1])
             connection.enqueue_control(
                 bytes([Opcode.LL_FEATURE_RSP]) + features.to_bytes(PDU_CONTROL_FEATURE_SET_SIZE, "little"),
@@ -566,6 +611,8 @@ class ControlProcedures:
             self._refresh_channel_map()
             return True
         if opcode == Opcode.LL_VERSION_IND and len(payload) == PDU_CONTROL_VERSION_SIZE:
+            # Cache the first peer version and send ours at most once. Repeated
+            # Host reads can finish from the cache without another air exchange.
             if self.peer_version is None:
                 self.peer_version = struct.unpack('<BHH', payload[PDU_CONTROL_OPCODE_SIZE:])
                 self.send_version()
@@ -581,6 +628,8 @@ class ControlProcedures:
                 or not LL_CONN_WINDOW_SIZE_MIN <= size <= min(LL_CONN_WINDOW_SIZE_MAX, interval - 1)
                 or offset > interval
             ):
+                # Close on unusable timing so the two peers cannot adopt different
+                # connection-event schedules.
                 connection.complete(ErrorCode.INVALID_LMP_OR_LL_PARAMETERS_ERROR)
             else:
                 self.accept_instant(
@@ -649,6 +698,8 @@ class ControlProcedures:
                     self.notify_remote_parameters()
             elif self.parameter_request and connection.role == Role.CENTRAL:
                 requested = self.requested_parameters
+                # Intersect the peer range with the Host range before choosing an interval;
+                # valid ranges can still have no acceptable value in common.
                 if requested is not None and max(minimum, requested[0]) > min(maximum, requested[1]):
                     self.reject_parameters(ErrorCode.UNACCEPTABLE_CONNECTION_PARAMETERS_ERROR)
                 else:
@@ -666,8 +717,14 @@ class ControlProcedures:
                 self.finish_features(ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR)
             elif self.parameter_request and payload[1] == Opcode.LL_CONNECTION_PARAM_REQ:
                 self.reject_parameters(ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR)
+            elif self.phy_request and payload[1] == Opcode.LL_PHY_REQ:
+                # UNKNOWN_RSP also ends PHY negotiation (Vol 6, Part B, 5.1.10.1).
+                # Report failure to the Host and stop its timer, even while ACL is paused.
+                self.reject_phy(ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR)
             return True
         if opcode == Opcode.LL_REJECT_IND and len(payload) == PDU_CONTROL_REJECT_SIZE:
+            # The legacy reject has no rejected opcode. Route it using the outstanding
+            # procedure (Vol 6, Part B, 2.4.2.14).
             if self.feature_request:
                 self.finish_features(payload[1])
             elif self.parameter_request:
@@ -707,8 +764,10 @@ class ControlProcedures:
                 else:
                     self.phy_request = True
                     self.transmitted = False
-                    self.deadline_us = connection.radio.now_us + LL_RESPONSE_TIMEOUT_US
+                    self.response_timer.start(Opcode.LL_PHY_REQ, connection.radio.now_us)
                     if connection.role == Role.CENTRAL:
+                        # The Central chooses the resulting PHY pair and Instant;
+                        # a Peripheral only returns its directional preferences.
                         self._phy_update(peer_tx, peer_rx)
                     else:
                         self.enqueue(bytes([Opcode.LL_PHY_RSP, self.tx_phys, self.rx_phys]))
@@ -731,12 +790,14 @@ class ControlProcedures:
                         peripheral_tx_phy=peripheral.bit_length(),
                     )
                 )
-                self.deadline_us = 0
+                self.response_timer.stop(Opcode.LL_PHY_REQ)
             else:
+                # An all-zero update completes negotiation without changing PHYs. A Host
+                # request still needs a completion event (Vol 6, Part B, 5.1.10).
                 self.phy_request = False
-                self.deadline_us = 0
+                self.response_timer.stop(Opcode.LL_PHY_REQ)
                 if self.phy_request_local:
-                    connection.link.listener.on_phy_updated(connection, ErrorCode.SUCCESS)
+                    self.listener.on_phy_updated(connection, ErrorCode.SUCCESS)
                 self.phy_request_local = False
             return True
         if (
@@ -747,19 +808,12 @@ class ControlProcedures:
             if payload[1] == Opcode.LL_CONNECTION_PARAM_REQ and self.parameter_request:
                 self.reject_parameters(payload[2])
             elif payload[1] == Opcode.LL_PHY_REQ and self.phy_request:
-                self.phy_request = False
-                self.phy_request_local = False
-                connection.link.listener.on_phy_updated(connection, payload[2])
-                if self.remote_phy_request is not None:
-                    request, self.remote_phy_request = self.remote_phy_request, None
-                    self.control(request)
-                elif not (self.remote_parameters or self.requested_interval_min):
-                    # A queued Peripheral PARAM_RSP still awaits UPDATE_IND.
-                    self.deadline_us = 0
+                self.reject_phy(payload[2])
             return True
         return False
 
     def apply(self, *, received_at_instant: bool = False) -> None:
+        """Apply a pending update when connEventCount reaches its Instant (Core Vol 6, Part B, 5.1.1, 5.1.2, 5.1.10, 5.5.1)."""
         connection = self.connection
         update = self.pending
         if self.check_timeout():
@@ -769,13 +823,20 @@ class ControlProcedures:
             return
         if update.instant != connection.event_counter:
             return
+        # Wait until the local update has been sent. Close on an unacknowledged
+        # update at the Instant rather than applying a schedule the peer may not know.
         if update.local and not self.transmitted:
             return
         if update.local and not self.acknowledged:
             connection.complete(ErrorCode.INSTANT_PASSED_ERROR)
             return
+        # Release the procedure slot before callbacks can start another procedure
+        # against the newly committed parameters.
         self.pending = None
-        self.deadline_us = 0
+        if update.parameters is not None:
+            self.response_timer.stop(Opcode.LL_CONNECTION_PARAM_REQ)
+        elif update.central_tx_phy or update.peripheral_tx_phy:
+            self.response_timer.stop(Opcode.LL_PHY_REQ)
         if update.parameters is not None:
             old = connection.parameters
             notify = (
@@ -794,6 +855,8 @@ class ControlProcedures:
             )
             connection.parameters = update.parameters
             if not received_at_instant:
+                # Reception at the Instant already provides the new anchor; applying the
+                # offset again would shift it twice (Vol 6, Part B, 5.1.1).
                 connection.anchor_us += update.parameters.window_offset * LL_CONN_INTERVAL_UNIT_US
             connection.update_window = not received_at_instant
             connection.supervision_restart_us = connection.anchor_us
@@ -801,10 +864,11 @@ class ControlProcedures:
             self.requested_interval_min = 0
             self.requested_parameters = None
             if notify:
-                connection.link.listener.on_connection_updated(connection, ErrorCode.SUCCESS)
+                self.listener.on_connection_updated(connection, ErrorCode.SUCCESS)
         if update.channel_map is not None:
             connection.parameters = replace(connection.parameters, channel_map=update.channel_map)
         if update.central_tx_phy or update.peripheral_tx_phy:
+            # On-air fields name roles; translate them into this endpoint's TX/RX.
             tx, rx = (
                 (update.central_tx_phy, update.peripheral_tx_phy)
                 if connection.role == Role.CENTRAL
@@ -814,11 +878,12 @@ class ControlProcedures:
             connection.rx_phy = Phy(rx or connection.rx_phy)
             self.phy_request = False
             self.phy_request_local = False
-            connection.link.listener.on_phy_updated(connection, ErrorCode.SUCCESS)
+            self.listener.on_phy_updated(connection, ErrorCode.SUCCESS)
         self.data_length.refresh()
         self._refresh_channel_map()
 
     def check_timeout(self) -> bool:
+        """Procedure response timeout T_PRT (Core Vol 6, Part B, 5.2)."""
         if self.data_length.check_timeout():
             return True
         if self.version_deadline_us and self.connection.radio.now_us >= self.version_deadline_us:
