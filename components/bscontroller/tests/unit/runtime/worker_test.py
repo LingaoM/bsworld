@@ -31,6 +31,28 @@ from bscontroller.runtime.worker import RadioControllerWorker
 async def test_hci_runs_in_owner_thread_only_after_phy_ack(
     monkeypatch, max_step_us, tmp_path, capture
 ):
+    """HCI is handled on the worker thread only once the PHY grants the step.
+
+    Purpose: Verify an in-process ``RadioControllerWorker`` defers an enqueued
+    HCI command until the PHY acknowledges the wait, handles it on the worker
+    thread at the granted time, delivers the resulting event to the Host on the
+    host thread, and optionally captures both to a BTSnoop file, for each step
+    size and capture setting.
+
+    Steps:
+        1. Start a worker over a radio stub whose ``advance_to_us`` waits for a
+           socket byte before granting; patch ``Controller.on_packet`` to record
+           the thread and time.
+        2. Enqueue a Reset command and assert nothing is handled or delivered.
+        3. Send the byte to release the grant and await delivery.
+
+    Expected:
+        - Handling runs on the worker thread at ``max_step_us``; delivery runs
+          on the host thread with the Command Complete bytes.
+        - With capture on, the snoop file holds both records; with it off no
+          file exists; setting a sink to None after attach raises; after close
+          the thread is gone, ``terminated`` is done and the radio is closed.
+    """
     host_thread = get_ident()
     entered = Event()
     read, write = socket.socketpair()
@@ -118,6 +140,23 @@ async def test_hci_runs_in_owner_thread_only_after_phy_ack(
 
 @pytest.mark.asyncio
 async def test_deferred_hci_notifications_precede_next_phy_request(monkeypatch):
+    """HCI command and its deferred notification run before the next PHY wait.
+
+    Purpose: Verify that a command enqueued before startup and the notification
+    it schedules both execute, in order, before the worker's first PHY wait
+    begins.
+
+    Steps:
+        1. Patch ``Controller.on_packet`` to append 'command' and schedule a
+           'notification' callback.
+        2. Make ``advance_to_us`` assert, after ``before_phy_request``, that
+           both ran in order, then block.
+        3. Enqueue a Reset command and start the worker.
+
+    Expected:
+        - The advance's assertion holds: events are ['command', 'notification']
+          when the first wait is reached.
+    """
     entered = Event()
     events = []
 
@@ -154,6 +193,24 @@ async def test_deferred_hci_notifications_precede_next_phy_request(monkeypatch):
 async def test_worker_start_failure_is_reported_and_thread_joined(
     monkeypatch, tmp_path
 ):
+    """A radio connect failure at start is reported and the thread is joined.
+
+    Purpose: Verify that when the radio's ``connect`` raises during start, the
+    error surfaces from both ``start`` and ``close``, the worker thread is
+    joined, ``terminated`` completes, the radio is closed, and the opened snoop
+    capture is closed too.
+
+    Steps:
+        1. Patch the radio so ``connect`` raises RuntimeError('broken radio')
+           and wrap BtsnoopWriter to record instances.
+        2. Start the worker with a snoop file, expecting the error.
+        3. Close the worker, expecting the same error.
+
+    Expected:
+        - Both ``start`` and ``close`` raise 'broken radio'; the thread is not
+          alive; ``terminated`` is done; the radio is closed once; the capture
+          file is closed.
+    """
     radio = SimpleNamespace(
         connect=AsyncMock(side_effect=RuntimeError('broken radio')), close=Mock()
     )
@@ -180,6 +237,21 @@ async def test_worker_start_failure_is_reported_and_thread_joined(
 
 @pytest.mark.asyncio
 async def test_snoop_open_failure_releases_radio_and_worker(monkeypatch, tmp_path):
+    """A snoop open failure releases the radio and reports from start and close.
+
+    Purpose: Verify that when the snoop path cannot be opened (a directory), the
+    worker surfaces the error from ``start`` and ``close``, joins its thread and
+    closes the radio.
+
+    Steps:
+        1. Point the snoop file at ``tmp_path`` (a directory).
+        2. Start the worker, expecting ``IsADirectoryError``.
+        3. Close the worker, expecting the same error.
+
+    Expected:
+        - Both ``start`` and ``close`` raise ``IsADirectoryError``; the thread
+          is not alive and the radio is closed once.
+    """
     radio = SimpleNamespace(close=Mock())
     monkeypatch.setattr('bscontroller.runtime.worker.BabbleSimRadio', lambda: radio)
     worker = RadioControllerWorker('test', hci_snoop_file=tmp_path)
@@ -193,6 +265,24 @@ async def test_snoop_open_failure_releases_radio_and_worker(monkeypatch, tmp_pat
 
 @pytest.mark.asyncio
 async def test_worker_runtime_failure_is_reported_when_closed(monkeypatch):
+    """A radio failure after startup terminates the worker and reports on close.
+
+    Purpose: Verify that an exception raised by ``advance_to_us`` after a
+    successful start terminates the worker and is reported as an ExceptionGroup
+    when the worker is closed, with the thread joined and radio closed.
+
+    Steps:
+        1. Make ``advance_to_us`` raise RuntimeError('radio failed after
+           startup').
+        2. Start the worker and wait for ``terminated``.
+        3. Close the worker inside a ``finally``.
+
+    Expected:
+        - ``close`` raises an ExceptionGroup 'unhandled errors' whose first
+          exception is the radio error; the thread is not alive; the radio is
+          closed once.
+    """
+
     async def advance(target):
         raise RuntimeError('radio failed after startup')
 
@@ -219,6 +309,21 @@ async def test_worker_runtime_failure_is_reported_when_closed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancelled_start_releases_connecting_worker(monkeypatch):
+    """Cancelling start while connecting releases the worker cleanly.
+
+    Purpose: Verify that cancelling the ``start`` task while the radio is still
+    in ``connect`` propagates CancelledError, and a subsequent ``close`` joins
+    the thread, completes ``terminated`` and closes the radio.
+
+    Steps:
+        1. Make ``connect`` signal it entered, then block forever.
+        2. Create the ``start`` task, wait until connecting, then cancel it.
+        3. Await the cancellation and then ``close`` the worker.
+
+    Expected:
+        - The start raises CancelledError; after close the thread is gone,
+          ``terminated`` is done and the radio is closed once.
+    """
     entered = Event()
 
     async def connect(sim, dev):
@@ -240,6 +345,17 @@ async def test_cancelled_start_releases_connecting_worker(monkeypatch):
 
 
 def test_worker_step_must_be_positive():
+    """The worker rejects a non-positive maximum step.
+
+    Purpose: Verify ``RadioControllerWorker`` refuses a ``max_step_us`` of zero,
+    since the simulation step must be positive.
+
+    Steps:
+        1. Construct a worker with ``max_step_us=0``.
+
+    Expected:
+        - ``ValueError`` mentioning 'positive' is raised.
+    """
     with pytest.raises(ValueError, match='positive'):
         RadioControllerWorker('test', max_step_us=0)
 
@@ -248,6 +364,28 @@ def test_worker_step_must_be_positive():
 async def test_socket_hci_is_owned_by_worker_and_waits_for_phy_ack(
     monkeypatch, tmp_path
 ):
+    """Socket-mode HCI is owned by the worker and gated on the PHY ack.
+
+    Purpose: Verify that in Unix-socket HCI mode the worker handles a Host
+    command on its own thread only after the PHY grants the step, writes the
+    reply from the worker thread without blocking H4 input, and captures both
+    directions to the snoop file.
+
+    Steps:
+        1. Start a socket-mode worker over a radio whose ``advance_to_us`` waits
+           for a byte before granting; patch ``on_packet`` and ``H4Server._write``
+           to record threads.
+        2. Connect a client, send a fragmented Reset command, then release the
+           grant.
+        3. Read the reply and inspect the recorded threads and snoop size.
+
+    Expected:
+        - Nothing is handled before the grant; after it the command is handled
+          at time 1000 on the worker thread, the reply is written from the
+          worker thread, the reply bytes reach the client, and the snoop file
+          holds the expected total length; after close the thread is gone and
+          the socket is removed.
+    """
     host_thread = get_ident()
     entered = Event()
     read, write = socket.socketpair()
@@ -321,6 +459,23 @@ async def test_socket_hci_is_owned_by_worker_and_waits_for_phy_ack(
 async def test_socket_listens_before_phy_connect_but_defers_hci_until_bound(
     monkeypatch, tmp_path
 ):
+    """The HCI socket listens before PHY connect but defers HCI until bound.
+
+    Purpose: Verify the worker accepts a Host socket connection while the PHY is
+    still connecting, but does not process a received command until the radio
+    loop is bound.
+
+    Steps:
+        1. Make ``connect`` block after signalling, and ``bind_loop`` record;
+           patch ``on_packet`` to assert the loop is bound when it runs.
+        2. Start the worker, connect a client and send a command while connect
+           is still pending, asserting no bind yet.
+        3. Release connect and read the reply.
+
+    Expected:
+        - The command is handled only after ``bind_loop`` ran; the client
+          receives the Command Complete reply; the socket is removed on close.
+    """
     connecting = Event()
     resume = None
     bound = []
@@ -369,6 +524,21 @@ async def test_socket_listens_before_phy_connect_but_defers_hci_until_bound(
 
 @pytest.mark.asyncio
 async def test_socket_start_failure_preserves_existing_path(monkeypatch, tmp_path):
+    """A socket already in use is preserved and the start fails cleanly.
+
+    Purpose: Verify that starting socket-mode over a path that already holds a
+    file raises ``FileExistsError`` from ``start`` and ``close``, leaves the
+    existing file untouched, joins the thread and closes the radio.
+
+    Steps:
+        1. Write a file at the intended socket path.
+        2. Start the worker, expecting ``FileExistsError``.
+        3. Close the worker, expecting the same error.
+
+    Expected:
+        - Both raise ``FileExistsError``; the file content is unchanged; the
+          thread is not alive and the radio is closed once.
+    """
     path = tmp_path / 'hci.sock'
     path.write_text('owned by another endpoint')
     radio = SimpleNamespace(close=Mock())
@@ -385,6 +555,21 @@ async def test_socket_start_failure_preserves_existing_path(monkeypatch, tmp_pat
 
 @pytest.mark.asyncio
 async def test_socket_close_cancels_pending_phy_connection(monkeypatch, tmp_path):
+    """Closing during a pending PHY connect cancels it and cleans up.
+
+    Purpose: Verify that closing a socket-mode worker while the radio is still
+    in ``connect`` cancels the connection, joins the thread, removes the socket
+    and closes the radio.
+
+    Steps:
+        1. Make ``connect`` signal entry then block forever.
+        2. Start the worker and wait until connecting.
+        3. Close the worker.
+
+    Expected:
+        - After close the thread is not alive, the socket path is gone and the
+          radio is closed once.
+    """
     entered = Event()
 
     async def connect(sim, dev):
@@ -406,6 +591,19 @@ async def test_socket_close_cancels_pending_phy_connection(monkeypatch, tmp_path
 
 @pytest.mark.asyncio
 async def test_socket_mode_rejects_cross_thread_packet_api(tmp_path):
+    """In socket mode the in-process packet API is rejected.
+
+    Purpose: Verify that a worker configured with an HCI socket refuses the
+    cross-thread ``on_packet``/``set_packet_sink`` API, which is only valid for
+    in-process mode.
+
+    Steps:
+        1. Create a socket-mode worker.
+        2. Call ``on_packet`` and ``set_packet_sink``.
+
+    Expected:
+        - Both raise RuntimeError mentioning 'H4 endpoint'.
+    """
     worker = RadioControllerWorker('test', hci_socket=tmp_path / 'hci.sock')
     with pytest.raises(RuntimeError, match='H4 endpoint'):
         worker.on_packet(bytes.fromhex('01030c00'))
@@ -420,6 +618,28 @@ async def test_socket_mode_rejects_cross_thread_packet_api(tmp_path):
 async def test_startup_barrier_gates_hci_and_releases_resources(
     monkeypatch, endpoints, tmp_path, socket_mode, outcome
 ):
+    """The startup barrier gates HCI and releases resources on every outcome.
+
+    Purpose: Verify that during the first PHY wait the worker accepts an HCI
+    command but holds it until the PHY acknowledges, and that on ack, cancel or
+    disconnect the worker delivers or withholds the event and always releases
+    its resources, for in-process and socket modes.
+
+    Steps:
+        1. Start the worker over a real FIFO-backed radio; receive the initial
+           WAIT request on the PHY side.
+        2. Send a Reset command (via socket or in-process) and assert nothing is
+           handled while the clock is unbound.
+        3. Apply the parametrized ``outcome``: WAIT_END (ack), no send (cancel),
+           or DISCONNECT.
+
+    Expected:
+        - For 'ack' the command is handled at time 0 and, in socket mode, the
+          reply reaches the client.
+        - For 'disconnect' ``close`` raises 'PHY disconnected'.
+        - In every case the thread ends and the socket path is removed; for
+          non-ack outcomes nothing was handled.
+    """
     device, phy = endpoints
     radio = BabbleSimRadio()
     radio.connection = device

@@ -5,7 +5,6 @@
 
 import asyncio
 import os
-from types import SimpleNamespace
 
 import pytest
 
@@ -44,38 +43,6 @@ def connection(controller):
     )
     controller.backend.link.connections[result.handle] = result
     return result
-
-
-@pytest.fixture
-def hci_dut(controller):
-    """Exercise command dispatch while leaving time and RF under test control."""
-
-    async def command(packet, status=hci.HCI_ErrorCode.SUCCESS):
-        offset = len(controller.events)
-        controller.on_packet(bytes(packet))
-        await asyncio.sleep(0)
-        reply = next(
-            event
-            for event in controller.events[offset:]
-            if isinstance(
-                event, (hci.HCI_Command_Complete_Event, hci.HCI_Command_Status_Event)
-            )
-        )
-        result = getattr(reply, 'return_parameters', reply)
-        assert result.status == status
-        return result
-
-    async def event(event_type):
-        await asyncio.sleep(0)
-        for index, packet in enumerate(controller.events):
-            if isinstance(packet, event_type):
-                return controller.events.pop(index)
-        pytest.fail(f'Missing {event_type.__name__}')
-
-    async def masks():
-        controller.event_mask = controller.le_event_mask = (1 << 64) - 1
-
-    return SimpleNamespace(input=controller, command=command, event=event, masks=masks)
 
 
 @pytest.fixture

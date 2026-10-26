@@ -1,7 +1,21 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Connection wire vectors and strict timing/channel-map boundaries."""
+"""Connection wire vectors and strict timing/channel-map boundaries.
+
+Covers CONNECT_IND parameter encoding and validation (Core Vol 6, Part B,
+2.3.3.1):
+
+- ``valid_channel_map`` requires at least two used data channels within range.
+- ``valid_timing`` enforces interval, latency and supervision-timeout ranges
+  and their interdependence.
+- ``Parameters.encode``/``decode`` round-trip the fixed little-endian field
+  layout (including the packed SCA/hop octet) and reject truncated, oversized
+  or out-of-range fields.
+
+Uses the fixed ``PARAMETERS`` vector from ``tests.unit.helpers``; it is a wire
+vector for isolated checks, not the Controller's runtime defaults.
+"""
 
 from dataclasses import replace
 
@@ -41,6 +55,19 @@ from tests.unit.helpers import PARAMETERS
     ],
 )
 def test_channel_map_validation(value, expected):
+    """Channel-map validation requires two or more in-range used channels.
+
+    Purpose: Verify ``valid_channel_map`` accepts a map only when it has at
+    least two used data channels and no bit set outside the data-channel range
+    (Vol 6, Part B, 2.3.3.1).
+
+    Steps:
+        1. For each parametrized channel-map value, call ``valid_channel_map``.
+
+    Expected:
+        - Maps with fewer than two channels, bits above the channel count, or
+          negative values are rejected; two-or-more in-range channels pass.
+    """
     assert valid_channel_map(value) == expected
 
 
@@ -60,10 +87,43 @@ def test_channel_map_validation(value, expected):
     ],
 )
 def test_connection_timing_validation(timing, expected):
+    """Connection timing validation enforces ranges and their interdependence.
+
+    Purpose: Verify ``valid_timing`` accepts (interval_min, interval_max,
+    latency, timeout) only when each is in range and the combination is
+    consistent, in particular the supervision-timeout vs interval-and-latency
+    relationship (Vol 6, Part B, 4.5.2).
+
+    Steps:
+        1. For each parametrized timing tuple, call ``valid_timing``.
+
+    Expected:
+        - Out-of-range interval, excessive latency, too-small timeout and
+          inconsistent latency/timeout combinations are rejected; valid tuples
+          pass.
+    """
     assert valid_timing(*timing) == expected
 
 
 def test_connect_ind_uses_fixed_little_endian_fields_and_packed_sca():
+    """CONNECT_IND encodes fixed little-endian fields and round-trips exactly.
+
+    Purpose: Verify ``Parameters.encode`` lays out the CONNECT_IND LLData with
+    the spec's little-endian fields and packs SCA and hop into one octet, and
+    that ``Parameters.decode`` recovers the same values (Vol 6, Part B,
+    2.3.3.1).
+
+    Steps:
+        1. Build parameters from the fixed vector with CRCInit 0xABCDEF,
+           window offset 2 and SCA 5.
+        2. Encode and compare to the known 22-octet wire string.
+        3. Decode the wire string back to parameters.
+
+    Expected:
+        - The encoding is exactly the expected 22 octets
+          (``PDU_ADV_CONNECT_DATA_SIZE``).
+        - Decoding reproduces the original parameters.
+    """
     parameters = replace(PARAMETERS, crc_init=0xABCDEF, window_offset=2, sca=5)
     wire = bytes.fromhex('7083329aefcdab010200180000006400ffffffff1fa7')
     assert len(wire) == PDU_ADV_CONNECT_DATA_SIZE
@@ -73,6 +133,19 @@ def test_connect_ind_uses_fixed_little_endian_fields_and_packed_sca():
 
 @pytest.mark.parametrize('length', [0, 21, 23])
 def test_connect_ind_rejects_truncated_or_extra_data(length):
+    """CONNECT_IND decoding requires exactly 22 octets.
+
+    Purpose: Verify ``Parameters.decode`` rejects LLData that is shorter or
+    longer than the fixed CONNECT_IND size of 22 octets (Vol 6, Part B,
+    2.3.3.1).
+
+    Steps:
+        1. For each parametrized length (0, 21, 23), decode a zero-filled
+           buffer of that length.
+
+    Expected:
+        - ``ValueError`` mentioning '22 octets' is raised in every case.
+    """
     with pytest.raises(ValueError, match='22 octets'):
         Parameters.decode(bytes(length))
 
@@ -99,5 +172,20 @@ def test_connect_ind_rejects_truncated_or_extra_data(length):
     ],
 )
 def test_invalid_connection_parameters(field, value):
+    """Decoding rejects a CONNECT_IND with any out-of-range field.
+
+    Purpose: Verify ``Parameters.decode`` raises when any individual field is
+    outside its allowed range after encoding, covering interval, latency,
+    timeout, window size/offset, hop increment, channel map and the reserved
+    Access Address values (Vol 6, Part B, 2.3.3.1, 4.5.2).
+
+    Steps:
+        1. Replace one field of the fixed vector with an invalid value, encode
+           it, then decode the resulting wire bytes.
+
+    Expected:
+        - ``ValueError`` is raised for every parametrized (field, value) case,
+          including the advertising Access Address and the all-ones value.
+    """
     with pytest.raises(ValueError):
         Parameters.decode(replace(PARAMETERS, **{field: value}).encode())
