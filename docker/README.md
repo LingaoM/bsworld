@@ -68,8 +68,8 @@ sudo docker run --rm \
   --mount "type=bind,src=$PWD/.cache/docker-results,dst=/output" \
   -e PYTHONPATH=/workspace \
   ghcr.io/xiaomi/bsworld:latest \
-  pytest tests/integration/zephyr/samples/heart_rate -n 2 \
-    --out-dir /output --junitxml=/output/heart-rate.xml
+  pytest tests/integration/zephyr/shell -n 2 \
+    --out-dir /output --junitxml=/output/zephyr-shell.xml
 ```
 
 `-n 2` uses two test workers. `--out-dir` selects the log and capture directory; `--junitxml` writes the test report. Paths under `/output` appear in `.cache/docker-results` on the host.

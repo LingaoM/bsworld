@@ -80,7 +80,7 @@ export BSIM_BUILD_FAIL_ASAP=1
 make -j"$(nproc)" everything
 ```
 
-按照 [Zephyr Controller](../../components/bt_virt_controller/README.zh-CN.md)、[Zephyr 示例](../../tests/integration/zephyr/samples/README.zh-CN.md)、[NuttX](../../tests/integration/nuttx/README.zh-CN.md)或 [QEMU / Buildroot](../../tests/integration/qemu/README.zh-CN.md) 的说明构建所需 Host 和 Controller 二进制，然后运行集成测试：
+按照 [Zephyr Controller](../../components/bt_virt_controller/README.zh-CN.md)、[Zephyr shell](../../tests/integration/zephyr/shell/README.zh-CN.md)、[NuttX](../../tests/integration/nuttx/README.zh-CN.md)或 [QEMU / Buildroot](../../tests/integration/qemu/README.zh-CN.md) 的说明构建所需 Host 和 Controller 二进制，然后运行集成测试：
 
 ```sh
 cd "$BSWORLD_ROOT"
@@ -101,7 +101,7 @@ pytest tests/integration -n auto -v -k '[bscontroller]'
 
 | 环境 | 已验证行为 | 文档 |
 |---|---|---|
-| Zephyr Bluetooth 示例 | 广播与扫描、干扰与恢复、Heart Rate、周期广播、Mesh 配网和配置 | [Zephyr 测试](../../tests/integration/zephyr/samples/README.zh-CN.md) |
+| Zephyr Bluetooth shell | 广播与扫描、干扰与恢复、连接与 GATT、周期广播、Mesh 配网和配置 | [Zephyr 测试](../../tests/integration/zephyr/shell/README.zh-CN.md) |
 | Bumble Python Host | 广播、扫描、连接、周期广播与同步 | [Bumble 测试](../../tests/integration/bumble/README.zh-CN.md) |
 | QEMU 中的 Linux 与 BlueZ | 通过 Linux Bluetooth 子系统完成 Controller 初始化、广播、扫描、连接和断连 | [BlueZ 测试](../../tests/integration/qemu/bluez/README.zh-CN.md) |
 | TrouBLE Rust Host | 广播、连接、Battery Service 发现、读取和通知 | [TrouBLE 测试](../../tests/integration/trouble/README.zh-CN.md) |

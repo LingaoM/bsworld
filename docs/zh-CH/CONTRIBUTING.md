@@ -45,7 +45,7 @@ pytest tests/unit/
 ```sh
 pytest tests/integration/nuttx/btsak -n auto
 pytest tests/integration/nuttx/nimble -n auto
-pytest tests/integration/zephyr/samples -n auto
+pytest tests/integration/zephyr/shell -n auto
 pytest tests/integration/bumble -n auto
 ```
 

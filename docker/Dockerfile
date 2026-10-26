@@ -106,8 +106,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/zephyrproject /opt/zephyr-sdk
 USER bsworld
 
-# Validated Zephyr revision for the Controller and Host-only sample configurations.
-ARG ZEPHYR_REVISION=35c46048d330ce1bea9248d4dd6a9879d0fe5be7
+# Match the typed-address and periodic-sync command interfaces used by the shells.
+ARG ZEPHYR_REVISION=a915b2f12675b48b16d56653ea145dcd8f20cbbf
 
 # The workspace lives outside /workspace so mounting the BSWorld checkout keeps it available.
 ENV ZEPHYR_WORKSPACE=/opt/zephyrproject \
@@ -148,7 +148,7 @@ RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
     && west sdk install --install-base "$ZEPHYR_SDK_INSTALL_DIR" \
         --gnu-toolchains ${ZEPHYR_SDK_TOOLCHAINS}
 
-# Compile the BSWorld Controller and upstream Host-only Bluetooth samples.
+# Compile the BSWorld Controller and upstream Host-only shells.
 COPY --chown=$BUILD_UID:$BUILD_GID components/bt_virt_controller /opt/bsworld-build/bt_virt_controller
 ARG BUILD_JOBS=4
 RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
@@ -158,24 +158,23 @@ RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
         -d "$ZEPHYR_WORKSPACE/build/bsworld_bt_virt_controller" \
         /opt/bsworld-build/bt_virt_controller \
     && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_bt_virt_controller/zephyr/zephyr.exe"
-COPY --chown=$BUILD_UID:$BUILD_GID tests/integration/zephyr/samples/common/source /opt/bsworld-build/zephyr/common
-COPY --chown=$BUILD_UID:$BUILD_GID tests/integration/zephyr/samples/mesh/source /opt/bsworld-build/zephyr/mesh
+COPY --chown=$BUILD_UID:$BUILD_GID tests/integration/zephyr/shell/source /opt/bsworld-build/zephyr/shell
 RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
     && export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS" \
     && cd "$ZEPHYR_WORKSPACE" \
-    && for sample in broadcaster observer peripheral_hr central_hr \
-        periodic_adv periodic_sync mesh mesh_provisioner; do \
-        extra_conf=/opt/bsworld-build/zephyr/common/bsim.conf; \
-        case "$sample" in mesh|mesh_provisioner) \
-            extra_conf="$extra_conf;/opt/bsworld-build/zephyr/mesh/mesh.conf" ;; esac; \
-        west build -p always -b nrf52_bsim \
-            -d "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_$sample" \
-            "$ZEPHYR_BASE/samples/bluetooth/$sample" \
-            -- -DEXTRA_CONF_FILE="$extra_conf" \
-            -DDTC_OVERLAY_FILE=/opt/bsworld-build/zephyr/common/bsim_host_only.overlay \
-        && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_$sample/zephyr/zephyr.exe" \
-        || exit 1; \
-    done
+    && west build -p always -b nrf52_bsim \
+        -d "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_shell" \
+        "$ZEPHYR_BASE/tests/bluetooth/shell" \
+        -- -DCONF_FILE=/opt/bsworld-build/zephyr/shell/prj.conf \
+        -DDTC_OVERLAY_FILE="$ZEPHYR_BASE/tests/bluetooth/shell/xterm-native-shell.overlay;/opt/bsworld-build/zephyr/shell/bsim_host_only.overlay" \
+    && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_shell/zephyr/zephyr.exe" \
+    && west build -p always -b nrf52_bsim \
+        -d "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_mesh_shell" \
+        "$ZEPHYR_BASE/tests/bluetooth/mesh_shell" \
+        -- -DCONF_FILE=/opt/bsworld-build/zephyr/shell/prj.conf \
+        -DEXTRA_CONF_FILE=/opt/bsworld-build/zephyr/shell/mesh.conf \
+        -DDTC_OVERLAY_FILE="$ZEPHYR_BASE/tests/bluetooth/shell/xterm-native-shell.overlay;/opt/bsworld-build/zephyr/shell/bsim_host_only.overlay" \
+    && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_mesh_shell/zephyr/zephyr.exe"
 
 # NuttX: prepare tools and source workspaces for sim:bthcisock and sim:nimble.
 # https://nuttx.apache.org/docs/latest/quickstart/install.html
@@ -368,14 +367,8 @@ RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/babblesim/build/results
 # Keep BabbleSim's source, scripts, and outputs together at their build-time paths.
 COPY --from=babblesim --chown=$BUILD_UID:$BUILD_GID /opt/babblesim /opt/babblesim
 COPY --from=zephyr /opt/zephyrproject/build/bsworld_bt_virt_controller/zephyr/zephyr.exe /opt/firmware/bt_virt_controller
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_broadcaster/zephyr/zephyr.exe /opt/firmware/zephyr/broadcaster
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_observer/zephyr/zephyr.exe /opt/firmware/zephyr/observer
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_peripheral_hr/zephyr/zephyr.exe /opt/firmware/zephyr/peripheral_hr
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_central_hr/zephyr/zephyr.exe /opt/firmware/zephyr/central_hr
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_periodic_adv/zephyr/zephyr.exe /opt/firmware/zephyr/periodic_adv
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_periodic_sync/zephyr/zephyr.exe /opt/firmware/zephyr/periodic_sync
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_mesh/zephyr/zephyr.exe /opt/firmware/zephyr/mesh
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_mesh_provisioner/zephyr/zephyr.exe /opt/firmware/zephyr/mesh_provisioner
+COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_shell/zephyr/zephyr.exe /opt/firmware/zephyr/shell
+COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_mesh_shell/zephyr/zephyr.exe /opt/firmware/zephyr/mesh_shell
 COPY --from=nuttx /opt/nuttx/nuttx /opt/firmware/nuttx/btsak
 COPY --from=nuttx /opt/nuttx-nimble/nuttx /opt/firmware/nuttx/nimble
 COPY --from=qemu /opt/qemu/build/bsworld/qemu-system-aarch64 /opt/firmware/qemu/qemu-system-aarch64
@@ -386,14 +379,8 @@ COPY --from=trouble /opt/trouble/target/release/ble_bas /opt/firmware/trouble/bl
 ENV BSIM_OUT_PATH=/opt/babblesim/build \
     BSIM_COMPONENTS_PATH=/opt/babblesim/components \
     BSWORLD_BT_VIRT_CONTROLLER_BIN=/opt/firmware/bt_virt_controller \
-    BSWORLD_ZEPHYR_BROADCASTER_BIN=/opt/firmware/zephyr/broadcaster \
-    BSWORLD_ZEPHYR_OBSERVER_BIN=/opt/firmware/zephyr/observer \
-    BSWORLD_ZEPHYR_PERIPHERAL_HR_BIN=/opt/firmware/zephyr/peripheral_hr \
-    BSWORLD_ZEPHYR_CENTRAL_HR_BIN=/opt/firmware/zephyr/central_hr \
-    BSWORLD_ZEPHYR_PERIODIC_ADV_BIN=/opt/firmware/zephyr/periodic_adv \
-    BSWORLD_ZEPHYR_PERIODIC_SYNC_BIN=/opt/firmware/zephyr/periodic_sync \
-    BSWORLD_ZEPHYR_MESH_BIN=/opt/firmware/zephyr/mesh \
-    BSWORLD_ZEPHYR_MESH_PROVISIONER_BIN=/opt/firmware/zephyr/mesh_provisioner \
+    BSWORLD_ZEPHYR_SHELL_BIN=/opt/firmware/zephyr/shell \
+    BSWORLD_ZEPHYR_MESH_SHELL_BIN=/opt/firmware/zephyr/mesh_shell \
     BSWORLD_NUTTX_BTSAK_BIN=/opt/firmware/nuttx/btsak \
     BSWORLD_NUTTX_NIMBLE_BIN=/opt/firmware/nuttx/nimble \
     BSWORLD_QEMU_BIN=/opt/firmware/qemu/qemu-system-aarch64 \

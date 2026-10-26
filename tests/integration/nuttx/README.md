@@ -51,3 +51,7 @@ Build BabbleSim from [README build instructions](../../../README.md#build-and-te
 | NimBLE | [source/README](nimble/source/README.md) | `BSWORLD_NUTTX_NIMBLE_BIN` |
 
 Both configurations enable `CONFIG_SIM_BSIM_TIME=y` to join BabbleSim discrete time.
+
+## Adding Scenarios
+
+Add an async pytest test under [BTSak](btsak/README.md) or [NimBLE](nimble/README.md), reusing that suite's device profiles with `load_nuttx_profile()` from [common/](common/). Register processes before `topo.start()`, then send the role commands documented in the suite README and verify their output with `wait_log()`.

@@ -80,7 +80,7 @@ export BSIM_BUILD_FAIL_ASAP=1
 make -j"$(nproc)" everything
 ```
 
-Build the required Host and Controller binaries using the guides for the [Zephyr Controller](components/bt_virt_controller/README.md), [Zephyr samples](tests/integration/zephyr/samples/README.md), [NuttX](tests/integration/nuttx/README.md), or [QEMU / Buildroot](tests/integration/qemu/README.md). Then run the integration tests:
+Build the required Host and Controller binaries using the guides for the [Zephyr Controller](components/bt_virt_controller/README.md), [Zephyr shell](tests/integration/zephyr/shell/README.md), [NuttX](tests/integration/nuttx/README.md), or [QEMU / Buildroot](tests/integration/qemu/README.md). Then run the integration tests:
 
 ```sh
 cd "$BSWORLD_ROOT"
@@ -101,7 +101,7 @@ pytest tests/integration -n auto -v -k '[bscontroller]'
 
 | Environment | Validated behavior | Guide |
 |---|---|---|
-| Zephyr Bluetooth samples | Broadcast/observe, interference and recovery, Heart Rate, periodic advertising, Mesh provisioning and configuration | [Zephyr tests](tests/integration/zephyr/samples/README.md) |
+| Zephyr Bluetooth shell | Advertising and scanning, interference and recovery, connections and GATT, periodic advertising, Mesh provisioning and configuration | [Zephyr tests](tests/integration/zephyr/shell/README.md) |
 | Bumble Python Host | Advertising, scanning, connections, periodic advertising and synchronization | [Bumble tests](tests/integration/bumble/README.md) |
 | Linux and BlueZ under QEMU | Controller setup, advertising, scanning, connection and disconnection through the Linux Bluetooth subsystem | [BlueZ tests](tests/integration/qemu/bluez/README.md) |
 | TrouBLE Rust Host | Advertising, connection, Battery Service discovery, reads and notifications | [TrouBLE tests](tests/integration/trouble/README.md) |

@@ -84,74 +84,26 @@ result = await asyncio.wait_for(operation(), timeout=5)
 
 ## 接入业务程序进程
 
-各集成测试目录维护自己的进程配置对象和加载函数，将所在平台的启动约定转换为 BSWorld 拓扑。下面的示例展示了两种约定。
+各集成测试目录通过自己的加载函数，将业务程序及其 Controller 登记到拓扑中。原生程序以 `ProcessInstance` 运行；Python Host 协议栈在拓扑启动后打开 Controller 的 `hci_sock`，直接运行在测试的 asyncio event loop 中。添加场景时复用所在套件的现有辅助函数，环境准备、初始化和平台命令见对应 README。
 
-### NuttX
-
-`NuttXProcessProfile` 描述业务程序的环境变量名、Controller 地址以及可选的 Shell 能力。`load_nuttx_profile()` 会加入 `--sim-bsim-*` 设备标识和 `--bt-dev=<sock>` HCI socket：
-
-```python
-from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
-
-MY_DEVICE = NuttXProcessProfile(
-    name="my_device",
-    binary_env="BSWORLD_NUTTX_BTSAK_BIN",
-    controller_address="C0:FF:EE:00:00:01",
-)
-```
-
-生成的命令形态如下：
-
-```text
-my_device --sim-bsim-sid=<sim_id> --sim-bsim-pid=2G4 \
-  --sim-bsim-dev=<dev_id> --bt-dev=<sock>
-```
-
-### Zephyr
-
-只运行 Host 的 Zephyr 业务程序使用 native simulator 风格的设备标识参数：
-
-```python
-from tests.integration.zephyr.samples.common import ZephyrProcessProfile, load_zephyr_profile
-
-ZEPHYR_APP = ZephyrProcessProfile(
-    name="zephyr_app",
-    binary_env="BSWORLD_ZEPHYR_OBSERVER_BIN",
-    controller_address="C0:FF:EE:10:00:01",
-)
-```
-
-`load_zephyr_profile()` 生成 `-s=<sim_id> -p=<phy_id> -d=<dev_id> -mro=1000`，并通过 `--bt-dev=<sock>` 将 Zephyr `userchan` 连接到外部虚拟 Controller。
-
-两类加载函数都委托给 `tests/integration/applications.py` 中的公共 `add_application()`：它按环境变量解析可执行文件、在产物缺失时 skip、分配虚拟 Controller，并登记 `ProcessInstance`——其命令行由 `topo.start()` 分配的设备槽位生成。各测试目录只需提供自己的命令行和构建指引。`controller_address` 属于对应的 Controller；虚拟 Controller 启动时通过 `-bd-addr=<addr>` 设置公开设备地址（public BD_ADDR），并在 Host 建立 HCI 连接前完成初始化。
-
-### Python Host 协议栈
-
-Python Host 协议栈不需要 `ProcessInstance`。Bumble 测试通过 `topo.add_controller()` 注册虚拟 Controller，在拓扑启动后使用 Unix transport 打开其 `hci_sock`。Bumble 直接运行在 pytest 的 asyncio event loop 中，因此任务、I/O 和超时自动使用同一仿真时钟。完整接入方式见 [Bumble 集成测试](../../tests/integration/bumble/README.zh-CN.md)。
+| 平台 | 测试说明 |
+|---|---|
+| Bumble | [Bumble 集成测试](../../tests/integration/bumble/README.zh-CN.md#添加场景) |
+| NuttX | [BTSak 与 NimBLE](../../tests/integration/nuttx/README.zh-CN.md#添加场景) |
+| QEMU Linux | [BlueZ 与 NimBLE](../../tests/integration/qemu/README.zh-CN.md#添加场景) |
+| TrouBLE | [原生 TrouBLE 测试](../../tests/integration/trouble/README.zh-CN.md#添加场景) |
+| Zephyr | [Bluetooth 与 Mesh shell](../../tests/integration/zephyr/shell/README.zh-CN.md#场景命令) |
 
 ## 向进程发送 Shell 命令
 
-部分固件将 Shell 连接到标准输入。设置 `shell=True` 后，在测试用例中通过 Shell 发送命令；`await topo.start()` 会建立初始 PHY 同步边界，命令应在该调用返回后发送：
+对于启用 Shell 的 `ProcessInstance`，在 `await topo.start()` 和平台初始化完成后发送命令。假设 `dev` 已初始化，基本用法为：
 
 ```python
-from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile
-
-NUTTX_APP = NuttXProcessProfile(
-    name="nuttx_app",
-    binary_env="BSWORLD_NUTTX_NIMBLE_BIN",
-    shell=True,
-)
-
-
-async def test_staged(topo):
-    dev = load_nuttx_profile(topo, NUTTX_APP)
-    await topo.start()
-
-    await dev.shell.run("ifup bnep0")
-    await dev.shell.run("bleprph")
+await dev.shell.run("...")
+await dev.wait_log(r"...", timeout=5)
 ```
 
-`await dev.shell.run()` 只负责向标准输入写入一行命令，不等待命令执行完成；需要确认结果时，应继续调用 `wait_log()` 等可观察接口。该抽象可以驱动 Zephyr Shell、NuttX NSH，以及任何从标准输入按行接收命令的进程控制台。
+根据平台 README 将占位符替换为具体命令及预期输出。`shell.run()` 只向标准输入写入一行命令，不等待命令执行完成；应通过 `wait_log()` 或其他可观察条件确认结果。
 
 ## RF 条件与干扰
 
@@ -176,13 +128,10 @@ topo.set_channel_attenuation(
 
 ### 按路径配置衰减
 
+这里的 `peripheral` 和 `central` 是已经登记到拓扑中的设备。
+
 ```python
 from bsworld.interference import StaticAttenuation, TimedAttenuation
-from tests.integration.zephyr.samples.common import load_zephyr_profile
-from tests.integration.zephyr.samples.heart_rate.devices import ZEPHYR_CENTRAL_HR, ZEPHYR_PERIPHERAL_HR
-
-peripheral = load_zephyr_profile(topo, ZEPHYR_PERIPHERAL_HR)
-central = load_zephyr_profile(topo, ZEPHYR_CENTRAL_HR)
 
 topo.set_channel_attenuation(
     default_db=50.0,
@@ -262,16 +211,10 @@ BSWorld 在启动 BabbleSim 进程前校验 RF 参数：
 
 ## 使用 pytest 描述拓扑
 
-`topo` fixture 将拓扑声明、RF 条件、业务操作和断言组织在同一个 Python 测试中。进程加载函数和 RF 配置接口只登记预期状态；执行 `await topo.start()` 后，框架才会创建对应的运行实例。
+`topo` fixture 将拓扑声明、RF 条件、业务操作和断言组织在同一个 Python 测试中。下例由套件内的 `peripheral` 和 `central` fixture 在测试开始前登记业务程序进程。RF 配置接口只登记预期状态；执行 `await topo.start()` 后，框架才会创建对应的运行实例。
 
 ```python
-from tests.integration.zephyr.samples.common import load_zephyr_profile
-from tests.integration.zephyr.samples.heart_rate.devices import ZEPHYR_CENTRAL_HR, ZEPHYR_PERIPHERAL_HR
-
-
-async def test_central_receives_notification(topo):
-    peripheral = load_zephyr_profile(topo, ZEPHYR_PERIPHERAL_HR)
-    central = load_zephyr_profile(topo, ZEPHYR_CENTRAL_HR)
+async def test_central_receives_notification(topo, peripheral, central):
     topo.set_channel_attenuation(default_db=45.0)
 
     await topo.start()

@@ -96,13 +96,16 @@ async def test_controller_pair_scans_connects_and_disconnects(
 
 
 async def test_native_zephyr_host_uses_python_controller(topo):
-    from tests.integration.zephyr.samples.broadcast_observe.devices import (
-        ZEPHYR_BROADCASTER,
+    from tests.integration.zephyr.shell.devices import (
+        add_zephyr_shell,
+        initialize_shell,
     )
-    from tests.integration.zephyr.samples.common import load_zephyr_profile
 
-    broadcaster = load_zephyr_profile(
-        topo, ZEPHYR_BROADCASTER, controller_type=BSController
+    broadcaster = add_zephyr_shell(
+        topo,
+        name="broadcaster",
+        address="C0:FF:EE:41:00:01",
+        controller_type=BSController,
     )
     observer_ctl = topo.add_controller(public_address=OBSERVER_ADDRESS)
     topo.set_channel_attenuation(default_db=45.0)
@@ -126,9 +129,16 @@ async def test_native_zephyr_host_uses_python_controller(topo):
                 found.set_result(report)
 
         observer.on("advertisement", on_advertisement)
-        await broadcaster.wait_log("Bluetooth initialized", timeout=TIMEOUT)
+        await initialize_shell(broadcaster)
         await observer.start_scanning(active=False)
         try:
+            await broadcaster.shell.run("bt adv-create nconn-nscan identity")
+            await broadcaster.wait_log(r"Created adv id: 0", timeout=TIMEOUT)
+            # Length, manufacturer AD type, company ID 0xFFFF, one payload byte.
+            await broadcaster.shell.run_many(("bt adv-data 04ffffff00", "bt adv-start"))
+            await broadcaster.wait_log(
+                r"Advertiser\[0\].* set started", timeout=TIMEOUT
+            )
             report = await asyncio.wait_for(found, TIMEOUT)
             company, payload = report.data.get(
                 AdvertisingData.MANUFACTURER_SPECIFIC_DATA

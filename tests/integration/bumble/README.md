@@ -22,3 +22,7 @@ pytest tests/integration/bumble -n auto
 ```
 
 The Applications execute inside pytest, so their timers, socket operations, and timeouts use the same simulation-aware asyncio event loop as the test. The Virtual Controllers remain independent Linux processes. Per-device BTSnoop files are stored under the test's `bumble/<role>/` log directories, and RF traffic is included in the shared BabbleSim trace.
+
+## Adding Scenarios
+
+Add an async pytest test under the relevant scenario directory. Reuse `add_bumble_controller()` from [common/](common/) before `topo.start()`, then open the Host with `open_bumble_device()`. For a standard two-device topology, `open_bumble_pair()` handles registration and startup together. Drive Bumble APIs and assert received events; these operations share the test's simulation clock.

@@ -111,6 +111,10 @@ make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" show-info
 
 改变 defconfig、Linux fragment 或工具链选择后，选择一个新的 `BUILDROOT_OUTPUT`，重新执行上述 defconfig 和 make 命令，并更新 kernel/rootfs 环境变量。不要复用旧工具链创建的输出目录。
 
+## 添加场景
+
+在 [BlueZ](bluez/README.zh-CN.md) 或 [NimBLE](nimble/README.zh-CN.md) 目录中添加异步 pytest 测试。在 `topo.start()` 前复用 [common.py](common.py) 中的 `load_qemu_guest()`，启动后调用 `login_qemu_guest()`，并沿用现有测试的 Host 初始化步骤。通过 `guest.shell` 发送 Guest 命令，使用 `wait_log()` 验证控制台输出，或通过对端验证蓝牙行为。
+
 ## 许可证
 
 本仓库的 external 配置和测试使用 Apache License 2.0。QEMU、Linux 及 guest 软件保持各自许可证。需要分发构建产物时，可针对实际输出执行 Buildroot 自带的 `legal-info`，参见[第三方声明](../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。
