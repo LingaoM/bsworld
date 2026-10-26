@@ -51,7 +51,8 @@ class LeControllerEvents:
         return self.controller.allocate_connection_handle()
 
     def _emit_hci_packet(self, packet):
-        # Vol 4, Part E, 7.3.1, 7.3.69 and 7.8.1: masked events are not sent to the Host.
+        # Vol 4, Part E, 7.3.1, 7.3.69 and 7.8.1: masked events are not sent to the
+        # Host.
         if isinstance(packet, hci.HCI_LE_Meta_Event):
             if not self.controller.event_mask & (1 << (hci.HCI_LE_META_EVENT - 1)):
                 return
@@ -69,7 +70,9 @@ class LeControllerEvents:
             if not self.controller.event_mask & (1 << (packet.event_code - 1)):
                 return
         elif isinstance(packet, hci.HCI_Authenticated_Payload_Timeout_Expired_Event):
-            if not self.controller.event_mask_page_2 & (1 << (packet.event_code - hci.HCI_EVENT_MASK_PAGE_2_CODE_BASE)):
+            if not self.controller.event_mask_page_2 & (
+                1 << (packet.event_code - hci.HCI_EVENT_MASK_PAGE_2_CODE_BASE)
+            ):
                 return
         self.controller.send_hci_packet(packet)
 
@@ -81,11 +84,15 @@ class LeControllerEvents:
             self.seen.clear()
 
     def on_long_term_key_request(self, connection, rand, ediv):
-        self._emit_hci_packet(hci.HCI_LE_Long_Term_Key_Request_Event(connection.handle, rand, ediv))
+        self._emit_hci_packet(
+            hci.HCI_LE_Long_Term_Key_Request_Event(connection.handle, rand, ediv)
+        )
 
     def on_encryption_changed(self, connection, status, refresh):
         if refresh:
-            self._emit_hci_packet(hci.HCI_Encryption_Key_Refresh_Complete_Event(status, connection.handle))
+            self._emit_hci_packet(
+                hci.HCI_Encryption_Key_Refresh_Complete_Event(status, connection.handle)
+            )
         else:
             self._emit_hci_packet(
                 hci.HCI_Encryption_Change_Event(
@@ -100,14 +107,18 @@ class LeControllerEvents:
             )
 
     def on_authenticated_payload_timeout(self, connection):
-        self._emit_hci_packet(hci.HCI_Authenticated_Payload_Timeout_Expired_Event(connection.handle))
+        self._emit_hci_packet(
+            hci.HCI_Authenticated_Payload_Timeout_Expired_Event(connection.handle)
+        )
 
     def on_remote_features(self, connection, status):
         self._emit_hci_packet(
             hci.HCI_LE_Read_Remote_Features_Complete_Event(
                 status=status,
                 connection_handle=connection.handle,
-                le_features=(connection.peer_features or 0).to_bytes(PDU_CONTROL_FEATURE_SET_SIZE, 'little'),
+                le_features=(connection.peer_features or 0).to_bytes(
+                    PDU_CONTROL_FEATURE_SET_SIZE, 'little'
+                ),
             )
         )
 
@@ -154,7 +165,9 @@ class LeControllerEvents:
         if self.controller.le_event_mask & (1 << (event.subevent_code - 1)):
             self._emit_hci_packet(event)
         else:
-            connection.controls.reject_remote_parameters(hci.HCI_ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR)
+            connection.controls.reject_remote_parameters(
+                hci.HCI_ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
+            )
 
     def on_phy_updated(self, connection, status):
         self._emit_hci_packet(
@@ -179,11 +192,15 @@ class LeControllerEvents:
         )
 
     def on_connected(self, connection):
-        """LE (Enhanced) Connection Complete and Channel Selection Algorithm events (Vol 4, Part E, 7.7.65.1, 7.7.65.10, 7.7.65.20)."""
+        """LE (Enhanced) Connection Complete and Channel Selection Algorithm events (Vol
+        4, Part E, 7.7.65.1, 7.7.65.10, 7.7.65.20).
+        """
         from bscontroller.hci.records import ConnectionRecord
 
         parameters = connection.parameters
-        self.controller.le_connections[connection.peer] = ConnectionRecord(self.controller, connection)
+        self.controller.le_connections[connection.peer] = ConnectionRecord(
+            self.controller, connection
+        )
         self._emit_hci_packet(
             self._connection_complete_event(
                 status=SUCCESS,
@@ -197,7 +214,10 @@ class LeControllerEvents:
                 central_clock_accuracy=parameters.sca,
             )
         )
-        if connection.role == hci.Role.CENTRAL or connection.advertising_handle is not None:
+        if (
+            connection.role == hci.Role.CENTRAL
+            or connection.advertising_handle is not None
+        ):
             self._emit_hci_packet(
                 hci.HCI_LE_Channel_Selection_Algorithm_Event(
                     connection_handle=connection.handle,
@@ -221,7 +241,9 @@ class LeControllerEvents:
         self.controller.le_connections.pop(connection.peer, None)
         if connection.reported:
             self._emit_hci_packet(
-                hci.HCI_Disconnection_Complete_Event(status=SUCCESS, connection_handle=connection.handle, reason=reason)
+                hci.HCI_Disconnection_Complete_Event(
+                    status=SUCCESS, connection_handle=connection.handle, reason=reason
+                )
             )
         else:
             self._emit_hci_packet(
@@ -242,7 +264,11 @@ class LeControllerEvents:
         self._emit_hci_packet(
             hci.HCI_AclDataPacket(
                 connection_handle=connection.handle,
-                pb_flag=(hci.HCI_ACL_PB_CONTINUATION if continuation else hci.HCI_ACL_PB_FIRST_FLUSHABLE),
+                pb_flag=(
+                    hci.HCI_ACL_PB_CONTINUATION
+                    if continuation
+                    else hci.HCI_ACL_PB_FIRST_FLUSHABLE
+                ),
                 bc_flag=0,
                 data_total_length=len(data),
                 data=data,
@@ -250,7 +276,9 @@ class LeControllerEvents:
         )
 
     def _connection_complete_event(self, **parameters):
-        if self.controller.le_event_mask & (1 << (hci.HCI_LE_ENHANCED_CONNECTION_COMPLETE_EVENT - 1)):
+        if self.controller.le_event_mask & (
+            1 << (hci.HCI_LE_ENHANCED_CONNECTION_COMPLETE_EVENT - 1)
+        ):
             return hci.HCI_LE_Enhanced_Connection_Complete_Event(
                 **parameters,
                 local_resolvable_private_address=hci.Address.ANY,
@@ -261,7 +289,9 @@ class LeControllerEvents:
     def on_acl_completed(self, connection):
         """Number Of Completed Packets (Vol 4, Part E, 7.7.19)."""
         self._emit_hci_packet(
-            hci.HCI_Number_Of_Completed_Packets_Event(connection_handles=[connection.handle], num_completed_packets=[1])
+            hci.HCI_Number_Of_Completed_Packets_Event(
+                connection_handles=[connection.handle], num_completed_packets=[1]
+            )
         )
 
     def on_advertisement(
@@ -290,18 +320,34 @@ class LeControllerEvents:
             sum(
                 int(wire_flag)
                 for ll_flag, wire_flag in (
-                    (AdvertisingProperties.CONNECTABLE_ADVERTISING, ReportFlags.CONNECTABLE_ADVERTISING),
-                    (AdvertisingProperties.SCANNABLE_ADVERTISING, ReportFlags.SCANNABLE_ADVERTISING),
-                    (AdvertisingProperties.DIRECTED_ADVERTISING, ReportFlags.DIRECTED_ADVERTISING),
+                    (
+                        AdvertisingProperties.CONNECTABLE_ADVERTISING,
+                        ReportFlags.CONNECTABLE_ADVERTISING,
+                    ),
+                    (
+                        AdvertisingProperties.SCANNABLE_ADVERTISING,
+                        ReportFlags.SCANNABLE_ADVERTISING,
+                    ),
+                    (
+                        AdvertisingProperties.DIRECTED_ADVERTISING,
+                        ReportFlags.DIRECTED_ADVERTISING,
+                    ),
                     (AdvertisingProperties.SCAN_RESPONSE, ReportFlags.SCAN_RESPONSE),
-                    (AdvertisingProperties.LEGACY_ADVERTISING_PDU_USED, ReportFlags.LEGACY_ADVERTISING_PDU_USED),
+                    (
+                        AdvertisingProperties.LEGACY_ADVERTISING_PDU_USED,
+                        ReportFlags.LEGACY_ADVERTISING_PDU_USED,
+                    ),
                 )
                 if properties & ll_flag
             )
             | int(report.data_status) << HCI_LE_EXT_ADV_REPORT_DATA_STATUS_SHIFT
         )
         sid = sid if sid is not None else AdvertisingReport.NO_ADI_FIELD_PROVIDED
-        tx_power = tx_power if tx_power is not None else AdvertisingReport.TX_POWER_INFORMATION_NOT_AVAILABLE
+        tx_power = (
+            tx_power
+            if tx_power is not None
+            else AdvertisingReport.TX_POWER_INFORMATION_NOT_AVAILABLE
+        )
         key = (address, data, event_type, sid)
         if self.filter_duplicates:
             # Filter the logical report before HCI fragmentation, so one fragment
@@ -312,10 +358,13 @@ class LeControllerEvents:
             self.seen.add(key)
         rssi = max(RADIO_TX_POWER_MIN_DBM, min(RADIO_TX_POWER_MAX_DBM, round(rssi)))
         if self.extended_scan:
-            for offset in range(0, max(1, len(data)), HCI_LE_EXT_ADV_REPORT_DATA_SIZE_MAX):
+            for offset in range(
+                0, max(1, len(data)), HCI_LE_EXT_ADV_REPORT_DATA_SIZE_MAX
+            ):
                 fragment = data[offset : offset + HCI_LE_EXT_ADV_REPORT_DATA_SIZE_MAX]
                 # Intermediate HCI fragments advertise "more to come". The final
-                # fragment preserves LL's complete/truncated status, including empty data.
+                # fragment preserves LL's complete/truncated status, including empty
+                # data.
                 status = (
                     AdvertisingReport.DATA_INCOMPLETE_MORE_TO_COME
                     if offset + HCI_LE_EXT_ADV_REPORT_DATA_SIZE_MAX < len(data)
@@ -326,19 +375,26 @@ class LeControllerEvents:
                     hci.HCI_LE_Extended_Advertising_Report_Event(
                         [
                             hci.HCI_LE_Extended_Advertising_Report_Event.Report(
-                                event_type=(event_type & ~HCI_LE_EXT_ADV_REPORT_DATA_STATUS_MASK)
+                                event_type=(
+                                    event_type & ~HCI_LE_EXT_ADV_REPORT_DATA_STATUS_MASK
+                                )
                                 | status << HCI_LE_EXT_ADV_REPORT_DATA_STATUS_SHIFT,
                                 address_type=address.address_type,
                                 address=address,
                                 primary_phy=primary_phy,
                                 secondary_phy=(
-                                    0 if event_type & ReportFlags.LEGACY_ADVERTISING_PDU_USED else secondary_phy
+                                    0
+                                    if event_type
+                                    & ReportFlags.LEGACY_ADVERTISING_PDU_USED
+                                    else secondary_phy
                                 ),
                                 advertising_sid=sid,
                                 tx_power=tx_power,
                                 rssi=rssi,
                                 periodic_advertising_interval=interval,
-                                direct_address_type=(target.address_type if target else 0),
+                                direct_address_type=(
+                                    target.address_type if target else 0
+                                ),
                                 direct_address=target or hci.Address.ANY,
                                 data=fragment,
                             )
@@ -350,7 +406,9 @@ class LeControllerEvents:
             legacy_type = (
                 hci.HCI_LE_Advertising_Report_Event.EventType.SCAN_RSP
                 if event_type & ReportFlags.SCAN_RESPONSE
-                else AdvertisingReport.LEGACY_PDU_TYPE_MAP[event_type & HCI_LE_EXT_ADV_REPORT_LEGACY_PROPERTIES_MASK]
+                else AdvertisingReport.LEGACY_PDU_TYPE_MAP[
+                    event_type & HCI_LE_EXT_ADV_REPORT_LEGACY_PROPERTIES_MASK
+                ]
             )
             self._emit_hci_packet(
                 hci.HCI_LE_Advertising_Report_Event(
@@ -367,8 +425,12 @@ class LeControllerEvents:
             )
 
     def on_advertising_ended(self, item, status):
-        """LE Advertising Set Terminated, or legacy completion (Vol 4, Part E, 7.7.65.18)."""
-        handle = next(key for key, value in self.link.advertisers.items() if value is item)
+        """LE Advertising Set Terminated, or legacy completion (Vol 4, Part E,
+        7.7.65.18).
+        """
+        handle = next(
+            key for key, value in self.link.advertisers.items() if value is item
+        )
         if handle == -1:
             self._emit_hci_packet(
                 self._connection_complete_event(
@@ -389,12 +451,16 @@ class LeControllerEvents:
                     status=status,
                     advertising_handle=handle,
                     connection_handle=0,
-                    num_completed_extended_advertising_events=min(HCI_LE_ADV_COMPLETED_EVENTS_MAX, item.events),
+                    num_completed_extended_advertising_events=min(
+                        HCI_LE_ADV_COMPLETED_EVENTS_MAX, item.events
+                    ),
                 )
             )
 
     def on_scan_request(self, item, peer):
-        handle = next(key for key, value in self.link.advertisers.items() if value is item)
+        handle = next(
+            key for key, value in self.link.advertisers.items() if value is item
+        )
         self._emit_hci_packet(
             hci.HCI_LE_Scan_Request_Received_Event(
                 advertising_handle=handle,
@@ -418,15 +484,25 @@ class LeControllerEvents:
             )
         )
 
-    def on_periodic_report(self, sync, data, rssi, tx_power, data_status=AdvertisingReport.DATA_COMPLETE):
-        """LE Periodic Advertising Report, fragmented by Data_Status (Vol 4, Part E, 7.7.65.15)."""
-        tx_power = tx_power if tx_power is not None else AdvertisingReport.TX_POWER_INFORMATION_NOT_AVAILABLE
+    def on_periodic_report(
+        self, sync, data, rssi, tx_power, data_status=AdvertisingReport.DATA_COMPLETE
+    ):
+        """LE Periodic Advertising Report, fragmented by Data_Status (Vol 4, Part E,
+        7.7.65.15).
+        """
+        tx_power = (
+            tx_power
+            if tx_power is not None
+            else AdvertisingReport.TX_POWER_INFORMATION_NOT_AVAILABLE
+        )
         for offset in range(0, max(1, len(data)), HCI_LE_PERIODIC_REPORT_DATA_SIZE_MAX):
             self._emit_hci_packet(
                 hci.HCI_LE_Periodic_Advertising_Report_Event(
                     sync_handle=sync.handle,
                     tx_power=tx_power,
-                    rssi=max(RADIO_TX_POWER_MIN_DBM, min(RADIO_TX_POWER_MAX_DBM, round(rssi))),
+                    rssi=max(
+                        RADIO_TX_POWER_MIN_DBM, min(RADIO_TX_POWER_MAX_DBM, round(rssi))
+                    ),
                     cte_type=HCI_LE_PERIODIC_REPORT_CTE_NONE,
                     data_status=(
                         AdvertisingReport.DATA_INCOMPLETE_MORE_TO_COME
@@ -438,4 +514,6 @@ class LeControllerEvents:
             )
 
     def on_sync_lost(self, sync):
-        self._emit_hci_packet(hci.HCI_LE_Periodic_Advertising_Sync_Lost_Event(sync_handle=sync.handle))
+        self._emit_hci_packet(
+            hci.HCI_LE_Periodic_Advertising_Sync_Lost_Event(sync_handle=sync.handle)
+        )

@@ -78,7 +78,8 @@ def advertising_data(name: str) -> bytes:
         AdvertisingData(
             [
                 data_types.Flags(
-                    AdvertisingData.LE_GENERAL_DISCOVERABLE_MODE_FLAG | AdvertisingData.BR_EDR_NOT_SUPPORTED_FLAG
+                    AdvertisingData.LE_GENERAL_DISCOVERABLE_MODE_FLAG
+                    | AdvertisingData.BR_EDR_NOT_SUPPORTED_FLAG
                 ),
                 data_types.CompleteLocalName(name),
             ]
@@ -92,7 +93,9 @@ async def open_bumble_device(
     address: str,
     hci_socket: str | Path,
 ) -> Device:
-    transport = await stack.enter_async_context(await open_transport(f"unix:{hci_socket}"))
+    transport = await stack.enter_async_context(
+        await open_transport(f"unix:{hci_socket}")
+    )
     device = Device.with_hci(name, Address(address), transport.source, transport.sink)
     await device.power_on()
     return device
@@ -107,7 +110,10 @@ async def wait_for_advertisement(
     found = asyncio.get_running_loop().create_future()
 
     def on_advertisement(advertisement) -> None:  # noqa: ANN001
-        if not found.done() and advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME) == name:
+        if (
+            not found.done()
+            and advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME) == name
+        ):
             found.set_result(advertisement)
 
     device.on("advertisement", on_advertisement)
@@ -120,14 +126,18 @@ async def wait_for_advertisement(
             await device.stop_scanning()
 
 
-def add_bumble_controller(topo: BluetoothTopology, role: str, address: str) -> Controller:
+def add_bumble_controller(
+    topo: BluetoothTopology, role: str, address: str
+) -> Controller:
     return topo.add_controller(
         public_address=address,
         log_subdir=Path("bumble") / role,
     )
 
 
-async def open_bumble_pair(topo: BluetoothTopology, stack: AsyncExitStack) -> tuple[Device, Device]:
+async def open_bumble_pair(
+    topo: BluetoothTopology, stack: AsyncExitStack
+) -> tuple[Device, Device]:
     advertiser_ctl = add_bumble_controller(topo, "advertiser", ADVERTISER_ADDRESS)
     observer_ctl = add_bumble_controller(topo, "observer", OBSERVER_ADDRESS)
     topo.set_channel_attenuation(default_db=45.0)

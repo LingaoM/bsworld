@@ -38,7 +38,9 @@ async def test_unix_server_forwards_packets_and_closes_on_host_disconnect(tmp_pa
         reader, writer = await asyncio.open_unix_connection(path)
         writer.write(bytes.fromhex('01030c00'))
         await writer.drain()
-        assert await asyncio.wait_for(reader.readexactly(7), 1) == bytes.fromhex('040e0401030c00')
+        assert await asyncio.wait_for(reader.readexactly(7), 1) == bytes.fromhex(
+            '040e0401030c00'
+        )
         writer.close()
         await writer.wait_closed()
         await asyncio.wait_for(endpoint.finished, 1)
@@ -50,7 +52,9 @@ async def test_existing_socket_path_is_preserved(tmp_path):
     path.write_bytes(b'owned by another process')
     async with asyncio.timeout(1):
         with pytest.raises(FileExistsError):
-            async with H4Server(SimpleNamespace(set_packet_sink=lambda sink: None), path):
+            async with H4Server(
+                SimpleNamespace(set_packet_sink=lambda sink: None), path
+            ):
                 pass
     assert path.read_bytes() == b'owned by another process'
 

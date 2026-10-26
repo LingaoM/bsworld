@@ -22,7 +22,9 @@ if TYPE_CHECKING:
 class BabbleSimClock:
     """The Host's blocking time endpoint, independent of Controller threads."""
 
-    def __init__(self, connection: PhyConnection, step_timeout: float = BSIM_IO_TIMEOUT_SECONDS):
+    def __init__(
+        self, connection: PhyConnection, step_timeout: float = BSIM_IO_TIMEOUT_SECONDS
+    ):
         self.connection = connection
         self.now_us = 0
         self.step_timeout = step_timeout

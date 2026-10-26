@@ -36,7 +36,9 @@ def test_overloaded_radio_has_no_admissible_window():
         (40, 51, RadioPriority.PERIODIC_TX, True),
     ],
 )
-def test_overlap_arbitration_uses_full_windows_and_fixed_priority(start, end, priority, expected):
+def test_overlap_arbitration_uses_full_windows_and_fixed_priority(
+    start, end, priority, expected
+):
     reservation = RadioReservation(10, 10, 40)
     assert higher_priority_overlap([reservation], start, end, priority) is expected
 
@@ -51,7 +53,9 @@ def test_overlap_arbitration_uses_full_windows_and_fixed_priority(start, end, pr
         (55, (70, 75)),
     ],
 )
-def test_reservations_include_active_windows_and_roll_at_the_exclusive_end(time_us, window):
+def test_reservations_include_active_windows_and_roll_at_the_exclusive_end(
+    time_us, window
+):
     assert RadioReservation(10, 5, 20).window_after(time_us) == window
 
 
@@ -64,9 +68,14 @@ def test_reservations_include_active_windows_and_roll_at_the_exclusive_end(time_
         (20, 3, 25, 1, 21),
     ],
 )
-def test_gap_search_rechecks_other_reservations_on_the_request_grid(start, duration, latest, quantum, expected):
+def test_gap_search_rechecks_other_reservations_on_the_request_grid(
+    start, duration, latest, quantum, expected
+):
     reservations = [RadioReservation(5, 4, 30), RadioReservation(12, 9, 30)]
-    assert first_radio_gap(reservations, start, duration, latest, quantum_us=quantum) == expected
+    assert (
+        first_radio_gap(reservations, start, duration, latest, quantum_us=quantum)
+        == expected
+    )
 
 
 def test_unreserved_request_can_start_at_its_latest_allowed_time():

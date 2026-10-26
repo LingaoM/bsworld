@@ -184,7 +184,9 @@ class HciProbe:
         actual = (
             parameters.data[0]
             if isinstance(parameters, hci.HCI_GenericReturnParameters)
-            else parameters[0] if isinstance(parameters, bytes) else parameters.status
+            else parameters[0]
+            if isinstance(parameters, bytes)
+            else parameters.status
         )
         allowed = status if isinstance(status, tuple) else (status,)
         assert actual in allowed, (command.name, actual, status)

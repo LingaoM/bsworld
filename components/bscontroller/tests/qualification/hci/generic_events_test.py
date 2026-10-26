@@ -50,7 +50,9 @@ def _check_unknown_command(event, opcode):
         status = (
             parameters.data[0]
             if isinstance(parameters, hci.HCI_GenericReturnParameters)
-            else parameters[0] if isinstance(parameters, bytes) else parameters.status
+            else parameters[0]
+            if isinstance(parameters, bytes)
+            else parameters.status
         )
     allowed = (
         (

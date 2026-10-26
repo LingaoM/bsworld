@@ -64,7 +64,9 @@ from bscontroller.linklayer.parameters import valid_channel_map
 from bscontroller.radio.base import Phy
 
 
-def advertising_request_peer(pdu: bytes, advertiser: Address, target: Address | None) -> Address | None:
+def advertising_request_peer(
+    pdu: bytes, advertiser: Address, target: Address | None
+) -> Address | None:
     """Validate the common SCAN_REQ/CONNECT_IND addresses before interpreting LLData."""
     if (
         len(pdu) < PDU_ADV_SCAN_REQ_SIZE
@@ -96,7 +98,11 @@ def scan_request(scanner: Address, advertiser: Address) -> bytes:
 
 
 def offset_unit_us(offset_us: int) -> int:
-    return PDU_ADV_OFFSET_UNIT_30_US if offset_us < PDU_ADV_OFFSET_30_RANGE_US else PDU_ADV_OFFSET_UNIT_300_US
+    return (
+        PDU_ADV_OFFSET_UNIT_30_US
+        if offset_us < PDU_ADV_OFFSET_30_RANGE_US
+        else PDU_ADV_OFFSET_UNIT_300_US
+    )
 
 
 def align_offset_us(offset_us: int) -> int:
@@ -116,10 +122,16 @@ class AuxPtr:
 
     @property
     def unit_us(self) -> int:
-        return self.offset_unit if self.offset_unit is not None else offset_unit_us(self.offset_us)
+        return (
+            self.offset_unit
+            if self.offset_unit is not None
+            else offset_unit_us(self.offset_us)
+        )
 
     def encode(self) -> bytes:
-        if not 0 <= self.channel <= LL_DATA_CHANNEL_COUNT - 1 or self.phy not in tuple(Phy):
+        if not 0 <= self.channel <= LL_DATA_CHANNEL_COUNT - 1 or self.phy not in tuple(
+            Phy
+        ):
             raise ValueError('invalid AuxPtr channel or PHY')
         unit = self.unit_us
         if unit not in (PDU_ADV_OFFSET_UNIT_30_US, PDU_ADV_OFFSET_UNIT_300_US):
@@ -131,9 +143,15 @@ class AuxPtr:
             [
                 self.channel
                 | int(self.clock_accuracy) * PDU_ADV_AUX_CA_MASK
-                | (PDU_ADV_AUX_OFFSET_UNITS_MASK if unit == PDU_ADV_OFFSET_UNIT_300_US else 0)
+                | (
+                    PDU_ADV_AUX_OFFSET_UNITS_MASK
+                    if unit == PDU_ADV_OFFSET_UNIT_300_US
+                    else 0
+                )
             ]
-        ) + (offset | (self.phy - 1) << PDU_ADV_OFFSET_BITS).to_bytes(PDU_ADV_AUX_OFFSET_PHY_SIZE, 'little')
+        ) + (offset | (self.phy - 1) << PDU_ADV_OFFSET_BITS).to_bytes(
+            PDU_ADV_AUX_OFFSET_PHY_SIZE, 'little'
+        )
 
     @classmethod
     def decode(cls, data: bytes):
@@ -143,10 +161,18 @@ class AuxPtr:
         result = cls(
             data[0] & PDU_ADV_AUX_CHANNEL_MASK,
             (field & PDU_ADV_OFFSET_VALUE_MASK)
-            * (PDU_ADV_OFFSET_UNIT_300_US if data[0] & PDU_ADV_AUX_OFFSET_UNITS_MASK else PDU_ADV_OFFSET_UNIT_30_US),
+            * (
+                PDU_ADV_OFFSET_UNIT_300_US
+                if data[0] & PDU_ADV_AUX_OFFSET_UNITS_MASK
+                else PDU_ADV_OFFSET_UNIT_30_US
+            ),
             (field >> PDU_ADV_OFFSET_BITS) + 1,
             bool(data[0] & PDU_ADV_AUX_CA_MASK),
-            (PDU_ADV_OFFSET_UNIT_300_US if data[0] & PDU_ADV_AUX_OFFSET_UNITS_MASK else PDU_ADV_OFFSET_UNIT_30_US),
+            (
+                PDU_ADV_OFFSET_UNIT_300_US
+                if data[0] & PDU_ADV_AUX_OFFSET_UNITS_MASK
+                else PDU_ADV_OFFSET_UNIT_30_US
+            ),
         )
         result.encode()
         return result
@@ -165,7 +191,11 @@ class SyncInfo:
 
     @property
     def unit_us(self) -> int:
-        return self.offset_unit if self.offset_unit is not None else offset_unit_us(self.offset_us)
+        return (
+            self.offset_unit
+            if self.offset_unit is not None
+            else offset_unit_us(self.offset_us)
+        )
 
     def encode(self) -> bytes:
         unit = self.unit_us
@@ -182,13 +212,22 @@ class SyncInfo:
         return (
             struct.pack(
                 '<HH',
-                offset | (PDU_ADV_SYNC_OFFSET_UNITS_MASK if unit == PDU_ADV_OFFSET_UNIT_300_US else 0),
+                offset
+                | (
+                    PDU_ADV_SYNC_OFFSET_UNITS_MASK
+                    if unit == PDU_ADV_OFFSET_UNIT_300_US
+                    else 0
+                ),
                 self.interval,
             )
-            + (self.channel_map | self.sca << LL_DATA_CHANNEL_COUNT).to_bytes(LL_CHANNEL_MAP_SIZE, 'little')
+            + (self.channel_map | self.sca << LL_DATA_CHANNEL_COUNT).to_bytes(
+                LL_CHANNEL_MAP_SIZE, 'little'
+            )
             + self.access_address.to_bytes(PDU_ACCESS_ADDRESS_SIZE, 'little')
             + self.crc_init.to_bytes(PDU_CRC_SIZE, 'little')
-            + (self.event_counter & LL_EVENT_COUNTER_MASK).to_bytes(PDU_ADV_SYNC_EVENT_COUNTER_SIZE, 'little')
+            + (self.event_counter & LL_EVENT_COUNTER_MASK).to_bytes(
+                PDU_ADV_SYNC_EVENT_COUNTER_SIZE, 'little'
+            )
         )
 
     @classmethod
@@ -198,14 +237,22 @@ class SyncInfo:
         # Separate the timing flags from the offset, and SCA from the channel map
         # (Vol 6, Part B, 2.3.4.6).
         offset, interval = struct.unpack_from('<HH', data)
-        unit = PDU_ADV_OFFSET_UNIT_300_US if offset & PDU_ADV_SYNC_OFFSET_UNITS_MASK else PDU_ADV_OFFSET_UNIT_30_US
+        unit = (
+            PDU_ADV_OFFSET_UNIT_300_US
+            if offset & PDU_ADV_SYNC_OFFSET_UNITS_MASK
+            else PDU_ADV_OFFSET_UNIT_30_US
+        )
         channels = int.from_bytes(
             data[PDU_ADV_SYNC_CHANNEL_MAP_OFFSET:PDU_ADV_SYNC_ACCESS_ADDRESS_OFFSET],
             'little',
         )
         result = cls(
             (offset & PDU_ADV_OFFSET_VALUE_MASK) * unit
-            + (PDU_ADV_SYNC_OFFSET_ADJUST_US if offset & PDU_ADV_SYNC_OFFSET_ADJUST_MASK else 0),
+            + (
+                PDU_ADV_SYNC_OFFSET_ADJUST_US
+                if offset & PDU_ADV_SYNC_OFFSET_ADJUST_MASK
+                else 0
+            ),
             interval,
             channels & LL_DATA_CHANNEL_MAP_ALL,
             int.from_bytes(
@@ -216,7 +263,9 @@ class SyncInfo:
                 data[PDU_ADV_SYNC_CRC_INIT_OFFSET:PDU_ADV_SYNC_EVENT_COUNTER_OFFSET],
                 'little',
             ),
-            int.from_bytes(data[PDU_ADV_SYNC_EVENT_COUNTER_OFFSET:PDU_ADV_SYNC_INFO_SIZE], 'little'),
+            int.from_bytes(
+                data[PDU_ADV_SYNC_EVENT_COUNTER_OFFSET:PDU_ADV_SYNC_INFO_SIZE], 'little'
+            ),
             channels >> LL_DATA_CHANNEL_COUNT,
             offset_unit=unit,
         )
@@ -253,17 +302,29 @@ class ExtendedPdu:
             None if self.adi is None else self.adi.to_bytes(PDU_ADV_ADI_SIZE, 'little'),
             None if self.aux_ptr is None else self.aux_ptr.encode(),
             None if self.sync_info is None else self.sync_info.encode(),
-            (None if self.tx_power is None else self.tx_power.to_bytes(PDU_ADV_TX_POWER_SIZE, 'little', signed=True)),
+            (
+                None
+                if self.tx_power is None
+                else self.tx_power.to_bytes(
+                    PDU_ADV_TX_POWER_SIZE, 'little', signed=True
+                )
+            ),
         )
         # Encode optional fields in flag order, including present fields whose
         # value is zero. ACAD follows those fields (Vol 6, Part B, 2.3.4).
         flags = sum(1 << bit for bit, value in enumerate(fields) if value is not None)
         header = (
-            bytes([flags]) + b''.join(value for value in fields if value is not None) + self.acad
+            bytes([flags])
+            + b''.join(value for value in fields if value is not None)
+            + self.acad
             if flags or self.acad
             else b''
         )
-        payload = bytes([len(header) | self.mode << PDU_ADV_EXT_HEADER_LENGTH_BITS]) + header + self.data
+        payload = (
+            bytes([len(header) | self.mode << PDU_ADV_EXT_HEADER_LENGTH_BITS])
+            + header
+            + self.data
+        )
         if (
             len(header) > PDU_ADV_EXT_HEADER_SIZE_MAX
             or len(payload) > PDU_ADV_EXT_PAYLOAD_SIZE_MAX
@@ -288,13 +349,16 @@ class ExtendedPdu:
         )
 
     def data_capacity(self) -> int:
-        return PDU_ADV_EXT_PAYLOAD_SIZE_MAX - (len(self.encode()) - PDU_HEADER_SIZE - len(self.data))
+        return PDU_ADV_EXT_PAYLOAD_SIZE_MAX - (
+            len(self.encode()) - PDU_HEADER_SIZE - len(self.data)
+        )
 
     @classmethod
     def decode(cls, pdu: bytes):
         if (
             len(pdu) < PDU_ADV_EXT_HEADER_OFFSET
-            or pdu[0] & PDU_ADV_TYPE_MASK not in (AdvertisingPduType.ADV_EXT_IND, AdvertisingPduType.AUX_CONNECT_RSP)
+            or pdu[0] & PDU_ADV_TYPE_MASK
+            not in (AdvertisingPduType.ADV_EXT_IND, AdvertisingPduType.AUX_CONNECT_RSP)
             or pdu[1] != len(pdu) - PDU_HEADER_SIZE
         ):
             raise ValueError('invalid extended advertising PDU')
@@ -302,7 +366,9 @@ class ExtendedPdu:
             pdu[PDU_HEADER_SIZE] & PDU_ADV_EXT_HEADER_SIZE_MAX,
             pdu[PDU_HEADER_SIZE] >> PDU_ADV_EXT_HEADER_LENGTH_BITS,
         )
-        if mode == PDU_ADV_EXT_MODE_RESERVED or PDU_ADV_EXT_HEADER_OFFSET + size > len(pdu):
+        if mode == PDU_ADV_EXT_MODE_RESERVED or PDU_ADV_EXT_HEADER_OFFSET + size > len(
+            pdu
+        ):
             raise ValueError('invalid extended advertising header')
         if not size:
             # With ExtHdrLen=0 there is no flags octet; AdvData starts immediately.
@@ -342,7 +408,9 @@ class ExtendedPdu:
             adi=None if adi is None else int.from_bytes(adi, 'little'),
             aux_ptr=None if aux is None else AuxPtr.decode(aux),
             sync_info=None if sync is None else SyncInfo.decode(sync),
-            tx_power=(None if power is None else int.from_bytes(power, 'little', signed=True)),
+            tx_power=(
+                None if power is None else int.from_bytes(power, 'little', signed=True)
+            ),
             mode=mode,
             target=target,
             cte=None if cte is None else cte[0],

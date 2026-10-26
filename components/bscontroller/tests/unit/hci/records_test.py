@@ -34,7 +34,10 @@ async def test_radio_connections_use_shared_handles_and_hci_acl_lookup():
     controller.event_mask = controller.le_event_mask = (1 << 64) - 1
     occupied_peer = hci.Address('F0:F1:F2:F3:F4:03', 0)
     controller.le_connections[occupied_peer] = ConnectionRecord(
-        controller, SimpleNamespace(handle=1, role=hci.Role.CENTRAL, self_address=ADDRESS, peer=occupied_peer)
+        controller,
+        SimpleNamespace(
+            handle=1, role=hci.Role.CENTRAL, self_address=ADDRESS, peer=occupied_peer
+        ),
     )
     connection = RadioConnection(
         backend.link,
@@ -87,7 +90,12 @@ def test_public_advertising_data_is_an_immutable_view(controller):
 
     commands = controller.le_procedures
     parameters = extended_parameters(advertising_event_properties=16)
-    assert commands.on_hci_le_set_extended_advertising_parameters_command(parameters).status == ErrorCode.SUCCESS
+    assert (
+        commands.on_hci_le_set_extended_advertising_parameters_command(
+            parameters
+        ).status
+        == ErrorCode.SUCCESS
+    )
     record = controller.advertising_sets[0]
     service = commands.ll.advertising
     service.store_data(0, 'data', b'advertising data')
@@ -97,7 +105,12 @@ def test_public_advertising_data_is_an_immutable_view(controller):
     assert isinstance(snapshot, bytes)
     with pytest.raises(AttributeError):
         record.data = b'bypass LL'
-    assert commands.on_hci_le_set_extended_advertising_parameters_command(parameters).status == ErrorCode.SUCCESS
+    assert (
+        commands.on_hci_le_set_extended_advertising_parameters_command(
+            parameters
+        ).status
+        == ErrorCode.SUCCESS
+    )
     assert record.data == b'advertising data'
     assert record.scan_response_data == b'scan response'
     assert record.periodic_advertising_data == b'periodic data'

@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Unit tests for interference dataclass validation logic."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -86,11 +87,15 @@ def test_timed_attenuation_requires_at_least_two_points() -> None:
 
 def test_timed_attenuation_requires_strictly_ascending_times() -> None:
     with pytest.raises(ValueError, match="strictly ascending"):
-        TimedAttenuation(tx=0, rx=1, times_us=[0, 10, 10], attenuation_db=[1.0, 2.0, 3.0])
+        TimedAttenuation(
+            tx=0, rx=1, times_us=[0, 10, 10], attenuation_db=[1.0, 2.0, 3.0]
+        )
 
 
 def test_timed_attenuation_accepts_valid_points() -> None:
-    tp = TimedAttenuation(tx=0, rx=1, times_us=[0, 10, 20], attenuation_db=[40.0, 60.0, 50.0])
+    tp = TimedAttenuation(
+        tx=0, rx=1, times_us=[0, 10, 20], attenuation_db=[40.0, 60.0, 50.0]
+    )
     assert tp.times_us == [0, 10, 20]
 
 
@@ -102,7 +107,9 @@ def test_timed_attenuation_rejects_invalid_times(times_us) -> None:
 
 def test_timed_attenuation_rejects_non_finite_attenuation() -> None:
     with pytest.raises(ValueError, match="attenuation_db"):
-        TimedAttenuation(tx=0, rx=1, times_us=[0, 10], attenuation_db=[40.0, float("nan")])
+        TimedAttenuation(
+            tx=0, rx=1, times_us=[0, 10], attenuation_db=[40.0, float("nan")]
+        )
 
 
 def test_channel_attenuation_rejects_matrix_file_with_generated_paths() -> None:
@@ -149,7 +156,10 @@ def test_burst_interference_defaults() -> None:
 @pytest.mark.parametrize("center_freq_mhz", [2273.0, 2527.0, 2402.5])
 def test_burst_interference_frequency_range(center_freq_mhz) -> None:
     if center_freq_mhz == 2402.5:
-        assert BurstInterference(center_freq_mhz=center_freq_mhz).center_freq_mhz == center_freq_mhz
+        assert (
+            BurstInterference(center_freq_mhz=center_freq_mhz).center_freq_mhz
+            == center_freq_mhz
+        )
     else:
         with pytest.raises(ValueError, match="center_freq_mhz"):
             BurstInterference(center_freq_mhz=center_freq_mhz)

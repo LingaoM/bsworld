@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """FIFO-backed process log capture integrated with the active event loop."""
+
 from __future__ import annotations
 
 import asyncio
@@ -33,8 +34,12 @@ class LogCapture:
     _artifact_fh: BinaryIO | None = None
     _pending_line: bytearray = field(default_factory=bytearray)
     _lines: deque[str] = field(default_factory=deque, init=False, repr=False)
-    _changed: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
-    _loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False)
+    _changed: asyncio.Event = field(
+        default_factory=asyncio.Event, init=False, repr=False
+    )
+    _loop: asyncio.AbstractEventLoop | None = field(
+        default=None, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         try:
@@ -103,8 +108,7 @@ class LogCapture:
 
         def _timeout_error() -> TimeoutError:
             return TimeoutError(
-                f"wait_log({pattern!r}) timed out after {timeout}s; "
-                f"log={self.log_path}"
+                f"wait_log({pattern!r}) timed out after {timeout}s; log={self.log_path}"
             )
 
         loop = asyncio.get_running_loop()
@@ -176,5 +180,6 @@ class LogCapture:
             if compiled.search(line):
                 return line
         return None
+
 
 __all__ = ["LogCapture"]

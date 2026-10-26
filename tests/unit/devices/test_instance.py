@@ -26,7 +26,9 @@ from bsworld.env import Env
 from bsworld.topology import BluetoothTopology
 
 
-def test_command_factory_receives_the_frozen_application_slot(tmp_path, unit_env: Env, spawn_recorder) -> None:
+def test_command_factory_receives_the_frozen_application_slot(
+    tmp_path, unit_env: Env, spawn_recorder
+) -> None:
     topo = BluetoothTopology(unit_env, "sim0", tmp_path / "log")
     scanner = tmp_path / "scanner"
     advertiser = tmp_path / "advertiser"
@@ -36,9 +38,16 @@ def test_command_factory_receives_the_frozen_application_slot(tmp_path, unit_env
     controller = topo.add_controller()
 
     def command(slot: AppSlot) -> list[str | Path]:
-        return [advertiser, f"--device={slot.dev_id}", f"--phy={slot.phy_id}", f"--sim={slot.sim_id}"]
+        return [
+            advertiser,
+            f"--device={slot.dev_id}",
+            f"--phy={slot.phy_id}",
+            f"--sim={slot.sim_id}",
+        ]
 
-    process = topo.add_process(ProcessInstance(command=command, controller=controller, label="advertiser"))
+    process = topo.add_process(
+        ProcessInstance(command=command, controller=controller, label="advertiser")
+    )
     try:
         process.start(spawn_recorder, tmp_path / "log", slot_for(topo, process))
     finally:
@@ -53,7 +62,9 @@ def test_command_factory_receives_the_frozen_application_slot(tmp_path, unit_env
     assert spawn_recorder.calls[0][2]["stdin"] is None
 
 
-def test_shell_start_attaches_stdin_without_sending_commands(tmp_path, unit_env: Env, spawn_recorder) -> None:
+def test_shell_start_attaches_stdin_without_sending_commands(
+    tmp_path, unit_env: Env, spawn_recorder
+) -> None:
     topo = BluetoothTopology(unit_env, "sim0", tmp_path / "log")
     executable = tmp_path / "device"
     executable.touch()
@@ -71,16 +82,22 @@ def test_process_shell_is_disabled_by_default(tmp_path, unit_env: Env) -> None:
     topo = BluetoothTopology(unit_env, "sim0", tmp_path / "log")
     controller = topo.add_controller()
 
-    process = ProcessInstance(command=[tmp_path / "device"], controller=controller, label="device")
+    process = ProcessInstance(
+        command=[tmp_path / "device"], controller=controller, label="device"
+    )
 
     assert process.shell.enabled is False
 
 
-def test_process_start_opens_capture_in_its_log_directory(tmp_path, unit_env: Env, spawn_recorder, monkeypatch) -> None:
+def test_process_start_opens_capture_in_its_log_directory(
+    tmp_path, unit_env: Env, spawn_recorder, monkeypatch
+) -> None:
     topo = BluetoothTopology(unit_env, "sim0", tmp_path / "log")
     executable = tmp_path / "device"
     executable.touch()
-    process = register_process(topo, exe=executable, label="dev0", log_subdir="devices/dev0")
+    process = register_process(
+        topo, exe=executable, label="dev0", log_subdir="devices/dev0"
+    )
     opened = []
 
     class FakeCapture:

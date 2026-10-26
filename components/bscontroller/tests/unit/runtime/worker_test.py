@@ -14,21 +14,32 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from bscontroller.hci.controller import Controller
-from bscontroller.radio.babblesim import DISCONNECT, HEADER, TIME, WAIT, WAIT_END, BabbleSimRadio
+from bscontroller.radio.babblesim import (
+    DISCONNECT,
+    HEADER,
+    TIME,
+    WAIT,
+    WAIT_END,
+    BabbleSimRadio,
+)
 from bscontroller.runtime.worker import RadioControllerWorker
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('max_step_us', [1000, 250])
 @pytest.mark.parametrize('capture', [False, True], ids=['without-snoop', 'with-snoop'])
-async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step_us, tmp_path, capture):
+async def test_hci_runs_in_owner_thread_only_after_phy_ack(
+    monkeypatch, max_step_us, tmp_path, capture
+):
     host_thread = get_ident()
     entered = Event()
     read, write = socket.socketpair()
     read.setblocking(False)
     handled = []
     delivered = []
-    radio = SimpleNamespace(now_us=0, synchronize=AsyncMock(), bind_loop=Mock(), close=Mock())
+    radio = SimpleNamespace(
+        now_us=0, synchronize=AsyncMock(), bind_loop=Mock(), close=Mock()
+    )
 
     async def connect(sim, dev):
         assert get_ident() != host_thread
@@ -45,9 +56,7 @@ async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step
         return target
 
     radio.connect, radio.advance_to_us = connect, advance
-    monkeypatch.setattr(
-        'bscontroller.runtime.worker.BabbleSimRadio', lambda: radio
-    )
+    monkeypatch.setattr('bscontroller.runtime.worker.BabbleSimRadio', lambda: radio)
     original = Controller.on_packet
 
     def on_packet(controller, packet):
@@ -62,7 +71,9 @@ async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step
         received.set()
 
     path = tmp_path / 'hci.snoop'
-    worker = RadioControllerWorker('test', max_step_us=max_step_us, hci_snoop_file=path if capture else None)
+    worker = RadioControllerWorker(
+        'test', max_step_us=max_step_us, hci_snoop_file=path if capture else None
+    )
     worker.set_packet_sink(SimpleNamespace(on_packet=receive))
     try:
         await worker.start('test', 0)
@@ -76,8 +87,17 @@ async def test_hci_runs_in_owner_thread_only_after_phy_ack(monkeypatch, max_step
         assert handled == [(worker._thread.ident, max_step_us)]
         assert delivered == [(host_thread, bytes.fromhex('040e0401030c00'))]
         expected = bytes.fromhex('6274736e6f6f700000000001000003ea')
-        for direction, packet in enumerate((bytes.fromhex('01030c00'), bytes.fromhex('040e0401030c00'))):
-            expected += struct.pack('>IIIIQ', len(packet), len(packet), direction, 0, 0x00DCDDB30F2F8000 + max_step_us)
+        for direction, packet in enumerate(
+            (bytes.fromhex('01030c00'), bytes.fromhex('040e0401030c00'))
+        ):
+            expected += struct.pack(
+                '>IIIIQ',
+                len(packet),
+                len(packet),
+                direction,
+                0,
+                0x00DCDDB30F2F8000 + max_step_us,
+            )
             expected += packet
         if capture:
             assert path.read_bytes() == expected
@@ -112,15 +132,14 @@ async def test_deferred_hci_notifications_precede_next_phy_request(monkeypatch):
         await asyncio.Future()
 
     radio = SimpleNamespace(
-        now_us=0, synchronize=AsyncMock(),
+        now_us=0,
+        synchronize=AsyncMock(),
         connect=AsyncMock(),
         bind_loop=Mock(),
         advance_to_us=advance,
         close=Mock(),
     )
-    monkeypatch.setattr(
-        'bscontroller.runtime.worker.BabbleSimRadio', lambda: radio
-    )
+    monkeypatch.setattr('bscontroller.runtime.worker.BabbleSimRadio', lambda: radio)
     monkeypatch.setattr(Controller, 'on_packet', on_packet)
     worker = RadioControllerWorker('test')
     worker.on_packet(bytes.fromhex('01030c00'))
@@ -132,13 +151,13 @@ async def test_deferred_hci_notifications_precede_next_phy_request(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_worker_start_failure_is_reported_and_thread_joined(monkeypatch, tmp_path):
+async def test_worker_start_failure_is_reported_and_thread_joined(
+    monkeypatch, tmp_path
+):
     radio = SimpleNamespace(
         connect=AsyncMock(side_effect=RuntimeError('broken radio')), close=Mock()
     )
-    monkeypatch.setattr(
-        'bscontroller.runtime.worker.BabbleSimRadio', lambda: radio
-    )
+    monkeypatch.setattr('bscontroller.runtime.worker.BabbleSimRadio', lambda: radio)
     captures = []
     from bscontroller.hci.snoop import BtsnoopWriter
 
@@ -178,7 +197,8 @@ async def test_worker_runtime_failure_is_reported_when_closed(monkeypatch):
         raise RuntimeError('radio failed after startup')
 
     radio = SimpleNamespace(
-        now_us=0, synchronize=AsyncMock(),
+        now_us=0,
+        synchronize=AsyncMock(),
         connect=AsyncMock(),
         bind_loop=Mock(),
         advance_to_us=advance,
@@ -206,9 +226,7 @@ async def test_cancelled_start_releases_connecting_worker(monkeypatch):
         await asyncio.Future()
 
     radio = SimpleNamespace(connect=connect, close=Mock())
-    monkeypatch.setattr(
-        'bscontroller.runtime.worker.BabbleSimRadio', lambda: radio
-    )
+    monkeypatch.setattr('bscontroller.runtime.worker.BabbleSimRadio', lambda: radio)
     worker = RadioControllerWorker('test')
     start = asyncio.create_task(worker.start('test', 0))
     assert await asyncio.to_thread(entered.wait, 5)
@@ -227,13 +245,21 @@ def test_worker_step_must_be_positive():
 
 
 @pytest.mark.asyncio
-async def test_socket_hci_is_owned_by_worker_and_waits_for_phy_ack(monkeypatch, tmp_path):
+async def test_socket_hci_is_owned_by_worker_and_waits_for_phy_ack(
+    monkeypatch, tmp_path
+):
     host_thread = get_ident()
     entered = Event()
     read, write = socket.socketpair()
     read.setblocking(False)
     handled, written = [], []
-    radio = SimpleNamespace(now_us=0, synchronize=AsyncMock(), connect=AsyncMock(), bind_loop=Mock(), close=Mock())
+    radio = SimpleNamespace(
+        now_us=0,
+        synchronize=AsyncMock(),
+        connect=AsyncMock(),
+        bind_loop=Mock(),
+        close=Mock(),
+    )
 
     async def advance(target):
         loop = asyncio.get_running_loop()
@@ -254,6 +280,7 @@ async def test_socket_hci_is_owned_by_worker_and_waits_for_phy_ack(monkeypatch, 
 
     monkeypatch.setattr(Controller, 'on_packet', on_packet)
     from bscontroller.hci.transport import H4Server
+
     original_write = H4Server._write
 
     async def write_hci(endpoint):
@@ -261,7 +288,9 @@ async def test_socket_hci_is_owned_by_worker_and_waits_for_phy_ack(monkeypatch, 
         await original_write(endpoint)
 
     monkeypatch.setattr(H4Server, '_write', write_hci)
-    worker = RadioControllerWorker('test', hci_socket=tmp_path / 'hci.sock', hci_snoop_file=tmp_path / 'hci.snoop')
+    worker = RadioControllerWorker(
+        'test', hci_socket=tmp_path / 'hci.sock', hci_snoop_file=tmp_path / 'hci.snoop'
+    )
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(5)
     try:
@@ -289,7 +318,9 @@ async def test_socket_hci_is_owned_by_worker_and_waits_for_phy_ack(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_socket_listens_before_phy_connect_but_defers_hci_until_bound(monkeypatch, tmp_path):
+async def test_socket_listens_before_phy_connect_but_defers_hci_until_bound(
+    monkeypatch, tmp_path
+):
     connecting = Event()
     resume = None
     bound = []
@@ -304,7 +335,11 @@ async def test_socket_listens_before_phy_connect_but_defers_hci_until_bound(monk
     async def advance(target):
         await asyncio.Future()
 
-    radio.connect, radio.bind_loop, radio.advance_to_us = connect, lambda loop: bound.append(True), advance
+    radio.connect, radio.bind_loop, radio.advance_to_us = (
+        connect,
+        lambda loop: bound.append(True),
+        advance,
+    )
     monkeypatch.setattr('bscontroller.runtime.worker.BabbleSimRadio', lambda: radio)
     original = Controller.on_packet
 
@@ -356,7 +391,9 @@ async def test_socket_close_cancels_pending_phy_connection(monkeypatch, tmp_path
         entered.set()
         await asyncio.Future()
 
-    radio = SimpleNamespace(now_us=0, synchronize=AsyncMock(), connect=connect, close=Mock())
+    radio = SimpleNamespace(
+        now_us=0, synchronize=AsyncMock(), connect=connect, close=Mock()
+    )
     monkeypatch.setattr('bscontroller.runtime.worker.BabbleSimRadio', lambda: radio)
     worker = RadioControllerWorker('test', hci_socket=tmp_path / 'hci.sock')
     await worker.start('test', 0)
@@ -380,7 +417,9 @@ async def test_socket_mode_rejects_cross_thread_packet_api(tmp_path):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('socket_mode', [False, True], ids=['in-process', 'socket'])
 @pytest.mark.parametrize('outcome', ['ack', 'cancel', 'disconnect'])
-async def test_startup_barrier_gates_hci_and_releases_resources(monkeypatch, endpoints, tmp_path, socket_mode, outcome):
+async def test_startup_barrier_gates_hci_and_releases_resources(
+    monkeypatch, endpoints, tmp_path, socket_mode, outcome
+):
     device, phy = endpoints
     radio = BabbleSimRadio()
     radio.connection = device

@@ -48,4 +48,12 @@ except PackageNotFoundError:
     except PackageNotFoundError:
         __version__ = '0+unknown'
 
-__all__ = ['Phy', 'Radio', 'RadioController', 'RadioEventLoop', 'RadioSession', 'Received', 'hci']
+__all__ = [
+    'Phy',
+    'Radio',
+    'RadioController',
+    'RadioEventLoop',
+    'RadioSession',
+    'Received',
+    'hci',
+]

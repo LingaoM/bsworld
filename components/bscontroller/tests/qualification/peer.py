@@ -239,9 +239,9 @@ class PeerLink:
             self.anchor = response.start_us
             response = self.decode(response)
             if check_ack and self.last_sent_end_us is not None:
-                assert (
-                    int(bool(response.pdu[0] & PDU_DATA_NESN_MASK)) != self.sn
-                ), 'peer PDU not acknowledged'
+                assert int(bool(response.pdu[0] & PDU_DATA_NESN_MASK)) != self.sn, (
+                    'peer PDU not acknowledged'
+                )
             self._accept(response)
             if reply is not None:
                 data, llid = reply(response)
@@ -265,9 +265,9 @@ class PeerLink:
             if response is not None:
                 assert response.start_us == end + LL_IFS_US
                 if check_ack:
-                    assert (
-                        int(bool(response.pdu[0] & PDU_DATA_NESN_MASK)) != sent_sn
-                    ), 'peer PDU not acknowledged'
+                    assert int(bool(response.pdu[0] & PDU_DATA_NESN_MASK)) != sent_sn, (
+                        'peer PDU not acknowledged'
+                    )
                 response = self.decode(response)
                 self._accept(response)
         self.anchor += self.parameters.interval * LL_CONN_INTERVAL_UNIT_US
@@ -335,9 +335,9 @@ class PeerLink:
         if self.central and payload and check_ack:
             sent_sn = self.sn
             packet = await self.exchange()
-            assert (
-                int(bool(packet.pdu[0] & PDU_DATA_NESN_MASK)) != sent_sn
-            ), 'peer control PDU not acknowledged'
+            assert int(bool(packet.pdu[0] & PDU_DATA_NESN_MASK)) != sent_sn, (
+                'peer control PDU not acknowledged'
+            )
         for _ in range(16):
             if (
                 packet.pdu[0] & PDU_DATA_LLID_MASK == LlId.CONTROL
@@ -511,9 +511,9 @@ async def establish(
                 )
                 assert request.pdu[1] == len(request.pdu) - PDU_HEADER_SIZE
                 break
-        assert (
-            request is not None
-        ), 'no CONNECT_IND on the configured advertising channels'
+        assert request is not None, (
+            'no CONNECT_IND on the configured advertising channels'
+        )
         assert abs(request.start_us - advertisement_end - LL_IFS_US) <= 2
         assert bool(request.pdu[0] & PDU_ADV_CHSEL_MASK) == csa2
         assert request.pdu[PDU_HEADER_SIZE:PDU_ADV_ADDRESSES_END] == bytes(

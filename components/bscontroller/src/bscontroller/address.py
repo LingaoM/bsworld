@@ -57,7 +57,9 @@ class Address:
         return cls.parse_address_with_type(data, offset, Address.PUBLIC_DEVICE_ADDRESS)
 
     @classmethod
-    def parse_random_address(cls: type[Self], data: bytes, offset: int) -> tuple[int, Self]:
+    def parse_random_address(
+        cls: type[Self], data: bytes, offset: int
+    ) -> tuple[int, Self]:
         return cls.parse_address_with_type(data, offset, Address.RANDOM_DEVICE_ADDRESS)
 
     @classmethod
@@ -67,7 +69,9 @@ class Address:
         return offset + 6, cls(data[offset : offset + 6], address_type)
 
     @classmethod
-    def parse_address_preceded_by_type(cls: type[Self], data: bytes, offset: int) -> tuple[int, Self]:
+    def parse_address_preceded_by_type(
+        cls: type[Self], data: bytes, offset: int
+    ) -> tuple[int, Self]:
         address_type = AddressType(data[offset - 1])
         return cls.parse_address_with_type(data, offset, address_type)
 
@@ -115,7 +119,9 @@ class Address:
 
     @property
     def is_resolvable(self) -> bool:
-        return self.address_type == self.RANDOM_DEVICE_ADDRESS and (self.address_bytes[5] >> 6 == 1)
+        return self.address_type == self.RANDOM_DEVICE_ADDRESS and (
+            self.address_bytes[5] >> 6 == 1
+        )
 
     def to_string(self, with_type_qualifier: bool = True) -> str:
         '''
@@ -144,7 +150,10 @@ class Address:
         return self.to_string()
 
     def __repr__(self) -> str:
-        return f'Address({self.to_string(False)}/{self.address_type_name(self.address_type)})'
+        return (
+            f'Address({self.to_string(False)}/'
+            f'{self.address_type_name(self.address_type)})'
+        )
 
 
 Address.NIL = Address(b"\xff" * 6, Address.PUBLIC_DEVICE_ADDRESS)

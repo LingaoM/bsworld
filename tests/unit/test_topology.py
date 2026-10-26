@@ -60,7 +60,10 @@ def test_add_controller_allocates_in_process_virtual_controller(tmp_path) -> Non
 
 def test_default_controller_type_applies_until_a_call_overrides_it(tmp_path) -> None:
     topo = BluetoothTopology(
-        make_env(tmp_path), "sim0", tmp_path / "log", default_controller_type=BSController
+        make_env(tmp_path),
+        "sim0",
+        tmp_path / "log",
+        default_controller_type=BSController,
     )
 
     inherited = topo.add_controller()
@@ -100,7 +103,9 @@ def test_add_process_rejects_shared_controller(tmp_path) -> None:
 def test_topology_rejects_configuration_after_start(tmp_path) -> None:
     topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
     controller = topo.add_controller()
-    process = ProcessInstance(command=[tmp_path / "firmware"], controller=controller, label="device")
+    process = ProcessInstance(
+        command=[tmp_path / "firmware"], controller=controller, label="device"
+    )
     topo._started = True
 
     with pytest.raises(RuntimeError, match="cannot modify a topology"):
@@ -145,7 +150,9 @@ async def test_start_requires_at_least_one_virtual_controller(tmp_path) -> None:
     await topo.stop()
 
 
-async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkeypatch) -> None:
+async def test_start_uses_registered_snoop_path_and_binds_clock(
+    tmp_path, monkeypatch
+) -> None:
     topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
     exe = tmp_path / "firmware"
     exe.write_text("")
@@ -204,19 +211,27 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(tmp_path, monkey
 
 
 @pytest.mark.parametrize("application", [False, True])
-def test_snoop_path_uses_the_controller_or_application_log_directory(tmp_path, application):
+def test_snoop_path_uses_the_controller_or_application_log_directory(
+    tmp_path, application
+):
     topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
     ctl = topo.add_controller(log_subdir="python/bumble")
     assert ctl.hci_snoop_file == tmp_path / "log" / "python/bumble" / "hci0.snoop"
     if application:
         exe = tmp_path / "firmware"
         exe.touch()
-        topo.add_process(ProcessInstance(command=[exe], controller=ctl, label="dev0", log_subdir="devices/dev0"))
+        topo.add_process(
+            ProcessInstance(
+                command=[exe], controller=ctl, label="dev0", log_subdir="devices/dev0"
+            )
+        )
     subdir = "devices/dev0" if application else "python/bumble"
     assert ctl.hci_snoop_file == tmp_path / "log" / subdir / "hci0.snoop"
 
 
-def test_channel_attenuation_resolves_processes_to_virtual_controllers(tmp_path) -> None:
+def test_channel_attenuation_resolves_processes_to_virtual_controllers(
+    tmp_path,
+) -> None:
     topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
     host_exe = tmp_path / "host"
     dev_exe = tmp_path / "device"
@@ -235,9 +250,14 @@ def test_channel_attenuation_resolves_processes_to_virtual_controllers(tmp_path)
         log_subdir=Path("devices") / "device",
     )
     jammer = topo.add_burst_interference(2402.0)
-    assert [process.controller.controller_dev_id for process in topo.processes] == [0, 1]
+    assert [process.controller.controller_dev_id for process in topo.processes] == [
+        0,
+        1,
+    ]
     layout = topo.bsim.plan_devices()
-    assert [layout.application_slot(process.controller).dev_id for process in topo.processes] == [2, 3]
+    assert [
+        layout.application_slot(process.controller).dev_id for process in topo.processes
+    ] == [2, 3]
 
     topo.set_channel_attenuation(
         default_db=90.0,
@@ -284,7 +304,9 @@ def test_channel_attenuation_rejects_foreign_controller(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("cleanup_fails", [False, True])
-async def test_stop_finalizes_backend_even_if_process_cleanup_fails(tmp_path, monkeypatch, cleanup_fails) -> None:
+async def test_stop_finalizes_backend_even_if_process_cleanup_fails(
+    tmp_path, monkeypatch, cleanup_fails
+) -> None:
     events: list[str] = []
     topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 

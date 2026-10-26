@@ -18,7 +18,9 @@ import pytest
 from tests.integration.nuttx.common import NuttXProcessProfile
 from tests.integration.nuttx.common import require_binaries as require_nuttx_binaries
 from tests.integration.qemu.common import _artifact
-from tests.integration.zephyr.samples.common import require_binaries as require_zephyr_binaries
+from tests.integration.zephyr.samples.common import (
+    require_binaries as require_zephyr_binaries,
+)
 from tests.integration.zephyr.samples.common import sample_profile
 
 
@@ -53,7 +55,9 @@ def test_profiles_follow_exports_without_staging(monkeypatch, tmp_path, suite) -
         require([profile])
 
 
-@pytest.mark.parametrize("variable", ["BSWORLD_QEMU_BIN", "BSWORLD_QEMU_KERNEL", "BSWORLD_QEMU_ROOTFS"])
+@pytest.mark.parametrize(
+    "variable", ["BSWORLD_QEMU_BIN", "BSWORLD_QEMU_KERNEL", "BSWORLD_QEMU_ROOTFS"]
+)
 def test_qemu_requires_explicit_outputs(monkeypatch, tmp_path, variable) -> None:
     monkeypatch.setenv(variable, "")
     with pytest.raises(pytest.skip.Exception, match=variable):

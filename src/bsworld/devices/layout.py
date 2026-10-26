@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Immutable BabbleSim device identity assignment for one simulation."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -124,7 +125,10 @@ class DeviceLayout:
 
     def lock_paths(self, sim_dir: Path) -> list[Path]:
         """PHY registration lock files, one per participant."""
-        return [sim_dir / f"{self.phy_id}.d{dev_id}.lock" for dev_id in range(self.device_count)]
+        return [
+            sim_dir / f"{self.phy_id}.d{dev_id}.lock"
+            for dev_id in range(self.device_count)
+        ]
 
 
 def build_device_layout(

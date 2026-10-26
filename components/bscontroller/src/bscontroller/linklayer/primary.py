@@ -58,8 +58,14 @@ if TYPE_CHECKING:
 def advertising_event_time_us(item: Advertising) -> int:
     """Reserve a complete primary event, including possible request exchanges."""
     if item.extended:
-        return advertising_time_us(item) + (LL_RESPONSE_START_TOLERANCE_US if item.mode else 0)
-    payload_size = PDU_HEADER_SIZE + PDU_ADV_ADDRESS_SIZE + (PDU_ADV_ADDRESS_SIZE if item.target else len(item.data))
+        return advertising_time_us(item) + (
+            LL_RESPONSE_START_TOLERANCE_US if item.mode else 0
+        )
+    payload_size = (
+        PDU_HEADER_SIZE
+        + PDU_ADV_ADDRESS_SIZE
+        + (PDU_ADV_ADDRESS_SIZE if item.target else len(item.data))
+    )
     response_us = 0
     if item.pdu_type in (
         AdvertisingPduType.ADV_IND,
@@ -69,15 +75,27 @@ def advertising_event_time_us(item: Advertising) -> int:
             2 * LL_IFS_US
             + LL_RESPONSE_START_TOLERANCE_US
             + Phy.LE_1M.airtime_us(PDU_ADV_SCAN_REQ_SIZE)
-            + Phy.LE_1M.airtime_us(PDU_HEADER_SIZE + PDU_ADV_ADDRESS_SIZE + len(item.scan_response))
+            + Phy.LE_1M.airtime_us(
+                PDU_HEADER_SIZE + PDU_ADV_ADDRESS_SIZE + len(item.scan_response)
+            )
         )
     elif item.pdu_type == AdvertisingPduType.ADV_DIRECT_IND:
-        response_us = LL_IFS_US + LL_RESPONSE_START_TOLERANCE_US + Phy.LE_1M.airtime_us(PDU_ADV_CONNECT_SIZE)
-    return item.channel_map.bit_count() * (Phy.LE_1M.airtime_us(payload_size) + RADIO_SWITCH_TIME_US + response_us)
+        response_us = (
+            LL_IFS_US
+            + LL_RESPONSE_START_TOLERANCE_US
+            + Phy.LE_1M.airtime_us(PDU_ADV_CONNECT_SIZE)
+        )
+    return item.channel_map.bit_count() * (
+        Phy.LE_1M.airtime_us(payload_size) + RADIO_SWITCH_TIME_US + response_us
+    )
 
 
-async def advertising_request(link: RadioLink, item: Advertising, channel: int, packet: Received) -> bool:
-    """Answer SCAN_REQ with SCAN_RSP or accept CONNECT_IND after T_IFS (Core Vol 6, Part B, 4.4.2.3-4.4.2.5, 4.3.2)."""
+async def advertising_request(
+    link: RadioLink, item: Advertising, channel: int, packet: Received
+) -> bool:
+    """Answer SCAN_REQ with SCAN_RSP or accept CONNECT_IND after T_IFS (Core Vol 6, Part
+    B, 4.4.2.3-4.4.2.5, 4.3.2).
+    """
     pdu = packet.pdu
     peer = advertising_request_peer(pdu, item.address, item.target)
     if peer is None:
@@ -87,14 +105,18 @@ async def advertising_request(link: RadioLink, item: Advertising, channel: int, 
         and pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.SCAN_REQ
         and len(pdu) == PDU_ADV_SCAN_REQ_SIZE
     ):
-        if item.filter_policy & LL_ADV_FILTER_SCAN_MASK and peer not in link.accept_list:
+        if (
+            item.filter_policy & LL_ADV_FILTER_SCAN_MASK
+            and peer not in link.accept_list
+        ):
             return False
         payload = bytes(item.address) + item.scan_response
         await link._transmit(
             channel,
             bytes(
                 [
-                    AdvertisingPduType.SCAN_RSP | (PDU_ADV_TXADD_MASK if item.address.is_random else 0),
+                    AdvertisingPduType.SCAN_RSP
+                    | (PDU_ADV_TXADD_MASK if item.address.is_random else 0),
                     len(payload),
                 ]
             )
@@ -109,7 +131,11 @@ async def advertising_request(link: RadioLink, item: Advertising, channel: int, 
     ):
         if not link.can_connect(peer):
             return False
-        if item.target is None and item.filter_policy & LL_ADV_FILTER_CONNECT_MASK and peer not in link.accept_list:
+        if (
+            item.target is None
+            and item.filter_policy & LL_ADV_FILTER_CONNECT_MASK
+            and peer not in link.accept_list
+        ):
             return False
         try:
             parameters = Parameters.decode(pdu[PDU_ADV_ADDRESSES_END:])
@@ -132,7 +158,9 @@ async def advertising_request(link: RadioLink, item: Advertising, channel: int, 
 
 
 async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
-    """Send CONNECT_IND T_IFS after an accepted ADV_IND/ADV_DIRECT_IND (Core Vol 6, Part B, 4.4.4.1, 4.3.4)."""
+    """Send CONNECT_IND T_IFS after an accepted ADV_IND/ADV_DIRECT_IND (Core Vol 6, Part
+    B, 4.4.4.1, 4.3.4).
+    """
     item = link.initiating
     pdu = packet.pdu
     if pdu and pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_EXT_IND:
@@ -141,13 +169,15 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
     if (
         item is None
         or len(pdu) < PDU_ADV_LEGACY_SIZE_MIN
-        or pdu[0] & PDU_ADV_TYPE_MASK not in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_DIRECT_IND)
+        or pdu[0] & PDU_ADV_TYPE_MASK
+        not in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_DIRECT_IND)
         or pdu[1] != len(pdu) - PDU_HEADER_SIZE
     ):
         return
     if pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_DIRECT_IND and (
         len(pdu) != PDU_ADV_DIRECT_SIZE
-        or pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:PDU_ADV_ADDRESSES_END] != bytes(item.address)
+        or pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:PDU_ADV_ADDRESSES_END]
+        != bytes(item.address)
         or bool(pdu[0] & PDU_ADV_RXADD_MASK) != item.address.is_random
     ):
         return
@@ -162,7 +192,9 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
     # Choose a usable first connection window before sending CONNECT_IND;
     # its timing becomes shared state as soon as the peer accepts the request.
     request_end = packet.end_us + LL_IFS_US + Phy.LE_1M.airtime_us(PDU_ADV_CONNECT_SIZE)
-    parameters = link.connection_parameters(item.parameters, request_end, LL_CONN_INTERVAL_UNIT_US)
+    parameters = link.connection_parameters(
+        item.parameters, request_end, LL_CONN_INTERVAL_UNIT_US
+    )
     if parameters is None:
         return
     csa2 = bool(pdu[0] & PDU_ADV_CHSEL_MASK)
@@ -172,7 +204,12 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
         | (PDU_ADV_TXADD_MASK if item.address.is_random else 0)
         | (PDU_ADV_RXADD_MASK if peer.is_random else 0)
     )
-    pdu = bytes([header, PDU_ADV_CONNECT_PAYLOAD_SIZE]) + bytes(item.address) + bytes(peer) + parameters.encode()
+    pdu = (
+        bytes([header, PDU_ADV_CONNECT_PAYLOAD_SIZE])
+        + bytes(item.address)
+        + bytes(peer)
+        + parameters.encode()
+    )
     end_us = await link._transmit(channel, pdu, start_us=packet.end_us + LL_IFS_US)
     link.initiating = None
     link.create_connection(
@@ -186,7 +223,9 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
 
 
 async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
-    """Report a legacy advertising PDU and run active scanning with backoff (Core Vol 6, Part B, 4.4.3, 4.3.3)."""
+    """Report a legacy advertising PDU and run active scanning with backoff (Core Vol 6,
+    Part B, 4.4.3, 4.3.3).
+    """
     pdu = packet.pdu
     if len(pdu) < PDU_HEADER_SIZE or pdu[1] != len(pdu) - PDU_HEADER_SIZE:
         return
@@ -202,9 +241,13 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
         | flags.CONNECTABLE_ADVERTISING
         | flags.DIRECTED_ADVERTISING,
         AdvertisingPduType.ADV_NONCONN_IND: flags.LEGACY_ADVERTISING_PDU_USED,
-        AdvertisingPduType.ADV_SCAN_IND: flags.LEGACY_ADVERTISING_PDU_USED | flags.SCANNABLE_ADVERTISING,
+        AdvertisingPduType.ADV_SCAN_IND: flags.LEGACY_ADVERTISING_PDU_USED
+        | flags.SCANNABLE_ADVERTISING,
     }
-    if not PDU_ADV_LEGACY_SIZE_MIN <= len(pdu) <= PDU_ADV_LEGACY_SIZE_MAX or pdu[0] & PDU_ADV_TYPE_MASK not in types:
+    if (
+        not PDU_ADV_LEGACY_SIZE_MIN <= len(pdu) <= PDU_ADV_LEGACY_SIZE_MAX
+        or pdu[0] & PDU_ADV_TYPE_MASK not in types
+    ):
         return
     address = Address(
         pdu[PDU_ADV_ADDRESS_OFFSET:PDU_ADV_SECOND_ADDRESS_OFFSET],
@@ -247,20 +290,24 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
     if (
         link.scan
         and link.scan.active
-        and pdu[0] & PDU_ADV_TYPE_MASK in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_SCAN_IND)
+        and pdu[0] & PDU_ADV_TYPE_MASK
+        in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_SCAN_IND)
         and link.scan.backoff.permit()
     ):
         # Consume backoff only for an eligible advertisement. A missing response
         # or one from another advertiser counts as a failed attempt.
         request = scan_request(link.scan.address, address)
-        end_us = await link._transmit(channel, request, start_us=packet.end_us + LL_IFS_US)
+        end_us = await link._transmit(
+            channel, request, start_us=packet.end_us + LL_IFS_US
+        )
         response = await link.receive_response(channel, end_us)
         success = bool(
             response
             and PDU_ADV_LEGACY_SIZE_MIN <= len(response.pdu) <= PDU_ADV_LEGACY_SIZE_MAX
             and response.pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.SCAN_RSP
             and response.pdu[1] == len(response.pdu) - PDU_HEADER_SIZE
-            and response.pdu[PDU_ADV_ADDRESS_OFFSET:PDU_ADV_SECOND_ADDRESS_OFFSET] == bytes(address)
+            and response.pdu[PDU_ADV_ADDRESS_OFFSET:PDU_ADV_SECOND_ADDRESS_OFFSET]
+            == bytes(address)
             and bool(response.pdu[0] & PDU_ADV_TXADD_MASK) == address.is_random
         )
         link.scan.backoff.complete(success, link.random)
@@ -269,14 +316,18 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
                 address,
                 response.pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:],
                 response.rssi,
-                AdvertisingReport(types[pdu[0] & PDU_ADV_TYPE_MASK] | flags.SCAN_RESPONSE),
+                AdvertisingReport(
+                    types[pdu[0] & PDU_ADV_TYPE_MASK] | flags.SCAN_RESPONSE
+                ),
                 None,
                 0,
                 None,
             )
 
 
-async def scan_extended(link: RadioLink, packet: Received, *, initiating: bool = False) -> None:
+async def scan_extended(
+    link: RadioLink, packet: Received, *, initiating: bool = False
+) -> None:
     try:
         await link.extended.scan(packet, initiating=initiating)
     except ValueError as error:
@@ -284,10 +335,15 @@ async def scan_extended(link: RadioLink, packet: Received, *, initiating: bool =
 
 
 async def advertise_legacy(link: RadioLink, item: Advertising) -> None:
-    """One legacy advertising event over the used primary channels in ascending order (Core Vol 6, Part B, 4.4.2.1-4.4.2.2)."""
+    """One legacy advertising event over the used primary channels in ascending order
+    (Core Vol 6, Part B, 4.4.2.1-4.4.2.2).
+    """
     payload = bytes(item.address) + (bytes(item.target) if item.target else item.data)
     chsel = (
-        PDU_ADV_CHSEL_MASK if item.pdu_type in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_DIRECT_IND) else 0
+        PDU_ADV_CHSEL_MASK
+        if item.pdu_type
+        in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_DIRECT_IND)
+        else 0
     )
     pdu = (
         bytes(
@@ -304,7 +360,10 @@ async def advertise_legacy(link: RadioLink, item: Advertising) -> None:
     for bit, channel in enumerate(LL_ADV_PRIMARY_CHANNELS):
         if item.channel_map & (1 << bit):
             # Do not start a high-duty packet that would run past advertising expiry.
-            if item.high_duty and link.now_us + 1 + Phy.LE_1M.airtime_us(len(pdu)) > item.deadline_us:
+            if (
+                item.high_duty
+                and link.now_us + 1 + Phy.LE_1M.airtime_us(len(pdu)) > item.deadline_us
+            ):
                 await link.radio.advance_to_us(item.deadline_us)
                 break
             end_us = await link._transmit(channel, pdu, power_dbm=item.tx_power_dbm)

@@ -17,9 +17,13 @@ from bscontroller.radio.babblesim import (
 )
 from bscontroller.runtime.session import BabbleSimClock, BabbleSimSession
 
-requires_runner = pytest.mark.skipif(not hasattr(asyncio, 'Runner'), reason='Controller loops require Python 3.11')
+requires_runner = pytest.mark.skipif(
+    not hasattr(asyncio, 'Runner'), reason='Controller loops require Python 3.11'
+)
 
-requires_pipe2 = pytest.mark.skipif(not hasattr(os, 'pipe2'), reason='FIFO tests require os.pipe2')
+requires_pipe2 = pytest.mark.skipif(
+    not hasattr(os, 'pipe2'), reason='FIFO tests require os.pipe2'
+)
 
 
 @pytest.mark.asyncio
@@ -41,12 +45,18 @@ async def test_standalone_session_binds_clock_after_startup_barrier(monkeypatch)
         close=AsyncMock(side_effect=lambda: events.append('stop')),
     )
     session = BabbleSimSession('test', [(0, worker)], clock_dev_id=1)
-    session.clock.connection.connect = AsyncMock(side_effect=lambda: events.append('connect'))
+    session.clock.connection.connect = AsyncMock(
+        side_effect=lambda: events.append('connect')
+    )
     session.clock.connection.wait_sync = lambda *args: events.append('barrier')
     session.clock.connection.close = lambda: events.append('disconnect')
     loop = asyncio.get_running_loop()
-    monkeypatch.setattr(loop, 'bind_clock', lambda clock: events.append('bind'), raising=False)
-    monkeypatch.setattr(loop, 'unbind_clock', lambda: events.append('unbind'), raising=False)
+    monkeypatch.setattr(
+        loop, 'bind_clock', lambda clock: events.append('bind'), raising=False
+    )
+    monkeypatch.setattr(
+        loop, 'unbind_clock', lambda: events.append('unbind'), raising=False
+    )
     async with session:
         assert session.loop is loop
         assert events == ['start', 'connect', 'barrier', 'bind']
@@ -64,7 +74,9 @@ async def test_standalone_session_binds_clock_after_startup_barrier(monkeypatch)
 @pytest.mark.asyncio
 async def test_session_start_failure_closes_started_and_unstarted_workers():
     first = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
-    second = SimpleNamespace(start=AsyncMock(side_effect=RuntimeError('broken worker')), close=AsyncMock())
+    second = SimpleNamespace(
+        start=AsyncMock(side_effect=RuntimeError('broken worker')), close=AsyncMock()
+    )
     session = BabbleSimSession('test', [(0, first), (1, second)])
     with pytest.raises(RuntimeError, match='broken worker'):
         await session.__aenter__()
@@ -108,7 +120,9 @@ async def test_host_clock_changes_only_after_its_own_ack(endpoints):
         assert clock.now_us == 0
         await phy.send(HEADER.pack(WAIT_END))
 
-    result, _ = await asyncio.gather(asyncio.to_thread(clock.advance_to_us, 1234), respond())
+    result, _ = await asyncio.gather(
+        asyncio.to_thread(clock.advance_to_us, 1234), respond()
+    )
     assert result == clock.now_us == 1234
     for invalid in (1233, NEVER, -1):
         with pytest.raises(ValueError, match='nondecreasing'):

@@ -26,28 +26,31 @@ pytest tests/unit -q
 
 单元测试覆盖环境与产物解析、拓扑和 Controller 生命周期、BabbleSim 命令生成、RF 配置、仿真时间调度、FIFO 时钟通信和日志采集。端到端 Bluetooth 行为由 `tests/integration/` 覆盖。
 
-## 静态检查
+## 代码格式
 
-使用 Docker：
+规则覆盖本仓库维护的 Python 源码、示例和测试；依赖检出目录与生成的构建产物不参与检查。
 
-```sh
-sudo docker run --rm \
-  --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
-  -e PYTHONPATH=/workspace \
-  ghcr.io/xiaomi/bsworld:latest ruff check --no-cache src tests
-```
+| 语言 | 格式工具 | 规则 |
+|---|---|---|
+| Python | Ruff 0.14.10 | 88 个字符的目标行宽、四空格缩进、导入排序、保留已有引号风格 |
 
-使用本地虚拟环境：
+Python 由 Ruff 统一完成导入排序和格式化。两个 Python 包固定使用相同的 Ruff 版本。`E501` 继续检查格式工具无法自动折行的注释、字符串等内容。两个公开的蓝牙错误标识符为了保留现有 API 名称，使用局部 `# noqa: E501` 豁免；Ruff 也允许无法拆分的单词和行尾 URL。说明性文字应主动换行，避免增加全局豁免。
 
-```sh
-ruff check src tests
-```
-
-在本地应用安全的自动修复：
+在仓库根目录，使用 Python 开发环境检查全部 Python 代码：
 
 ```sh
-ruff check --fix src tests
+ruff check .
+ruff format --check .
 ```
+
+在本地自动整理格式：
+
+```sh
+ruff check --select I --fix .
+ruff format .
+```
+
+GitHub Actions 的 `Code style` 工作流在每次 push 和 pull request 时执行上述检查，格式或静态规则不符合要求时失败。检查覆盖检出版本中的全部 Python 代码，包括已有文件。
 
 ## 测试覆盖率
 

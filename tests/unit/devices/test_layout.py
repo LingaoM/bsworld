@@ -23,10 +23,7 @@ from bsworld.interference import InterferenceRef
 
 
 def _controllers(tmp_path):
-    return [
-        ZephyrController(index, "sim", "2G4", tmp_path)
-        for index in range(2)
-    ]
+    return [ZephyrController(index, "sim", "2G4", tmp_path) for index in range(2)]
 
 
 def test_layout_assigns_mixed_participants_once(tmp_path) -> None:
@@ -50,7 +47,9 @@ def test_layout_assigns_mixed_participants_once(tmp_path) -> None:
     assert layout.clock_dev_id == 3
     assert layout.interference_dev_id(0) == 4
     assert layout.device_count == 5
-    assert layout.lock_paths(tmp_path) == [tmp_path / f"2G4.d{index}.lock" for index in range(5)]
+    assert layout.lock_paths(tmp_path) == [
+        tmp_path / f"2G4.d{index}.lock" for index in range(5)
+    ]
 
     with pytest.raises(KeyError, match="no Application device reserved"):
         layout.application_slot(python_host)
@@ -62,7 +61,9 @@ def test_layout_assigns_mixed_participants_once(tmp_path) -> None:
 
 def test_layout_resolves_declared_rf_endpoints_by_identity(tmp_path) -> None:
     first, second = _controllers(tmp_path)
-    process = ProcessInstance(command=[tmp_path / "device"], controller=second, label="device")
+    process = ProcessInstance(
+        command=[tmp_path / "device"], controller=second, label="device"
+    )
     layout = build_device_layout(
         phy_id="2G4",
         controllers=[first, second],

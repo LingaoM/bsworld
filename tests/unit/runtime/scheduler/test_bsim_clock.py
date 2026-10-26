@@ -32,13 +32,17 @@ def fifo_clock(tmp_path):
         os.close(response_fd)
 
 
-def test_clock_connect_creates_native_format_lock_and_nonblocking_fds(fifo_clock) -> None:
+def test_clock_connect_creates_native_format_lock_and_nonblocking_fds(
+    fifo_clock,
+) -> None:
     clock, _, _ = fifo_clock
     clock.connect()
     lock = clock.sim_dir / "2G4.d4.lock"
     pid, start_time = lock.read_text().splitlines()
     assert pid == str(os.getpid())
-    assert start_time == Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19]
+    assert (
+        start_time == Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19]
+    )
     assert not os.get_blocking(clock._read_fd)
     assert not os.get_blocking(clock._write_fd)
     assert clock.now_us == 0
@@ -46,7 +50,9 @@ def test_clock_connect_creates_native_format_lock_and_nonblocking_fds(fifo_clock
     assert lock.read_text().splitlines() == [pid, start_time]
 
 
-def test_clock_advance_sends_packed_absolute_target_and_waits_for_ack(fifo_clock, monkeypatch) -> None:
+def test_clock_advance_sends_packed_absolute_target_and_waits_for_ack(
+    fifo_clock, monkeypatch
+) -> None:
     clock, request_fd, response_fd = fifo_clock
     clock.connect()
     os.write(response_fd, struct.pack("=I", 0x81))
@@ -116,7 +122,9 @@ def test_clock_rejects_invalid_time(fifo_clock, target) -> None:
         os.read(request_fd, 100)
 
 
-def test_clock_rejects_lock_conflict_without_removing_another_clients_lock(fifo_clock) -> None:
+def test_clock_rejects_lock_conflict_without_removing_another_clients_lock(
+    fifo_clock,
+) -> None:
     clock, _, response_fd = fifo_clock
     clock.connect()
     lock = clock.sim_dir / "2G4.d4.lock"
@@ -131,7 +139,9 @@ def test_clock_rejects_lock_conflict_without_removing_another_clients_lock(fifo_
 
 
 @pytest.mark.parametrize("fifos_exist", [False, True])
-def test_clock_connection_times_out_without_phy_and_releases_lock(tmp_path, fifos_exist) -> None:
+def test_clock_connection_times_out_without_phy_and_releases_lock(
+    tmp_path, fifos_exist
+) -> None:
     if fifos_exist:
         os.mkfifo(tmp_path / "2G4.d0.ptd")
         os.mkfifo(tmp_path / "2G4.d0.dtp")
@@ -162,7 +172,9 @@ def test_clock_rejects_regular_files_without_deleting_them(fifo_clock, suffix) -
     assert not (clock.sim_dir / "2G4.d4.lock").exists()
 
 
-def test_clock_connection_permission_error_releases_lock(fifo_clock, monkeypatch) -> None:
+def test_clock_connection_permission_error_releases_lock(
+    fifo_clock, monkeypatch
+) -> None:
     clock, _, _ = fifo_clock
 
     def deny(path, flags):
@@ -174,8 +186,12 @@ def test_clock_connection_permission_error_releases_lock(fifo_clock, monkeypatch
     assert not (clock.sim_dir / "2G4.d4.lock").exists()
 
 
-@pytest.mark.parametrize("header, message", [(0xFFFF, "disconnected"), (0x82, "invalid.*response")])
-def test_clock_bad_response_disconnects_without_advancing_time(fifo_clock, header, message) -> None:
+@pytest.mark.parametrize(
+    "header, message", [(0xFFFF, "disconnected"), (0x82, "invalid.*response")]
+)
+def test_clock_bad_response_disconnects_without_advancing_time(
+    fifo_clock, header, message
+) -> None:
     clock, _, response_fd = fifo_clock
     clock.connect()
     os.write(response_fd, struct.pack("=I", header))
@@ -227,7 +243,9 @@ def test_clock_retries_eagain(fifo_clock, monkeypatch, operation) -> None:
 
 
 @pytest.mark.parametrize("error", [OSError("poll failed"), KeyboardInterrupt()])
-def test_clock_poll_failure_or_interrupt_disconnects(fifo_clock, monkeypatch, error) -> None:
+def test_clock_poll_failure_or_interrupt_disconnects(
+    fifo_clock, monkeypatch, error
+) -> None:
     clock, _, _ = fifo_clock
     clock.connect()
 
@@ -242,7 +260,9 @@ def test_clock_poll_failure_or_interrupt_disconnects(fifo_clock, monkeypatch, er
 
 
 @pytest.mark.parametrize("operation", ["eof", "broken_pipe", "zero_write"])
-def test_clock_transport_failure_disconnects(fifo_clock, monkeypatch, operation) -> None:
+def test_clock_transport_failure_disconnects(
+    fifo_clock, monkeypatch, operation
+) -> None:
     clock, _, response_fd = fifo_clock
     clock.connect()
     os.write(response_fd, struct.pack("=I", 0x81))
@@ -251,8 +271,10 @@ def test_clock_transport_failure_disconnects(fifo_clock, monkeypatch, operation)
     elif operation == "zero_write":
         monkeypatch.setattr(babblesim.os, "write", lambda *args: 0)
     else:
+
         def broken(*args):
             raise BrokenPipeError(errno.EPIPE, "closed")
+
         monkeypatch.setattr(babblesim.os, "write", broken)
     with pytest.raises(RuntimeError, match="disconnected|no progress"):
         clock.advance_to_us(1_000)

@@ -61,7 +61,9 @@ class RadioSelector(selectors.BaseSelector):
         step_us = (
             self.max_step_us
             if timeout is None
-            else min(self.max_step_us, round(max(0, timeout) * PHY_TIME_UNITS_PER_SECOND))
+            else min(
+                self.max_step_us, round(max(0, timeout) * PHY_TIME_UNITS_PER_SECOND)
+            )
         )
         if step_us > 0:
             before = self.clock.now_us
@@ -77,13 +79,19 @@ class RadioEventLoop(asyncio.SelectorEventLoop):
     selector_type = RadioSelector
 
     def __init__(self, max_step_us: int = DEFAULT_MAX_STEP_US):
-        self.radio_selector = self.selector_type(selectors.DefaultSelector(), max_step_us)
+        self.radio_selector = self.selector_type(
+            selectors.DefaultSelector(), max_step_us
+        )
         super().__init__(selector=self.radio_selector)
         self._wall_clock_resolution = self._clock_resolution
 
     def time(self) -> float:
         clock = self.radio_selector.clock
-        return time.monotonic() if clock is None else clock.now_us / PHY_TIME_UNITS_PER_SECOND
+        return (
+            time.monotonic()
+            if clock is None
+            else clock.now_us / PHY_TIME_UNITS_PER_SECOND
+        )
 
     def bind_clock(self, clock: RadioClock) -> None:
         if self.radio_selector.clock is not None:

@@ -41,7 +41,11 @@ def require_artifact(binary_env: str, *, guide: str, executable: bool = True) ->
     artifact without reimporting the profiles that name it.
     """
     path = env_path(binary_env)
-    if path is None or not path.is_file() or (executable and not path.stat().st_mode & 0o111):
+    if (
+        path is None
+        or not path.is_file()
+        or (executable and not path.stat().st_mode & 0o111)
+    ):
         kind = "compiled executable" if executable else "built artifact"
         pytest.skip(f"Set {binary_env} to the {kind}; see {guide}.")
     return path

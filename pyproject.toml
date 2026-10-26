@@ -32,7 +32,7 @@ dependencies = [
     "cryptography>=44.0.3",
     "packaging>=24",
     "pytest-cov>=4.0",
-    "ruff>=0.8.0",
+    "ruff==0.14.10",
     "setuptools>=68",
     "setuptools-scm>=8",
 ]
@@ -60,16 +60,19 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.ruff]
-line-length = 120
+required-version = "==0.14.10"
+line-length = 88
 target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
-ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG"]
+
+[tool.ruff.format]
+quote-style = "preserve"
 
 [tool.coverage.run]
 source = ["bsworld"]

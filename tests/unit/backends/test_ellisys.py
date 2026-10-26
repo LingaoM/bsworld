@@ -7,7 +7,9 @@ import pytest
 
 from bsworld.backends.ellisys import convert_tx_csv
 
-HEADER = "FileFormat:Bluetooth\n                version=1.0\n\nItemFormat:LE version=1.1\n"
+HEADER = (
+    "FileFormat:Bluetooth\n                version=1.0\n\nItemFormat:LE version=1.1\n"
+)
 CSV_HEADER = (
     "start_time,end_time,center_freq,phy_address,modulation,power_level,"
     "abort_time,recheck_time,packet_size,packet\n"
@@ -33,10 +35,22 @@ def test_merge_sorts_by_time_then_full_record_and_keeps_duplicates(tmp_path) -> 
 
     assert output.getvalue() == (
         HEADER
-        + 'Item time=10000 aa=0x8E89BED6 rssi=-40 rfchannel=0 phy=1Mbps rawdata="02 00 00 00 00"\n'
-        + 'Item time=10000 aa=0x8E89BED6 rssi=-40 rfchannel=0 phy=1Mbps rawdata="02 00 00 00 00"\n'
-        + 'Item time=20000 aa=0xAAAAAAAA rssi=-40 rfchannel=39 phy=2Mbps rawdata="03 00 00 00 00"\n'
-        + 'Item time=20000 aa=0xBBBBBBBB rssi=-40 rfchannel=1 phy=2Mbps rawdata="01 00 00 00 00"\n'
+        + (
+            'Item time=10000 aa=0x8E89BED6 rssi=-40 rfchannel=0 phy=1Mbps rawdata="02 '
+            '00 00 00 00"\n'
+        )
+        + (
+            'Item time=10000 aa=0x8E89BED6 rssi=-40 rfchannel=0 phy=1Mbps rawdata="02 '
+            '00 00 00 00"\n'
+        )
+        + (
+            'Item time=20000 aa=0xAAAAAAAA rssi=-40 rfchannel=39 phy=2Mbps rawdata="03 '
+            '00 00 00 00"\n'
+        )
+        + (
+            'Item time=20000 aa=0xBBBBBBBB rssi=-40 rfchannel=1 phy=2Mbps rawdata="01 '
+            '00 00 00 00"\n'
+        )
     )
 
 
@@ -53,8 +67,8 @@ def test_coded_fec2_uses_fec1_timestamp_and_coding(tmp_path, ci, coding) -> None
     convert_tx_csv([path], output)
 
     assert output.getvalue() == (
-        HEADER
-        + f'Item time=100000 aa=0x8E89BED6 rssi=-40 rfchannel=0 phy=Coded coding=Coded{coding} '
+        HEADER + 'Item time=100000 aa=0x8E89BED6 rssi=-40 rfchannel=0 '
+        f'phy=Coded coding=Coded{coding} '
         'rawdata="01 00 AA BB CC"\n'
     )
 

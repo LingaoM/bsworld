@@ -32,7 +32,9 @@ def phy_clock(tmp_path):
             stderr=subprocess.STDOUT,
         )
         clock = BsimClock(
-            sim_dir=env.sim_dir(sim_id), phy_id="2G4", dev_id=0,
+            sim_dir=env.sim_dir(sim_id),
+            phy_id="2G4",
+            dev_id=0,
             phy_alive=lambda: phy.poll() is None,
         )
         try:
@@ -86,17 +88,23 @@ def test_clock_bounds_wall_time_wait_for_unresponsive_phy(phy_clock) -> None:
 
 
 @pytest.mark.parametrize("monitor_phy", [False, True])
-def test_clock_connection_is_bounded_if_phy_dies_after_creating_fifos(tmp_path, monitor_phy) -> None:
+def test_clock_connection_is_bounded_if_phy_dies_after_creating_fifos(
+    tmp_path, monitor_phy
+) -> None:
     env = Env.detect()
     check_babblesim_ready(env)
     sim_id = f"bsw_clock_{uuid.uuid4().hex[:12]}"
     with (tmp_path / "phy.log").open("wb") as output:
         phy = subprocess.Popen(
             [env.bsim_bin_dir / "bs_2G4_phy_v1", f"-s={sim_id}", "-D=1", "-nodump"],
-            cwd=env.bsim_bin_dir, stdout=output, stderr=subprocess.STDOUT,
+            cwd=env.bsim_bin_dir,
+            stdout=output,
+            stderr=subprocess.STDOUT,
         )
         clock = BsimClock(
-            sim_dir=env.sim_dir(sim_id), phy_id="2G4", dev_id=0,
+            sim_dir=env.sim_dir(sim_id),
+            phy_id="2G4",
+            dev_id=0,
             phy_alive=(lambda: phy.poll() is None) if monitor_phy else None,
         )
         try:

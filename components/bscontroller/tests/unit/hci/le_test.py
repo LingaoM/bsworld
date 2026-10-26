@@ -46,10 +46,18 @@ async def test_power_on_and_reset_restore_specified_defaults():
         assert controller.event_mask == hci.HCI_EVENT_MASK_DEFAULT
         assert controller.le_event_mask == hci.HCI_LE_EVENT_MASK_DEFAULT
         advertiser = controller.le_legacy_advertiser
-        assert advertiser.advertising_interval_min == advertiser.advertising_interval_max == 0x0800
+        assert (
+            advertiser.advertising_interval_min
+            == advertiser.advertising_interval_max
+            == 0x0800
+        )
         assert advertiser.advertising_channel_map == 0x07
         scan = controller.le_procedures.scan_parameters
-        assert scan.interval_us == scan.window_us == 0x0010 * hci.HCI_LE_SCAN_INTERVAL_UNIT_US
+        assert (
+            scan.interval_us
+            == scan.window_us
+            == 0x0010 * hci.HCI_LE_SCAN_INTERVAL_UNIT_US
+        )
 
     check()
     controller.on_packet(

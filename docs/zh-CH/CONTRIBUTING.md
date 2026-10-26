@@ -33,9 +33,12 @@ BSWorld 自有代码使用 Apache License 2.0。引入或复用的第三方组�
 以下检查在挂载当前仓库的 [Docker 环境](../../docker/README.zh-CN.md#运行测试)或本机 Python 环境中执行。框架代码至少应通过：
 
 ```sh
-ruff check --no-cache src tests
+ruff check --no-cache .
+ruff format --check --no-cache .
 pytest tests/unit/
 ```
+
+遵循仓库的 Python [代码格式](development.md#代码格式)约定。`Code style` 工作流会在每次 push 和 pull request 时检查全部 Python 代码。
 
 修改进程启动、调度、HCI、RF 行为、平台配置或测试业务程序时，还需要运行受影响的虚拟系统测试，例如：
 

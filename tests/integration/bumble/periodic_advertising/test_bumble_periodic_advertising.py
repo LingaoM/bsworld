@@ -98,10 +98,17 @@ async def test_bumble_observer_syncs_periodic_advertising(topo):
                 sid=periodic_advertisement.sid,
                 sync_timeout=5.0,
             )
-            sync.on(PeriodicAdvertisingSync.EVENT_ESTABLISHMENT, lambda: sync_established.set())
+            sync.on(
+                PeriodicAdvertisingSync.EVENT_ESTABLISHMENT,
+                lambda: sync_established.set(),
+            )
 
             def on_periodic_advertisement(advertisement) -> None:  # noqa: ANN001
-                if advertisement.data and advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME) == PERIODIC_NAME:
+                if (
+                    advertisement.data
+                    and advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME)
+                    == PERIODIC_NAME
+                ):
                     periodic_report.set()
 
             sync.on(

@@ -11,7 +11,10 @@ from dataclasses import replace
 from functools import partial
 
 from bscontroller.address import Address
-from bscontroller.capabilities import CONTROLLER_CONNECTION_COUNT, CONTROLLER_SUPPORTED_PHY_MASK
+from bscontroller.capabilities import (
+    CONTROLLER_CONNECTION_COUNT,
+    CONTROLLER_SUPPORTED_PHY_MASK,
+)
 from bscontroller.errors import ErrorCode
 from bscontroller.linklayer import (
     LL_ADV_DELAY_MAX_US,
@@ -74,7 +77,13 @@ from bscontroller.linklayer.timing import (
     LL_DEFAULT_SCAN_INTERVAL_US,
     LL_RESPONSE_START_TOLERANCE_US,
 )
-from bscontroller.radio.base import PHY_OCTET_BITS, RADIO_SWITCH_TIME_US, Phy, Radio, Received
+from bscontroller.radio.base import (
+    PHY_OCTET_BITS,
+    RADIO_SWITCH_TIME_US,
+    Phy,
+    Radio,
+    Received,
+)
 
 
 class RadioLink:
@@ -88,7 +97,9 @@ class RadioLink:
     _periodic_transmit = periodic_transmit
     _periodic_receive = periodic_receive
 
-    def __init__(self, radio: Radio, listener: Listener, features: int = 0, seed: int = 1):
+    def __init__(
+        self, radio: Radio, listener: Listener, features: int = 0, seed: int = 1
+    ):
         self.radio = radio
         self.listener = listener
         self.features = features
@@ -155,7 +166,9 @@ class RadioLink:
         window_delay_us: int = LL_CONN_INTERVAL_UNIT_US,
         phy: Phy = Phy.LE_1M,
     ) -> Connection:
-        """Enter the Connection state in the given role (Core Vol 6, Part B, 4.5.4, 4.5.5)."""
+        """Enter the Connection state in the given role (Core Vol 6, Part B, 4.5.4,
+        4.5.5).
+        """
         if advertiser is not None:
             advertiser.enabled = False
         connection = Connection(
@@ -170,7 +183,9 @@ class RadioLink:
             phy=phy,
         )
         if advertiser is not None:
-            handle = next(key for key, value in self.advertisers.items() if value is advertiser)
+            handle = next(
+                key for key, value in self.advertisers.items() if value is advertiser
+            )
             if handle != -1:
                 connection.advertising_handle = handle
                 connection.advertising_events = advertiser.events
@@ -179,8 +194,15 @@ class RadioLink:
         return connection
 
     def new_access_address(self) -> int:
-        used = {connection.parameters.access_address for connection in self.connections.values()}
-        used.update(item.periodic_aa for item in self.advertisers.values() if item.periodic_enabled)
+        used = {
+            connection.parameters.access_address
+            for connection in self.connections.values()
+        }
+        used.update(
+            item.periodic_aa
+            for item in self.advertisers.values()
+            if item.periodic_enabled
+        )
         return generate_access_address(self.random, used)
 
     def reservations(self, *, exclude: object = None) -> list[RadioReservation]:
@@ -205,10 +227,12 @@ class RadioLink:
             start,
             max(
                 parameters.window_size * LL_CONN_INTERVAL_UNIT_US,
-                2 * phy.airtime_us(PDU_HEADER_SIZE + PDU_DATA_PAYLOAD_SIZE_MIN) + 2 * LL_IFS_US,
+                2 * phy.airtime_us(PDU_HEADER_SIZE + PDU_DATA_PAYLOAD_SIZE_MIN)
+                + 2 * LL_IFS_US,
             )
             + LL_CONN_EVENT_GUARD_US,
-            start + (parameters.interval - parameters.window_size) * LL_CONN_INTERVAL_UNIT_US,
+            start
+            + (parameters.interval - parameters.window_size) * LL_CONN_INTERVAL_UNIT_US,
             quantum_us=LL_CONN_INTERVAL_UNIT_US,
         )
         if gap is None:
@@ -222,7 +246,9 @@ class RadioLink:
         )
 
     def set_periodic_enabled(self, item: Advertising, enable: bool) -> None:
-        """Start or stop a periodic train with a fresh Access Address and CRCInit (Core Vol 6, Part B, 4.4.2.12, 2.1.2)."""
+        """Start or stop a periodic train with a fresh Access Address and CRCInit (Core
+        Vol 6, Part B, 4.4.2.12, 2.1.2).
+        """
         if item.periodic_enabled == enable:
             return
         interval_us = item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
@@ -275,8 +301,14 @@ class RadioLink:
         )
 
     async def _advertise(self, item: Advertising) -> None:
-        """Run one advertising event, then schedule T_advEvent = advInterval + advDelay (Core Vol 6, Part B, 4.4.2.2.1)."""
-        channel = next(channel for bit, channel in enumerate(LL_ADV_PRIMARY_CHANNELS) if item.channel_map & (1 << bit))
+        """Run one advertising event, then schedule T_advEvent = advInterval + advDelay
+        (Core Vol 6, Part B, 4.4.2.2.1).
+        """
+        channel = next(
+            channel
+            for bit, channel in enumerate(LL_ADV_PRIMARY_CHANNELS)
+            if item.channel_map & (1 << bit)
+        )
         start = self.radio.earliest_start_us(channel, item.primary_phy, transmit=True)
         reservations = self.reservations()
         if reservations:
@@ -284,13 +316,19 @@ class RadioLink:
             latest = (
                 item.deadline_us - duration
                 if item.deadline_us
-                else (start + max(reservation.interval_us for reservation in reservations))
+                else (
+                    start + max(reservation.interval_us for reservation in reservations)
+                )
             )
             gap = first_radio_gap(reservations, start, duration, latest)
             if gap != start:
                 # Defer the complete event if its reservation would collide, rather than
                 # sending a primary PDU whose auxiliary exchange cannot finish.
-                item.next_us = gap if gap is not None else (item.deadline_us or start + item.interval_us)
+                item.next_us = (
+                    gap
+                    if gap is not None
+                    else (item.deadline_us or start + item.interval_us)
+                )
                 return
         event_start = start
         item.events += 1
@@ -299,7 +337,9 @@ class RadioLink:
         else:
             await advertise_legacy(self, item)
         item.next_us = max(
-            event_start + item.interval_us + (0 if item.high_duty else self.random.randint(0, LL_ADV_DELAY_MAX_US)),
+            event_start
+            + item.interval_us
+            + (0 if item.high_duty else self.random.randint(0, LL_ADV_DELAY_MAX_US)),
             self.now_us + 1,
         )
 
@@ -323,7 +363,8 @@ class RadioLink:
             # Expire exhausted sets before collecting TX work, preventing one extra
             # event when the expiry and next transmission are both due.
             if item.enabled and (
-                (item.deadline_us and now >= item.deadline_us) or (item.max_events and item.events >= item.max_events)
+                (item.deadline_us and now >= item.deadline_us)
+                or (item.max_events and item.events >= item.max_events)
             ):
                 item.enabled = False
                 self.listener.on_advertising_ended(
@@ -336,12 +377,20 @@ class RadioLink:
                 )
             if item.enabled:
                 operations.append(
-                    PendingOperation(item.next_us, RadioPriority.ADVERTISING, item, partial(self._advertise, item))
+                    PendingOperation(
+                        item.next_us,
+                        RadioPriority.ADVERTISING,
+                        item,
+                        partial(self._advertise, item),
+                    )
                 )
                 if item.deadline_us:
                     operations.append(
                         PendingOperation(
-                            item.deadline_us, RadioPriority.EXPIRY, item, partial(self._expire_advertiser, item)
+                            item.deadline_us,
+                            RadioPriority.EXPIRY,
+                            item,
+                            partial(self._expire_advertiser, item),
                         )
                     )
             if item.periodic_enabled:
@@ -361,7 +410,12 @@ class RadioLink:
                 continue
             window = periodic_receive_window(context)
             operations.append(
-                PendingOperation(window.start_us, window.priority, context, partial(self._periodic_receive, context))
+                PendingOperation(
+                    window.start_us,
+                    window.priority,
+                    context,
+                    partial(self._periodic_receive, context),
+                )
             )
         return operations, contexts
 
@@ -369,7 +423,9 @@ class RadioLink:
         await connection.advance_to_us(target_us, radio_until_us=self.radio_deadline_us)
 
     async def _scan_until(self, scan: Scanning | Initiating, end: int) -> None:
-        """Listen in the current scan window; channels rotate per window (Core Vol 6, Part B, 4.4.3)."""
+        """Listen in the current scan window; channels rotate per window (Core Vol 6,
+        Part B, 4.4.3).
+        """
         now = self.now_us
         if isinstance(scan, Scanning) and scan.deadline_us and now >= scan.deadline_us:
             # A finite scan either ends or moves to the next period. Period gaps
@@ -436,7 +492,9 @@ class RadioLink:
                 )
             ):
                 self.sync = None
-                self.listener.on_sync_established(sync, ErrorCode.CONNECTION_FAILED_TO_BE_ESTABLISHED_ERROR)
+                self.listener.on_sync_established(
+                    sync, ErrorCode.CONNECTION_FAILED_TO_BE_ESTABLISHED_ERROR
+                )
                 continue
             for handle, active in list(self.syncs.items()):
                 if now >= active.deadline_us:
@@ -444,7 +502,8 @@ class RadioLink:
                     self.listener.on_sync_lost(active)
             operations, contexts = self._pending_operations(sync, target_us)
             if operations:
-                # Pick by due time, priority, then fairness. Rebuild after each operation
+                # Pick by due time, priority, then fairness. Rebuild after each
+                # operation
                 # because its callbacks may remove or replace the remaining contexts.
                 operation = self.resource.select(operations)
                 due = operation.due_us
@@ -461,7 +520,8 @@ class RadioLink:
                     end = min(end, context.deadline_us)
             scans = [scan for scan in (self.initiating, self.scan) if scan is not None]
             if self.scan is None and sync and sync.info is None:
-                # Use a background scan to find SyncInfo before periodic RX can be scheduled.
+                # Use a background scan to find SyncInfo before periodic RX can be
+                # scheduled.
                 # TODO: honor Host scan-enable state here (Vol 4, Part E, 7.8.67).
                 scans.append(
                     Scanning(

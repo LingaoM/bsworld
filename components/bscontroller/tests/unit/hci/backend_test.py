@@ -28,7 +28,9 @@ async def test_backend_capabilities_do_not_change_other_controllers():
     radio = Controller('radio', backend=radio_backend())
     assert radio.le_features & hci.LeFeatureMask.LE_PERIODIC_ADVERTISING
     assert radio.le_features & hci.LeFeatureMask.LE_ENCRYPTION
-    assert radio.le_features & hci.LeFeatureMask.MINIMUM_NUMBER_OF_USED_CHANNELS_PROCEDURE
+    assert (
+        radio.le_features & hci.LeFeatureMask.MINIMUM_NUMBER_OF_USED_CHANNELS_PROCEDURE
+    )
     assert radio.le_acl_data_packet_length == HCI_ACL_BUFFER_SIZE
     assert local.le_features & hci.LeFeatureMask.LE_ENCRYPTION
     assert local.supported_commands == supported

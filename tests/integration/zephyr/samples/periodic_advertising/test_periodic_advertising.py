@@ -16,8 +16,15 @@
 
 from __future__ import annotations
 
-from tests.integration.zephyr.samples.common import load_zephyr_profile, require_binaries, sample_log_subdir
-from tests.integration.zephyr.samples.periodic_advertising.devices import ZEPHYR_PERIODIC_ADV, ZEPHYR_PERIODIC_SYNC
+from tests.integration.zephyr.samples.common import (
+    load_zephyr_profile,
+    require_binaries,
+    sample_log_subdir,
+)
+from tests.integration.zephyr.samples.periodic_advertising.devices import (
+    ZEPHYR_PERIODIC_ADV,
+    ZEPHYR_PERIODIC_SYNC,
+)
 
 _TIMEOUT = 90.0
 
@@ -31,11 +38,15 @@ async def test_zephyr_periodic_sync_receives_periodic_advertising(topo):
         ZEPHYR_PERIODIC_ADV,
         log_subdir=sample_log_subdir("periodic_adv"),
     )
-    sync = load_zephyr_profile(topo, ZEPHYR_PERIODIC_SYNC, log_subdir=sample_log_subdir("periodic_sync"))
+    sync = load_zephyr_profile(
+        topo, ZEPHYR_PERIODIC_SYNC, log_subdir=sample_log_subdir("periodic_sync")
+    )
 
     await topo.start()
 
-    await advertiser.wait_log(r"Start Extended Advertising\.\.\.done\.", timeout=_TIMEOUT)
+    await advertiser.wait_log(
+        r"Start Extended Advertising\.\.\.done\.", timeout=_TIMEOUT
+    )
     await sync.wait_log(r"Found periodic advertising\.", timeout=_TIMEOUT)
     await sync.wait_log(r"Periodic sync established\.", timeout=_TIMEOUT)
     await sync.wait_log(r"PER_ADV_SYNC\[\d+\]: .*data length", timeout=_TIMEOUT)

@@ -50,7 +50,9 @@ def test_asyncio_wait_for_uses_discrete_timeout() -> None:
             await asyncio.wait_for(asyncio.Event().wait(), timeout=7.5)
         return asyncio.get_running_loop().time() - started_at
 
-    assert run_on_clock(scenario(), clock=clock, max_step_us=20_000_000) == pytest.approx(7.5)
+    assert run_on_clock(
+        scenario(), clock=clock, max_step_us=20_000_000
+    ) == pytest.approx(7.5)
 
 
 def test_callback_chain_is_drained_before_time_advances() -> None:

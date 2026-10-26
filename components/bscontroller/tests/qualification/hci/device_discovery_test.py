@@ -2129,10 +2129,7 @@ PROCEDURES |= procedure_cases(
     periodic_enable_before_parameters,
     {
         'HCI/DDI/BV-07-C': (
-            (
-                'Set Periodic Advertising Before Periodic Advertising '
-                'Parameters Command'
-            ),
+            ('Set Periodic Advertising Before Periodic Advertising Parameters Command'),
             {},
         ),
     },

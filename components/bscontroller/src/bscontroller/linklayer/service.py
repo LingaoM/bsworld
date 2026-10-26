@@ -29,8 +29,19 @@ from bscontroller.linklayer import (
     PDU_ADV_LEGACY_DATA_SIZE_MAX,
     AdvertisingMode,
 )
-from bscontroller.linklayer.discovery import Advertising, Initiating, PeriodicSync, ScanBackoff, Scanning, ScanWindow
-from bscontroller.linklayer.extended import advertising_time_us, auxiliary_pdu, periodic_time_us
+from bscontroller.linklayer.discovery import (
+    Advertising,
+    Initiating,
+    PeriodicSync,
+    ScanBackoff,
+    Scanning,
+    ScanWindow,
+)
+from bscontroller.linklayer.extended import (
+    advertising_time_us,
+    auxiliary_pdu,
+    periodic_time_us,
+)
 from bscontroller.linklayer.llcp import PreparedProcedure
 from bscontroller.linklayer.state import Role
 
@@ -46,7 +57,9 @@ TOO_LONG = ErrorCode.PACKET_TOO_LONG_ERROR
 
 
 class AdvertisingService:
-    """Configure and publish advertisers; HCI fragment staging remains above this API."""
+    """Configure and publish advertisers; HCI fragment staging remains above this
+    API.
+    """
 
     def __init__(self, link: RadioLink):
         self.link = link
@@ -57,8 +70,17 @@ class AdvertisingService:
             item = configuration
             self.link.advertisers[-1] = item
         else:
-            # Configuration is detached. Keep the live queue, payloads and event counters.
-            for field in ('address', 'interval_us', 'channel_map', 'pdu_type', 'target', 'high_duty', 'filter_policy'):
+            # Configuration is detached. Keep the live queue, payloads and event
+            # counters.
+            for field in (
+                'address',
+                'interval_us',
+                'channel_map',
+                'pdu_type',
+                'target',
+                'high_duty',
+                'filter_policy',
+            ):
                 setattr(item, field, getattr(configuration, field))
         return item
 
@@ -68,12 +90,17 @@ class AdvertisingService:
             return INVALID
         if item and (item.enabled or item.periodic_enabled):
             return DISALLOWED
-        if item is None and len(self.link.advertisers) >= CONTROLLER_ADVERTISING_SET_COUNT:
+        if (
+            item is None
+            and len(self.link.advertisers) >= CONTROLLER_ADVERTISING_SET_COUNT
+        ):
             return ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
         return SUCCESS
 
     def configure(self, handle: int, item: Advertising) -> int:
-        status = self.configuration_status(handle, not item.extended or bool(item.mode) or item.anonymous)
+        status = self.configuration_status(
+            handle, not item.extended or bool(item.mode) or item.anonymous
+        )
         if status == SUCCESS:
             status = self.data_status(item)
         if status == SUCCESS:
@@ -82,7 +109,9 @@ class AdvertisingService:
 
     @staticmethod
     def data_status(item: Advertising) -> int:
-        """Validate payload placement and complete-event airtime before a configuration commit."""
+        """Validate payload placement and complete-event airtime before a configuration
+        commit.
+        """
         if (
             (
                 not item.extended
@@ -93,7 +122,11 @@ class AdvertisingService:
             )
             or (item.target is not None and not item.extended and item.data)
             or (item.extended and item.mode == AdvertisingMode.SCANNABLE and item.data)
-            or (item.extended and item.mode != AdvertisingMode.SCANNABLE and item.scan_response)
+            or (
+                item.extended
+                and item.mode != AdvertisingMode.SCANNABLE
+                and item.scan_response
+            )
         ):
             return INVALID
         if (
@@ -115,8 +148,12 @@ class AdvertisingService:
             item.address = address
         return SUCCESS
 
-    def store_data(self, handle: int, field: str, data: bytes, *, renew: bool = False) -> None:
-        """Commit only the selected payload; a completed HCI sequence renews its identity once."""
+    def store_data(
+        self, handle: int, field: str, data: bytes, *, renew: bool = False
+    ) -> None:
+        """Commit only the selected payload; a completed HCI sequence renews its
+        identity once.
+        """
         if field not in ('data', 'scan_response', 'periodic_data'):
             raise ValueError('unknown advertising payload')
         item = self.link.advertisers[handle]
@@ -143,9 +180,11 @@ class AdvertisingService:
             or (
                 field == 'periodic_data'
                 and item.periodic_interval
-                and periodic_time_us(updated) + LL_MAFS_US >= item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
+                and periodic_time_us(updated) + LL_MAFS_US
+                >= item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
             )
-            or advertising_time_us(updated) > (item.interval_us if item.enabled else item.interval_max_us)
+            or advertising_time_us(updated)
+            > (item.interval_us if item.enabled else item.interval_max_us)
         ):
             return TOO_LONG
         return SUCCESS
@@ -155,7 +194,9 @@ class AdvertisingService:
         candidate = replace(item, **{field: value})
         if (
             item.periodic_enabled
-            and advertising_time_us(candidate) + periodic_time_us(candidate) + LL_MAFS_US
+            and advertising_time_us(candidate)
+            + periodic_time_us(candidate)
+            + LL_MAFS_US
             >= item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
         ):
             return DISALLOWED
@@ -165,18 +206,34 @@ class AdvertisingService:
         item.enabled = enable
         item.next_us = self.link.now_us + 1
         item.events = 0
-        item.deadline_us = self.link.now_us + LL_ADV_DIRECT_HIGH_DUTY_TIMEOUT_US if item.high_duty else 0
+        item.deadline_us = (
+            self.link.now_us + LL_ADV_DIRECT_HIGH_DUTY_TIMEOUT_US
+            if item.high_duty
+            else 0
+        )
         return SUCCESS
 
-    def enable(self, enable: bool, sets: tuple[tuple[int, int, int], ...], *, interval_unit_us: int) -> int:
-        """Preflight the entire request before committing any set (Vol 4, Part E, 7.8.56)."""
+    def enable(
+        self,
+        enable: bool,
+        sets: tuple[tuple[int, int, int], ...],
+        *,
+        interval_unit_us: int,
+    ) -> int:
+        """Preflight the entire request before committing any set (Vol 4, Part E,
+        7.8.56).
+        """
         handles = [handle for handle, _, _ in sets]
         if any(handle not in self.link.advertisers for handle in handles):
             return UNKNOWN_ADV
         if enable:
             for handle in handles:
                 item = self.link.advertisers[handle]
-                if item.extended and item.mode == AdvertisingMode.SCANNABLE and not item.scan_response:
+                if (
+                    item.extended
+                    and item.mode == AdvertisingMode.SCANNABLE
+                    and not item.scan_response
+                ):
                     return DISALLOWED
                 if advertising_time_us(item) > item.interval_max_us:
                     return TOO_LONG
@@ -186,7 +243,10 @@ class AdvertisingService:
             if enable:
                 airtime = advertising_time_us(item)
                 item.interval_us = max(
-                    item.interval_us, (airtime + interval_unit_us - 1) // interval_unit_us * interval_unit_us
+                    item.interval_us,
+                    (airtime + interval_unit_us - 1)
+                    // interval_unit_us
+                    * interval_unit_us,
                 )
             item.enabled = enable
             item.next_us = self.link.now_us + 1
@@ -194,7 +254,10 @@ class AdvertisingService:
             item.max_events = max_events
             if item.high_duty:
                 # TODO: reject invalid high-duty Duration instead of clamping (7.8.56).
-                duration = min(duration or LL_ADV_DIRECT_HIGH_DUTY_TIMEOUT_US, LL_ADV_DIRECT_HIGH_DUTY_TIMEOUT_US)
+                duration = min(
+                    duration or LL_ADV_DIRECT_HIGH_DUTY_TIMEOUT_US,
+                    LL_ADV_DIRECT_HIGH_DUTY_TIMEOUT_US,
+                )
             item.deadline_us = self.link.now_us + duration if duration else 0
         return SUCCESS
 
@@ -208,7 +271,10 @@ class AdvertisingService:
         return SUCCESS
 
     def clear(self) -> int:
-        if any(item.enabled or item.periodic_enabled for item in self.link.advertisers.values()):
+        if any(
+            item.enabled or item.periodic_enabled
+            for item in self.link.advertisers.values()
+        ):
             return DISALLOWED
         self.link.advertisers.clear()
         return SUCCESS
@@ -219,20 +285,34 @@ class AdvertisingService:
             return DISALLOWED
         if not item.extended or item.mode or item.anonymous:
             return INVALID
-        if periodic_time_us(item) + LL_MAFS_US >= maximum * LL_PERIODIC_INTERVAL_UNIT_US:
+        if (
+            periodic_time_us(item) + LL_MAFS_US
+            >= maximum * LL_PERIODIC_INTERVAL_UNIT_US
+        ):
             return TOO_LONG
         item.periodic_interval = minimum
         return SUCCESS
 
     def enable_periodic(self, handle: int, enable: bool) -> int:
         item = self.link.advertisers[handle]
-        if not item.extended or not item.periodic_interval or item.mode or item.anonymous:
+        if (
+            not item.extended
+            or not item.periodic_interval
+            or item.mode
+            or item.anonymous
+        ):
             return DISALLOWED
-        if enable and periodic_time_us(item) + LL_MAFS_US >= item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US:
+        if (
+            enable
+            and periodic_time_us(item) + LL_MAFS_US
+            >= item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
+        ):
             return TOO_LONG
         if (
             enable
-            and advertising_time_us(replace(item, periodic_enabled=True)) + periodic_time_us(item) + LL_MAFS_US
+            and advertising_time_us(replace(item, periodic_enabled=True))
+            + periodic_time_us(item)
+            + LL_MAFS_US
             >= item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
         ):
             return DISALLOWED
@@ -241,9 +321,17 @@ class AdvertisingService:
 
 
 class LinkLayerService:
-    """LL control operations; live state is committed here before upper-layer notification."""
+    """LL control operations; live state is committed here before upper-layer
+    notification.
+    """
 
-    def __init__(self, link: RadioLink, address: Address, scan_interval_us: int, scan_window_us: int):
+    def __init__(
+        self,
+        link: RadioLink,
+        address: Address,
+        scan_interval_us: int,
+        scan_window_us: int,
+    ):
         self.link = link
         self.advertising = AdvertisingService(link)
         self._default_scan = (scan_interval_us, scan_window_us)
@@ -256,10 +344,19 @@ class LinkLayerService:
         self.link.default_tx_phys = self.default_tx_phys
         self.link.default_rx_phys = self.default_rx_phys
 
-    def configure_scanning(self, address: Address, interval_us: int, window_us: int, active: bool, policy: int) -> int:
+    def configure_scanning(
+        self,
+        address: Address,
+        interval_us: int,
+        window_us: int,
+        active: bool,
+        policy: int,
+    ) -> int:
         if self.link.scan is not None:
             return DISALLOWED
-        self.scan_parameters = Scanning(address, interval_us, window_us, active, filter_policy=policy)
+        self.scan_parameters = Scanning(
+            address, interval_us, window_us, active, filter_policy=policy
+        )
         return SUCCESS
 
     def configure_scan_windows(self, windows: tuple[ScanWindow, ...]) -> None:
@@ -277,7 +374,9 @@ class LinkLayerService:
         scan.deadline_us = self.link.now_us + duration_us if duration_us else 0
 
     def initiating_status(self, peer: Address, use_list: bool) -> int:
-        if not use_list and any(connection.peer == peer for connection in self.link.connections.values()):
+        if not use_list and any(
+            connection.peer == peer for connection in self.link.connections.values()
+        ):
             return ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR
         if self.link.initiating is not None:
             return DISALLOWED
@@ -286,7 +385,9 @@ class LinkLayerService:
         return SUCCESS
 
     def start_initiating(self, configuration: Initiating) -> int:
-        status = self.initiating_status(configuration.peer, bool(configuration.filter_policy))
+        status = self.initiating_status(
+            configuration.peer, bool(configuration.filter_policy)
+        )
         if status == SUCCESS:
             self.link.initiating = configuration
         return status
@@ -298,7 +399,10 @@ class LinkLayerService:
     def synchronization_status(self, address: Address, sid: int, use_list: bool) -> int:
         if self.link.sync is not None:
             return DISALLOWED
-        if not use_list and any(active.address == address and active.sid == sid for active in self.link.syncs.values()):
+        if not use_list and any(
+            active.address == address and active.sid == sid
+            for active in self.link.syncs.values()
+        ):
             return ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR
         if len(self.link.syncs) >= CONTROLLER_PERIODIC_SYNC_COUNT:
             return ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
@@ -309,7 +413,9 @@ class LinkLayerService:
         if status != SUCCESS:
             return status
         sync.handle = next(
-            handle for handle in range(1, CONTROLLER_PERIODIC_SYNC_COUNT + 1) if handle not in self.link.syncs
+            handle
+            for handle in range(1, CONTROLLER_PERIODIC_SYNC_COUNT + 1)
+            if handle not in self.link.syncs
         )
         self.link.sync = sync
         return SUCCESS
@@ -332,7 +438,10 @@ class LinkLayerService:
 
     def edit_filter(self, address: Address | None, add: bool, capacity: int) -> int:
         if (
-            any(item.enabled and item.filter_policy for item in self.link.advertisers.values())
+            any(
+                item.enabled and item.filter_policy
+                for item in self.link.advertisers.values()
+            )
             or bool(self.link.scan and self.link.scan.filter_policy)
             or bool(self.link.initiating and self.link.initiating.filter_policy)
         ):
@@ -348,7 +457,9 @@ class LinkLayerService:
             items.discard(address)
         return SUCCESS
 
-    def edit_periodic_list(self, key: tuple[Address, int] | None, add: bool, capacity: int) -> int:
+    def edit_periodic_list(
+        self, key: tuple[Address, int] | None, add: bool, capacity: int
+    ) -> int:
         if self.link.sync is not None:
             return DISALLOWED
         items = self.link.periodic_advertiser_list
@@ -371,7 +482,11 @@ class LinkLayerService:
         self.link.default_tx_phys, self.link.default_rx_phys = tx, rx
 
     def classify_channels(self, value: int) -> int:
-        centrals = [connection for connection in self.link.connections.values() if connection.role == Role.CENTRAL]
+        centrals = [
+            connection
+            for connection in self.link.connections.values()
+            if connection.role == Role.CENTRAL
+        ]
         if any(connection.controls.busy for connection in centrals):
             return DISALLOWED
         for connection in centrals:
@@ -386,7 +501,9 @@ class LinkLayerService:
         connection = self.link.connections.get(handle)
         return connection if connection and connection.reported else None
 
-    def prepare_encryption(self, handle: int, rand: bytes, ediv: int, key: bytes) -> PreparedProcedure:
+    def prepare_encryption(
+        self, handle: int, rand: bytes, ediv: int, key: bytes
+    ) -> PreparedProcedure:
         connection = self.connection(handle)
         return (
             connection.llcp.prepare_encryption(rand, ediv, key)
@@ -410,7 +527,9 @@ class LinkLayerService:
             else PreparedProcedure(ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR)
         )
 
-    def prepare_phy(self, handle: int, tx: int, rx: int, coding: int, parameter_status: int) -> PreparedProcedure:
+    def prepare_phy(
+        self, handle: int, tx: int, rx: int, coding: int, parameter_status: int
+    ) -> PreparedProcedure:
         connection = self.connection(handle)
         return (
             connection.llcp.prepare_phy(tx, rx, coding, parameter_status)
@@ -419,20 +538,35 @@ class LinkLayerService:
         )
 
     def prepare_parameters(
-        self, handle: int, minimum: int, maximum: int, latency: int, timeout: int, *, valid_ce_lengths: bool
+        self,
+        handle: int,
+        minimum: int,
+        maximum: int,
+        latency: int,
+        timeout: int,
+        *,
+        valid_ce_lengths: bool,
     ) -> PreparedProcedure:
         connection = self.connection(handle)
         return (
-            connection.llcp.prepare_parameters(minimum, maximum, latency, timeout, valid_ce_lengths=valid_ce_lengths)
+            connection.llcp.prepare_parameters(
+                minimum, maximum, latency, timeout, valid_ce_lengths=valid_ce_lengths
+            )
             if connection
             else PreparedProcedure(ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR)
         )
 
     def supply_key(self, handle: int, key: bytes | None) -> int:
         connection = self.connection(handle)
-        return connection.llcp.supply_key(key) if connection else ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
+        return (
+            connection.llcp.supply_key(key)
+            if connection
+            else ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
+        )
 
-    def reply_parameters(self, handle: int, minimum: int, maximum: int, latency: int, timeout: int) -> int:
+    def reply_parameters(
+        self, handle: int, minimum: int, maximum: int, latency: int, timeout: int
+    ) -> int:
         connection = self.connection(handle)
         return (
             connection.llcp.reply_parameters(minimum, maximum, latency, timeout)
@@ -443,7 +577,9 @@ class LinkLayerService:
     def reject_parameters(self, handle: int, reason: int) -> int:
         connection = self.connection(handle)
         return (
-            connection.llcp.reject_parameters(reason) if connection else ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
+            connection.llcp.reject_parameters(reason)
+            if connection
+            else ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
         )
 
     def set_data_length(self, handle: int, octets: int, time_us: int) -> int:

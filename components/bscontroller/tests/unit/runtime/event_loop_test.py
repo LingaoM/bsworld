@@ -317,7 +317,9 @@ def simulation_loop(request, monkeypatch):
 
 
 @pytest.mark.parametrize('delay_us', [1, 2])
-def test_sleep_uses_integer_microseconds_without_accumulating_error(simulation_loop, delay_us):
+def test_sleep_uses_integer_microseconds_without_accumulating_error(
+    simulation_loop, delay_us
+):
     loop, clock = simulation_loop
     start_us = clock.now_us
 
@@ -332,7 +334,9 @@ def test_sleep_uses_integer_microseconds_without_accumulating_error(simulation_l
 
 
 @pytest.mark.parametrize('delay', [0, 1])
-def test_clock_binding_rejects_active_timers_without_changing_them(simulation_loop, delay):
+def test_clock_binding_rejects_active_timers_without_changing_them(
+    simulation_loop, delay
+):
     loop, clock = simulation_loop
     loop.unbind_clock()
     cancelled = loop.call_later(0, pytest.fail, 'cancelled wall timer fired')
@@ -394,8 +398,12 @@ def test_timeout_and_cancellation_use_integer_microseconds(simulation_loop):
 
 
 @requires_runner
-@pytest.mark.parametrize('delay_us,expected_events,expected_limit', [(500, [500], None), (501, [], 501)])
-def test_controller_gate_uses_the_same_rounded_deadline_as_timers(delay_us, expected_events, expected_limit):
+@pytest.mark.parametrize(
+    'delay_us,expected_events,expected_limit', [(500, [500], None), (501, [], 501)]
+)
+def test_controller_gate_uses_the_same_rounded_deadline_as_timers(
+    delay_us, expected_events, expected_limit
+):
     clock = Clock()
     with asyncio.Runner(loop_factory=ControllerEventLoop) as runner:
         loop = runner.get_loop()
@@ -403,7 +411,9 @@ def test_controller_gate_uses_the_same_rounded_deadline_as_timers(delay_us, expe
         events = []
 
         async def scenario():
-            timer = loop.call_later(delay_us / 1_000_000, lambda: events.append(clock.now_us))
+            timer = loop.call_later(
+                delay_us / 1_000_000, lambda: events.append(clock.now_us)
+            )
             try:
                 assert await loop.before_phy_request(start_us=501) == expected_limit
                 assert events == expected_events

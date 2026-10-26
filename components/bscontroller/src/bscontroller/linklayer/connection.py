@@ -23,7 +23,9 @@ from bscontroller.linklayer import (
     ControlOpcode,
 )
 from bscontroller.linklayer.connection_event import ConnectionEvent, Outbound
-from bscontroller.linklayer.llcp import LL_CONTROL_PDU_SENDER_ROLES as LL_CONTROL_PDU_SENDER_ROLES
+from bscontroller.linklayer.llcp import (
+    LL_CONTROL_PDU_SENDER_ROLES as LL_CONTROL_PDU_SENDER_ROLES,
+)
 from bscontroller.linklayer.llcp import LlcpCoordinator
 from bscontroller.linklayer.parameters import Parameters
 from bscontroller.linklayer.state import Role
@@ -64,7 +66,11 @@ class Connection:
         self.self_address = self_address
         self.role: int = role
         self.csa2 = csa2
-        self.anchor_us: int = connect_end_us + window_delay_us + parameters.window_offset * LL_CONN_INTERVAL_UNIT_US
+        self.anchor_us: int = (
+            connect_end_us
+            + window_delay_us
+            + parameters.window_offset * LL_CONN_INTERVAL_UNIT_US
+        )
         self.event_counter: int = 0
         self.unmapped_channel = 0
         self.established = False
@@ -175,18 +181,30 @@ class Connection:
     def enqueue_acl(self, continuation: bool, payload: bytes) -> None:
         return self.event.enqueue_acl(continuation, payload)
 
-    def terminate(self, reason: int, *, status: int = ErrorCode.CONNECTION_TERMINATED_BY_LOCAL_HOST_ERROR) -> None:
-        """ACL Termination procedure: T_terminate starts at connSupervisionTimeout (Core Vol 6, Part B, 5.1.6)."""
+    def terminate(
+        self,
+        reason: int,
+        *,
+        status: int = ErrorCode.CONNECTION_TERMINATED_BY_LOCAL_HOST_ERROR,
+    ) -> None:
+        """ACL Termination procedure: T_terminate starts at connSupervisionTimeout (Core
+        Vol 6, Part B, 5.1.6).
+        """
         self.termination_status = status
         if not self.termination_deadline_us:
-            self.termination_deadline_us = self.radio.now_us + self.parameters.timeout * LL_SUPERVISION_TIMEOUT_UNIT_US
+            self.termination_deadline_us = (
+                self.radio.now_us
+                + self.parameters.timeout * LL_SUPERVISION_TIMEOUT_UNIT_US
+            )
         self.enqueue_control(bytes([Opcode.LL_TERMINATE_IND, reason]), priority=True)
 
     def enqueue_control(self, payload: bytes, *, priority: bool = False) -> None:
         return self.event.enqueue_control(payload, priority=priority)
 
     def complete(self, reason: int) -> None:
-        """Exit the Connection state and report the loss reason to the Host (Core Vol 6, Part B, 4.5.12)."""
+        """Exit the Connection state and report the loss reason to the Host (Core Vol 6,
+        Part B, 4.5.12).
+        """
         if self.closed:
             return
         self.llcp.close(reason)
@@ -201,7 +219,9 @@ class Connection:
             self.listener.on_connected(self)
 
     def establish(self) -> None:
-        """Connection established on first reception from the peer, CRC valid or not (Core Vol 6, Part B, 4.5.2, 4.5.5)."""
+        """Connection established on first reception from the peer, CRC valid or not
+        (Core Vol 6, Part B, 4.5.2, 4.5.5).
+        """
         if self.established:
             return
         self.established = True
@@ -221,7 +241,9 @@ class Connection:
     async def send(self, channel: int, start_us: int) -> bool:
         return await self.event.send(channel, start_us)
 
-    async def receive(self, channel: int, until_us: int, *, start_us: int | None = None):
+    async def receive(
+        self, channel: int, until_us: int, *, start_us: int | None = None
+    ):
         return await self.event.receive(channel, until_us, start_us=start_us)
 
     def next_exchange_us(self, *, max_rx: bool = True) -> int:
@@ -229,7 +251,11 @@ class Connection:
 
     @property
     def response_window_us(self) -> int:
-        return LL_CONN_RX_WINDOW_CODED_US if self.rx_phy == Phy.LE_CODED else LL_CONN_RX_WINDOW_UNCODED_US
+        return (
+            LL_CONN_RX_WINDOW_CODED_US
+            if self.rx_phy == Phy.LE_CODED
+            else LL_CONN_RX_WINDOW_UNCODED_US
+        )
 
     @property
     def receive_window_us(self) -> int:
@@ -256,21 +282,31 @@ class Connection:
             if update is not self.controls.pending:
                 # An Instant can move or widen this event's receive window.
                 continue
-            self.unmapped_channel = (self.unmapped_channel + self.parameters.hop) % LL_DATA_CHANNEL_COUNT
+            self.unmapped_channel = (
+                self.unmapped_channel + self.parameters.hop
+            ) % LL_DATA_CHANNEL_COUNT
             self.anchor_us += self.parameters.interval * LL_CONN_INTERVAL_UNIT_US
             self.event_counter = (self.event_counter + 1) & LL_EVENT_COUNTER_MASK
-            self.link.trace(f'LL MISSED handle={self.handle} next_event={self.event_counter}')
+            self.link.trace(
+                f'LL MISSED handle={self.handle} next_event={self.event_counter}'
+            )
 
-    async def advance_to_us(self, target_us: int, *, radio_until_us: int | None = None) -> int:
+    async def advance_to_us(
+        self, target_us: int, *, radio_until_us: int | None = None
+    ) -> int:
         return await self.event.advance_to_us(target_us, radio_until_us=radio_until_us)
 
     @property
     def supervision_deadline_us(self) -> int:
-        """Core Vol 6, Part B, 4.5.2: connSupervisionTimeout, or six intervals before establishment."""
+        """Core Vol 6, Part B, 4.5.2: connSupervisionTimeout, or six intervals before
+        establishment.
+        """
         timeout = (
             self.parameters.timeout * LL_SUPERVISION_TIMEOUT_UNIT_US
             if self.established
-            else LL_CONN_ESTABLISHMENT_EVENTS * self.parameters.interval * LL_CONN_INTERVAL_UNIT_US
+            else LL_CONN_ESTABLISHMENT_EVENTS
+            * self.parameters.interval
+            * LL_CONN_INTERVAL_UNIT_US
         )
         return max(self.last_rx_us, self.supervision_restart_us) + timeout
 
@@ -286,7 +322,10 @@ class Connection:
     def check_timeout(self) -> bool:
         if self.closed or self.llcp.check_timeout():
             return True
-        if self.termination_deadline_us and self.radio.now_us >= self.termination_deadline_us:
+        if (
+            self.termination_deadline_us
+            and self.radio.now_us >= self.termination_deadline_us
+        ):
             self.complete(self.termination_status)
         elif self.radio.now_us >= self.supervision_deadline_us:
             self.complete(
@@ -304,5 +343,7 @@ class Connection:
     def event_start_us(self) -> int:
         start = self.anchor_us
         if self.role == Role.PERIPHERAL:
-            start -= window_widening(self.anchor_us - self.last_rx_us, self.parameters.sca)
+            start -= window_widening(
+                self.anchor_us - self.last_rx_us, self.parameters.sca
+            )
         return start

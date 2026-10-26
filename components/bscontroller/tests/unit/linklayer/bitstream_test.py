@@ -30,7 +30,9 @@ def test_access_address_generation_is_reproducible_and_valid_on_coded():
         (b'123456789', '565ac2'),
         (bytes(range(39)), '1d0e9b'),
         (
-            bytes.fromhex('021c01f4f3f2f1f00201041209507974686f6e2d526164696f2d44656d6f'),
+            bytes.fromhex(
+                '021c01f4f3f2f1f00201041209507974686f6e2d526164696f2d44656d6f'
+            ),
             '9f800b',
         ),
     ],

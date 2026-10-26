@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Unit tests for ProcessManager — process lifecycle, cleanup, signal handling."""
+
 from __future__ import annotations
 
 import signal
@@ -29,7 +30,12 @@ from bsworld.runtime.proc import Proc, ProcessManager
 def test_spawn_reports_a_missing_executable(tmp_path) -> None:
     pm = ProcessManager()
     with pytest.raises(BSWorldSetupError, match="missing executable"):
-        pm.spawn("ghost", [tmp_path / "does-not-exist"], cwd=tmp_path, log_dir=tmp_path / "log")
+        pm.spawn(
+            "ghost",
+            [tmp_path / "does-not-exist"],
+            cwd=tmp_path,
+            log_dir=tmp_path / "log",
+        )
 
 
 def test_spawn_reports_a_missing_working_directory(tmp_path) -> None:
@@ -65,8 +71,12 @@ def test_cleanup_reports_only_running_processes(tmp_path, monkeypatch) -> None:
     logs: list[str] = []
     monkeypatch.setattr(proc_mod, "log", lambda msg, *, tag="bsworld": logs.append(msg))
     pm = ProcessManager()
-    short = pm.spawn("short", ["/bin/sh", "-c", "true"], cwd=tmp_path, log_dir=tmp_path / "log")
-    long = pm.spawn("long", ["/bin/sh", "-c", "sleep 30"], cwd=tmp_path, log_dir=tmp_path / "log")
+    short = pm.spawn(
+        "short", ["/bin/sh", "-c", "true"], cwd=tmp_path, log_dir=tmp_path / "log"
+    )
+    long = pm.spawn(
+        "long", ["/bin/sh", "-c", "sleep 30"], cwd=tmp_path, log_dir=tmp_path / "log"
+    )
     short.popen.wait(timeout=5)
     assert long.alive() and not short.alive()
 
@@ -80,7 +90,9 @@ def test_cleanup_reports_only_running_processes(tmp_path, monkeypatch) -> None:
 
 def test_cleanup_kills_running_processes(tmp_path) -> None:
     pm = ProcessManager()
-    p = pm.spawn("sleeper", ["/bin/sh", "-c", "sleep 30"], cwd=tmp_path, log_dir=tmp_path / "log")
+    p = pm.spawn(
+        "sleeper", ["/bin/sh", "-c", "sleep 30"], cwd=tmp_path, log_dir=tmp_path / "log"
+    )
     assert p.alive()
 
     pm.cleanup()
@@ -89,10 +101,14 @@ def test_cleanup_kills_running_processes(tmp_path) -> None:
     assert pm.procs == []
 
 
-def test_cleanup_dumps_tail_for_unexpectedly_exited_process(tmp_path, monkeypatch) -> None:
+def test_cleanup_dumps_tail_for_unexpectedly_exited_process(
+    tmp_path, monkeypatch
+) -> None:
     logs: list[tuple[str, str]] = []
     warns: list[str] = []
-    monkeypatch.setattr(proc_mod, "log", lambda msg, *, tag="bsworld": logs.append((tag, msg)))
+    monkeypatch.setattr(
+        proc_mod, "log", lambda msg, *, tag="bsworld": logs.append((tag, msg))
+    )
     monkeypatch.setattr(proc_mod, "warn", lambda msg: warns.append(msg))
 
     pm = ProcessManager()
@@ -112,7 +128,9 @@ def test_cleanup_dumps_tail_for_unexpectedly_exited_process(tmp_path, monkeypatc
 
 def test_dump_tail_handles_missing_log_file(tmp_path, monkeypatch) -> None:
     calls: list[str] = []
-    monkeypatch.setattr(proc_mod, "log", lambda msg, *, tag="bsworld": calls.append(msg))
+    monkeypatch.setattr(
+        proc_mod, "log", lambda msg, *, tag="bsworld": calls.append(msg)
+    )
     pm = ProcessManager()
     fake = Proc(name="x", popen=None, log_path=tmp_path / "absent.log", log_fh=None)
 
@@ -197,7 +215,9 @@ def test_stop_releases_only_the_selected_process(tmp_path):
 
 
 @pytest.mark.parametrize("method", ["stop", "cleanup"])
-def test_process_reaping_reports_errors_and_releases_bookkeeping(tmp_path, monkeypatch, method):
+def test_process_reaping_reports_errors_and_releases_bookkeeping(
+    tmp_path, monkeypatch, method
+):
     warnings = []
     monkeypatch.setattr(proc_mod, "warn", warnings.append)
     popen = Mock()

@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """The registration flow every integration suite shares."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -83,14 +84,20 @@ def test_registration_skips_before_touching_the_topology(tmp_path, monkeypatch) 
 
     with pytest.raises(pytest.skip.Exception, match="BSWORLD_TEST_BIN"):
         add_application(
-            topo, binary_env="BSWORLD_TEST_BIN", guide=_GUIDE, argv=_argv, label="device"
+            topo,
+            binary_env="BSWORLD_TEST_BIN",
+            guide=_GUIDE,
+            argv=_argv,
+            label="device",
         )
 
     assert topo.bsim.controllers == []
     assert topo.processes == []
 
 
-def test_registration_inherits_the_topology_controller_default(tmp_path, monkeypatch) -> None:
+def test_registration_inherits_the_topology_controller_default(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("BSWORLD_TEST_BIN", str(_executable(tmp_path)))
     topo = BluetoothTopology(
         _env(tmp_path), "sim0", tmp_path / "log", default_controller_type=BSController
@@ -112,12 +119,16 @@ def test_registration_inherits_the_topology_controller_default(tmp_path, monkeyp
     assert isinstance(overridden.controller, ZephyrController)
 
 
-def test_a_prebuilt_binary_bypasses_the_environment_lookup(tmp_path, monkeypatch) -> None:
+def test_a_prebuilt_binary_bypasses_the_environment_lookup(
+    tmp_path, monkeypatch
+) -> None:
     binary = _executable(tmp_path)
     monkeypatch.delenv("BSWORLD_TEST_BIN", raising=False)
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
 
-    process = add_application(topo, binary=binary, argv=_argv, label="device", shell=True)
+    process = add_application(
+        topo, binary=binary, argv=_argv, label="device", shell=True
+    )
 
     assert process.shell.enabled is True
     slot = topo.bsim.plan_devices().application_slot(process.controller)
@@ -146,7 +157,9 @@ def test_an_environment_selected_binary_requires_its_guide(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("executable", [False, True])
-def test_artifacts_are_resolved_on_every_call(tmp_path, monkeypatch, executable) -> None:
+def test_artifacts_are_resolved_on_every_call(
+    tmp_path, monkeypatch, executable
+) -> None:
     artifact = tmp_path / "artifact"
     artifact.write_text("output")
     monkeypatch.setenv("BSWORLD_TEST_BIN", str(artifact))
@@ -155,7 +168,10 @@ def test_artifacts_are_resolved_on_every_call(tmp_path, monkeypatch, executable)
         with pytest.raises(pytest.skip.Exception, match="compiled executable"):
             require_artifact("BSWORLD_TEST_BIN", guide=_GUIDE)
         artifact.chmod(0o755)
-    assert require_artifact("BSWORLD_TEST_BIN", guide=_GUIDE, executable=executable) == artifact
+    assert (
+        require_artifact("BSWORLD_TEST_BIN", guide=_GUIDE, executable=executable)
+        == artifact
+    )
 
     # Reselecting the artifact takes effect without reimporting any profile.
     monkeypatch.setenv("BSWORLD_TEST_BIN", str(tmp_path / "missing"))

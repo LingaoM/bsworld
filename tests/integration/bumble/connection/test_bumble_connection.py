@@ -45,7 +45,9 @@ async def test_bumble_central_connects_bumble_peripheral(topo):
         )
         connection = None
         try:
-            connection = await central.connect(peripheral.public_address, timeout=TIMEOUT)
+            connection = await central.connect(
+                peripheral.public_address, timeout=TIMEOUT
+            )
             await asyncio.wait_for(peripheral_connected.wait(), timeout=TIMEOUT)
             assert connection.handle is not None
         finally:

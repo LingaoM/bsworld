@@ -19,8 +19,15 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from tests.integration.zephyr.samples.broadcast_observe.devices import ZEPHYR_BROADCASTER, ZEPHYR_OBSERVER
-from tests.integration.zephyr.samples.common import load_zephyr_profile, require_binaries, sample_log_subdir
+from tests.integration.zephyr.samples.broadcast_observe.devices import (
+    ZEPHYR_BROADCASTER,
+    ZEPHYR_OBSERVER,
+)
+from tests.integration.zephyr.samples.common import (
+    load_zephyr_profile,
+    require_binaries,
+    sample_log_subdir,
+)
 
 from bsworld.interference import StaticAttenuation
 
@@ -39,7 +46,9 @@ async def test_zephyr_broadcaster_is_observed(topo):
         ZEPHYR_BROADCASTER,
         log_subdir=sample_log_subdir("broadcaster"),
     )
-    observer = load_zephyr_profile(topo, ZEPHYR_OBSERVER, log_subdir=sample_log_subdir("observer"))
+    observer = load_zephyr_profile(
+        topo, ZEPHYR_OBSERVER, log_subdir=sample_log_subdir("observer")
+    )
 
     await topo.start()
 
@@ -83,10 +92,14 @@ async def test_zephyr_targeted_interference_isolates_and_recovers(topo):
     topo.set_channel_attenuation(
         default_db=100.0,
         static_paths=[
-            StaticAttenuation(tx=broadcaster, rx=protected_observer, attenuation_db=45.0),
+            StaticAttenuation(
+                tx=broadcaster, rx=protected_observer, attenuation_db=45.0
+            ),
             StaticAttenuation(tx=broadcaster, rx=jammed_observer, attenuation_db=45.0),
             *(
-                StaticAttenuation(tx=jammer, rx=protected_observer, attenuation_db=100.0)
+                StaticAttenuation(
+                    tx=jammer, rx=protected_observer, attenuation_db=100.0
+                )
                 for jammer in jammers
             ),
             *(

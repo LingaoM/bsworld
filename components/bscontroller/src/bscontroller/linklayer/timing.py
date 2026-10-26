@@ -12,7 +12,12 @@ def window_widening(elapsed_us: int, sca: int) -> int:
     ppm = LL_SCA_PPM[sca]
     return (
         LL_CLOCK_JITTER_US
-        + (max(0, elapsed_us) * (ppm + LL_LOCAL_SCA_PPM) + PHY_TIME_UNITS_PER_SECOND - 1) // PHY_TIME_UNITS_PER_SECOND
+        + (
+            max(0, elapsed_us) * (ppm + LL_LOCAL_SCA_PPM)
+            + PHY_TIME_UNITS_PER_SECOND
+            - 1
+        )
+        // PHY_TIME_UNITS_PER_SECOND
     )
 
 
@@ -34,7 +39,8 @@ LL_CONN_RX_WINDOW_UNCODED_US = 100
 
 LL_CONN_RX_WINDOW_CODED_US = 400
 
-# Core Vol 6, Part B, 5.5.1: (Instant - connEventCount) mod 65536 >= 32767 is in the past.
+# Core Vol 6, Part B, 5.5.1: (Instant - connEventCount) mod 65536 >= 32767 is in the
+# past.
 LL_INSTANT_PAST_THRESHOLD = 0x7FFF
 
 

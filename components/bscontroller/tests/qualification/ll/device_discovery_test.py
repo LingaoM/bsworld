@@ -142,9 +142,7 @@ Properties = (
 )
 SyncOptions = hci.HCI_LE_Periodic_Advertising_Create_Sync_Command.Options
 LegacyEventType = hci.HCI_LE_Advertising_Report_Event.EventType
-PERIODIC_RESPONSE_TIMING_INFORMATION = (
-    AD_PERIODIC_RESPONSE_TIMING_INFORMATION
-)
+PERIODIC_RESPONSE_TIMING_INFORMATION = AD_PERIODIC_RESPONSE_TIMING_INFORMATION
 Operation = hci.HCI_LE_Set_Extended_Advertising_Data_Command.Operation
 # Endpoint jitter in the common advertising timing notes, 16 us at each endpoint.
 ADVERTISING_INTERVAL_JITTER_US = 32
@@ -4027,15 +4025,15 @@ class _PeriodicReceptionResults:
                     self.current_counter = int.from_bytes(
                         joined[:DATA_COUNTER_SIZE], 'little'
                     )
-                    assert (
-                        self.current_counter not in self.reported
-                    ), 'duplicate periodic data'
+                    assert self.current_counter not in self.reported, (
+                        'duplicate periodic data'
+                    )
                     self.reported.add(self.current_counter)
                     self.counters.append(self.current_counter)
                 if self.current_counter is not None:
-                    assert (
-                        self.current_counter in transmitted
-                    ), 'untransmitted periodic data'
+                    assert self.current_counter in transmitted, (
+                        'untransmitted periodic data'
+                    )
                     frame = transmitted[self.current_counter]
                     assert joined == frame.data[: len(joined)]
             else:
@@ -4043,9 +4041,9 @@ class _PeriodicReceptionResults:
             if report.data_status == AdvertisingReport.DATA_INCOMPLETE_MORE_TO_COME:
                 continue
             if self.length:
-                assert (
-                    self.current_counter is not None
-                ), 'periodic counter is incomplete'
+                assert self.current_counter is not None, (
+                    'periodic counter is incomplete'
+                )
                 frame = transmitted[self.current_counter]
                 data, boundaries = frame.data, frame.boundaries
             else:
@@ -4063,12 +4061,12 @@ class _PeriodicReceptionResults:
     def check_rate(self, prepared):
         assert prepared, 'no prepared periodic receive opportunities'
         if self.length:
-            assert (
-                self.complete_counters <= prepared
-            ), 'report without a receive attempt'
-        assert self.complete <= len(
-            prepared
-        ), 'more complete reports than receive attempts'
+            assert self.complete_counters <= prepared, (
+                'report without a receive attempt'
+            )
+        assert self.complete <= len(prepared), (
+            'more complete reports than receive attempts'
+        )
         assert self.complete * 100 >= len(prepared) * COMPLETE_REPORT_PERCENT, (
             self.complete,
             len(prepared),
@@ -4202,8 +4200,7 @@ async def _duplicate_active_scanning(tester, *, extended):
                 first_request_us = request.end_us
                 first_request_event = event_number
                 tester.output.write(
-                    f'DUPLICATE WAIT start_us={first_request_us} '
-                    f'event={event_number}\n'
+                    f'DUPLICATE WAIT start_us={first_request_us} event={event_number}\n'
                 )
             response_due = (
                 event_number - first_request_event >= DUPLICATE_EXTENDED_WAIT_INTERVALS
@@ -4526,29 +4523,29 @@ def _check_power_reports(records, chunks, powers, *, active, phy):
         assert report.advertising_sid == ADVERTISING_SID
         assert report.periodic_advertising_interval == 0
         end = offset + len(report.data)
-        assert end <= sum(
-            map(len, chunks[:received])
-        ), 'report contains data not yet received'
-        assert (
-            report.data == expected[offset:end]
-        ), 'advertising data lost, reordered or duplicated'
+        assert end <= sum(map(len, chunks[:received])), (
+            'report contains data not yet received'
+        )
+        assert report.data == expected[offset:end], (
+            'advertising data lost, reordered or duplicated'
+        )
         if active:
-            assert (
-                received and report.tx_power == powers[received - 1]
-            ), 'stale scan-response TxPower'
+            assert received and report.tx_power == powers[received - 1], (
+                'stale scan-response TxPower'
+            )
         else:
             assert report.tx_power in (
                 powers[0],
                 powers[-1],
                 Report.TX_POWER_INFORMATION_NOT_AVAILABLE,
             )
-            assert (
-                received == len(chunks) or report.tx_power != powers[-1]
-            ), 'Power2 reported before the last PDU'
+            assert received == len(chunks) or report.tx_power != powers[-1], (
+                'Power2 reported before the last PDU'
+            )
             if end > boundaries[-2] or last_power_seen:
-                assert (
-                    report.tx_power != powers[0]
-                ), 'Power1 reported after the last PDU data or Power2'
+                assert report.tx_power != powers[0], (
+                    'Power1 reported after the last PDU data or Power2'
+                )
             last_power_seen |= report.tx_power == powers[-1]
             for chunk_index, boundary in enumerate(boundaries):
                 start = boundaries[chunk_index - 1] if chunk_index else 0
@@ -4564,9 +4561,9 @@ def _check_power_reports(records, chunks, powers, *, active, phy):
         if index < len(records) - 1:
             assert status == Report.DATA_INCOMPLETE_MORE_TO_COME
         else:
-            assert (
-                status == Report.DATA_COMPLETE
-            ), 'no final report within the observation timeout'
+            assert status == Report.DATA_COMPLETE, (
+                'no final report within the observation timeout'
+            )
         offset = end
     assert len(records) > 1, 'the source requires multiple HCI report fragments'
     assert offset == len(expected), 'final complete report omitted advertising data'
@@ -4894,9 +4891,9 @@ async def _transmit_report(tester, advertiser, *, handle=None, filtered=False):
         for event in tester.events
     )
     if filtered:
-        assert not any(
-            isinstance(event, ExtendedReport) for event in tester.events
-        ), 'periodic synchronization must not bypass the scan-report filter'
+        assert not any(isinstance(event, ExtendedReport) for event in tester.events), (
+            'periodic synchronization must not bypass the scan-report filter'
+        )
     return handle
 
 
@@ -5131,9 +5128,9 @@ async def _multiple_scanning(tester, *, active=False):
     if not active:
         for suffix in ('Tx.csv', 'Txv2.csv'):
             with (tester.phy_results / f'd_2G4_00.{suffix}').open() as capture:
-                assert (
-                    next(csv.DictReader(capture), None) is None
-                ), 'passive scanner transmitted'
+                assert next(csv.DictReader(capture), None) is None, (
+                    'passive scanner transmitted'
+                )
 
 
 async def multiple_legacy_and_extended_primary_advertising_sets(tester, *, number):
@@ -5862,9 +5859,9 @@ async def extended_scanning_passive(tester, *, primary_phy, secondary_phy):
                 isinstance(event, hci.HCI_LE_Scan_Timeout_Event)
                 for event in tester.events
             ):
-                assert (
-                    round_.duration and tester.radio.now_us >= deadline
-                ), 'premature Scan Timeout'
+                assert round_.duration and tester.radio.now_us >= deadline, (
+                    'premature Scan Timeout'
+                )
             if seen:
                 data = generator.randbytes(round_.length)
                 did += 1
@@ -6665,9 +6662,9 @@ async def extended_scanning_periodic_advertising_reception(
                     data=data,
                     boundaries=tuple(boundaries),
                 )
-                assert (
-                    counter not in transmitted
-                ), 'periodic counter wrapped during a round'
+                assert counter not in transmitted, (
+                    'periodic counter wrapped during a round'
+                )
                 transmitted[counter] = frame
                 measured.append(frame)
                 await advertiser.transmit(tester, data)
@@ -6698,9 +6695,9 @@ async def extended_scanning_periodic_advertising_reception(
                     for event in tester.events
                 ), 'periodic reception lost or duplicated synchronization'
                 if records:
-                    assert (
-                        handle is not None
-                    ), 'periodic report preceded Sync Established'
+                    assert handle is not None, (
+                        'periodic report preceded Sync Established'
+                    )
                     results.collect(records, transmitted, handle)
                     report_events += len(records)
                 if report_events >= required:
@@ -7074,9 +7071,9 @@ async def multiple_periodic_advertisers_all_supported_phys(
                         counts[index] = 0
                         advertisers[index].advertising = False
                     else:
-                        assert complete[
-                            index
-                        ], 'no complete periodic result for this set'
+                        assert complete[index], (
+                            'no complete periodic result for this set'
+                        )
                         await tester.command(
                             hci.HCI_LE_Periodic_Advertising_Terminate_Sync_Command(
                                 handles[index]
@@ -7353,9 +7350,9 @@ async def first_aux_sync_ind_never_received(tester):
         ), 'a failed acquisition must not receive periodic data or lose sync'
         while event := tester.take(lambda event: isinstance(event, SyncEstablished)):
             assert event.status == ErrorCode.CONNECTION_FAILED_TO_BE_ESTABLISHED_ERROR
-            assert (
-                missed >= FIRST_SYNC_MISSED_EVENTS
-            ), 'premature synchronization failure'
+            assert missed >= FIRST_SYNC_MISSED_EVENTS, (
+                'premature synchronization failure'
+            )
             assert failure is None, 'duplicate synchronization failure'
             failure = event
 
@@ -7925,9 +7922,9 @@ async def passive_scanning_invalid_or_unsupported_phy(tester):
     await positive(b'valid-before')
     for index in range(INVALID_PHY_ROUNDS):
         await send(invalid, bytes([index]))
-        assert not any(
-            isinstance(event, Report) for event in tester.events
-        ), 'reserved AUX PHY must not produce an advertising report'
+        assert not any(isinstance(event, Report) for event in tester.events), (
+            'reserved AUX PHY must not produce an advertising report'
+        )
     await positive(b'valid-after')
     await tester.command(hci.HCI_LE_Set_Extended_Scan_Enable_Command(0, 0, 0, 0))
 
@@ -9582,10 +9579,7 @@ PROCEDURES |= procedure_cases(
             {'rounds': (4,)},
         ),
         'LL/DDI/ADV/BV-116-C': (
-            (
-                'Extended Advertising, Overlapping Extended Advertising '
-                'Events, Directed'
-            ),
+            ('Extended Advertising, Overlapping Extended Advertising Events, Directed'),
             {'rounds': (5,)},
         ),
         'LL/DDI/ADV/BV-117-C': (

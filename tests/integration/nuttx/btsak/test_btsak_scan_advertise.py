@@ -28,7 +28,11 @@ from tests.integration.nuttx.btsak.devices import (
     nuttx_btsak_advertiser,
     nuttx_btsak_scanner,
 )
-from tests.integration.nuttx.common import NuttXProcessProfile, load_nuttx_profile, require_binaries
+from tests.integration.nuttx.common import (
+    NuttXProcessProfile,
+    load_nuttx_profile,
+    require_binaries,
+)
 
 from bsworld.devices.instance import ProcessInstance
 from bsworld.interference import StaticAttenuation
@@ -81,9 +85,12 @@ def _load_network(
 
 async def _start_roles(network: ScanAdvertiseNetwork) -> None:
     for advertiser in network.advertisers:
-        await advertiser.shell.run_many((
-            f"ifup {_BT_IFACE}", f"bt {_BT_IFACE} advertise start",
-        ))
+        await advertiser.shell.run_many(
+            (
+                f"ifup {_BT_IFACE}",
+                f"bt {_BT_IFACE} advertise start",
+            )
+        )
     for scanner in network.scanners:
         commands = [f"ifup {_BT_IFACE}", f"bt {_BT_IFACE} scan start"]
         for _ in range(20):
@@ -194,7 +201,9 @@ async def test_nuttx_btsak_targeted_interference_isolates_and_recovers(topo):
 
     advertiser_address = advertiser.controller.public_address
     assert advertiser_address is not None
-    advertiser_pattern = rf"\d+\.\s+addr:\s+{re.escape(advertiser_address.lower())}\s+type:"
+    advertiser_pattern = (
+        rf"\d+\.\s+addr:\s+{re.escape(advertiser_address.lower())}\s+type:"
+    )
 
     await protected_scanner.wait_log(advertiser_pattern, timeout=_DISCOVERY_TIMEOUT)
     with pytest.raises(TimeoutError):

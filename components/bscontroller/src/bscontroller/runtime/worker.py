@@ -30,7 +30,9 @@ class _ControllerOutput:
 
     def on_packet(self, packet: bytes) -> None:
         if self.worker.sink is not None:
-            self.worker._host_loop.call_soon_threadsafe(self.worker.sink.on_packet, packet)
+            self.worker._host_loop.call_soon_threadsafe(
+                self.worker.sink.on_packet, packet
+            )
 
 
 # Wall-clock watchdog for terminating the worker thread.
@@ -61,7 +63,9 @@ class RadioControllerWorker:
         self.hci_snoop_file = hci_snoop_file
         self.hci_socket = Path(hci_socket) if hci_socket is not None else None
         self.sink = None
-        self._input: SimpleQueue[bytes] | None = SimpleQueue() if self.hci_socket is None else None
+        self._input: SimpleQueue[bytes] | None = (
+            SimpleQueue() if self.hci_socket is None else None
+        )
         self._ready: Future[None] = Future()
         self._result: Future[None] = Future()
         self._stopping = Event()
@@ -80,14 +84,18 @@ class RadioControllerWorker:
 
     def on_packet(self, packet: bytes) -> None:
         if self._input is None:
-            raise RuntimeError('socket Controllers receive HCI through their H4 endpoint')
+            raise RuntimeError(
+                'socket Controllers receive HCI through their H4 endpoint'
+            )
         self._input.put(bytes(packet))
 
     async def start(self, sim_id: str, dev_id: int) -> None:
         """Wait for socket listening, or FIFO connection for an in-process Host."""
         if self._thread is not None:
             raise RuntimeError('Controller worker is already started')
-        self._thread = Thread(target=self._run, args=(sim_id, dev_id), name=f'radio:{self.name}')
+        self._thread = Thread(
+            target=self._run, args=(sim_id, dev_id), name=f'radio:{self.name}'
+        )
         self._thread.start()
         # Shield the cross-thread Future so cancellation cannot race set_result().
         await asyncio.shield(asyncio.wrap_future(self._ready))
@@ -96,7 +104,9 @@ class RadioControllerWorker:
         try:
             if sys.version_info < (3, 11):
                 raise RuntimeError('radio workers require Python 3.11 or newer')
-            with asyncio.Runner(loop_factory=partial(ControllerEventLoop, self.max_step_us)) as runner:
+            with asyncio.Runner(
+                loop_factory=partial(ControllerEventLoop, self.max_step_us)
+            ) as runner:
                 loop = runner.get_loop()
                 assert isinstance(loop, ControllerEventLoop)
                 self._loop = loop
@@ -131,7 +141,9 @@ class RadioControllerWorker:
             await asyncio.sleep(self.max_step_us / PHY_TIME_UNITS_PER_SECOND)
             self._handle_input(controller)
 
-    async def _advance_radio(self, radio: BabbleSimRadio, backend: RadioBackend) -> None:
+    async def _advance_radio(
+        self, radio: BabbleSimRadio, backend: RadioBackend
+    ) -> None:
         while True:
             await backend.link.advance_to_us(radio.now_us + self.max_step_us)
 
@@ -143,7 +155,9 @@ class RadioControllerWorker:
         with ExitStack() as resources:
             resources.callback(radio.close)
             snoop = (
-                resources.enter_context(BtsnoopWriter(self.hci_snoop_file, lambda: radio.now_us))
+                resources.enter_context(
+                    BtsnoopWriter(self.hci_snoop_file, lambda: radio.now_us)
+                )
                 if self.hci_snoop_file is not None
                 else None
             )
@@ -175,24 +189,33 @@ class RadioControllerWorker:
                         self._ready.set_result(None)
                     await radio.synchronize()
                     # Host commands can now schedule against simulation time.
-                    # Opening the socket earlier must not let them run on wall-clock time.
+                    # Opening the socket earlier must not let them run on wall-clock
+                    # time.
                     radio.bind_loop(loop)
                     radio_ready.set()
                     async with asyncio.TaskGroup() as tasks:
                         if endpoint is not None:
-                            radio_task = tasks.create_task(self._advance_radio(radio, backend))
+                            radio_task = tasks.create_task(
+                                self._advance_radio(radio, backend)
+                            )
                             try:
                                 await endpoint.finished
                             finally:
                                 radio_task.cancel()
                         else:
-                            input_task = tasks.create_task(self._receive_hci(controller))
+                            input_task = tasks.create_task(
+                                self._receive_hci(controller)
+                            )
                             try:
                                 while True:
-                                    # Drain cross-thread commands before choosing RF work;
-                                    # the input task also wakes a radio loop blocked on time.
+                                    # Drain cross-thread commands before choosing RF
+                                    # work;
+                                    # the input task also wakes a radio loop blocked on
+                                    # time.
                                     self._handle_input(controller)
-                                    await backend.link.advance_to_us(radio.now_us + self.max_step_us)
+                                    await backend.link.advance_to_us(
+                                        radio.now_us + self.max_step_us
+                                    )
                             finally:
                                 input_task.cancel()
                 finally:
@@ -204,7 +227,11 @@ class RadioControllerWorker:
             self._terminate()
             return
         self._stopping.set()
-        if self._loop is not None and self._task is not None and self._thread.is_alive():
+        if (
+            self._loop is not None
+            and self._task is not None
+            and self._thread.is_alive()
+        ):
             try:
                 self._loop.interrupt()
                 self._loop.call_soon_threadsafe(self._task.cancel)

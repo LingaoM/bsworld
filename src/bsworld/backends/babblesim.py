@@ -28,6 +28,7 @@ Bring-up shape:
        are started by topology.
     6. connect the in-process pytest clock after external participants start.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -73,7 +74,9 @@ class BabbleSimBackend:
     controllers: list[Controller] = field(default_factory=list)
     channel_attenuation: ChannelAttenuation | None = None
     interference_sources: list[InterferenceSource] = field(default_factory=list)
-    _application_controllers: list[Controller] = field(default_factory=list, init=False, repr=False)
+    _application_controllers: list[Controller] = field(
+        default_factory=list, init=False, repr=False
+    )
     _layout: DeviceLayout | None = field(default=None, init=False, repr=False)
     _started: bool = False
     clock: BsimClock | None = None
@@ -108,7 +111,9 @@ class BabbleSimBackend:
     def reserve_application_device(self, controller: Controller) -> None:
         """Reserve a BabbleSim participant for an external Application process."""
         if self._started:
-            raise RuntimeError("cannot attach an Application after BabbleSim has started")
+            raise RuntimeError(
+                "cannot attach an Application after BabbleSim has started"
+            )
         if not any(candidate is controller for candidate in self.controllers):
             raise ValueError("Controller does not belong to this BabbleSim backend")
         if any(candidate is controller for candidate in self._application_controllers):
@@ -165,13 +170,21 @@ class BabbleSimBackend:
                 log(f"removing stale {ctl.hci_sock}")
                 ctl.hci_sock.unlink()
 
-    async def start(self, pm: ProcessManager, *, log_dir: Path | None = None, ready_timeout: float = 30.0) -> None:
+    async def start(
+        self,
+        pm: ProcessManager,
+        *,
+        log_dir: Path | None = None,
+        ready_timeout: float = 30.0,
+    ) -> None:
         log_dir = log_dir or self.env.log_dir
         bsim_log_dir = log_dir / "babblesim"
         if self._started:
             return
         if not self.controllers:
-            raise RuntimeError("a BabbleSim simulation requires at least one Virtual Controller")
+            raise RuntimeError(
+                "a BabbleSim simulation requires at least one Virtual Controller"
+            )
         self.check_deps_ready()
         self.prepare()
 
@@ -195,7 +208,11 @@ class BabbleSimBackend:
                     timed_paths=ca.timed_paths,
                     out_dir=bsim_log_dir,
                 )
-            phy_argv += ["-channel=multiatt", "-argschannel", f"-at={ca.default_attenuation_db}"]
+            phy_argv += [
+                "-channel=multiatt",
+                "-argschannel",
+                f"-at={ca.default_attenuation_db}",
+            ]
             if ca.extra_attenuation_db:
                 phy_argv.append(f"-atextra={ca.extra_attenuation_db}")
             if matrix_file is not None:
@@ -226,7 +243,9 @@ class BabbleSimBackend:
 
         for i, src in enumerate(self.interference_sources):
             dev_id = layout.interference_dev_id(i)
-            argv = _build_interf_argv(src, sim_id=self.sim_id, dev_id=dev_id, bin_dir=self.env.bsim_bin_dir)
+            argv = _build_interf_argv(
+                src, sim_id=self.sim_id, dev_id=dev_id, bin_dir=self.env.bsim_bin_dir
+            )
             pm.spawn(
                 f"interf_{dev_id}",
                 argv,
@@ -237,7 +256,9 @@ class BabbleSimBackend:
 
     async def stop_controllers(self) -> None:
         """Release Controller runtimes before terminating the shared PHY."""
-        results = await asyncio.gather(*(ctl.stop() for ctl in self.controllers), return_exceptions=True)
+        results = await asyncio.gather(
+            *(ctl.stop() for ctl in self.controllers), return_exceptions=True
+        )
         for result in results:
             if isinstance(result, BaseException):
                 raise result
@@ -300,7 +321,9 @@ class BabbleSimBackend:
             log(f"removing sim state {sim_state_dir}")
             shutil.rmtree(sim_state_dir, ignore_errors=True)
 
-        results_dir = self.env.bsim_dir / "results" / self.sim_id if self.env.bsim_dir else None
+        results_dir = (
+            self.env.bsim_dir / "results" / self.sim_id if self.env.bsim_dir else None
+        )
         if results_dir is not None and results_dir.exists():
             log(f"removing bsim results {results_dir}")
             shutil.rmtree(results_dir, ignore_errors=True)
@@ -323,8 +346,7 @@ def _write_attenuation_matrix(
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     matrix_lines = [
-        f"{path.tx} {path.rx} : {path.attenuation_db}"
-        for path in static_paths
+        f"{path.tx} {path.rx} : {path.attenuation_db}" for path in static_paths
     ]
     for i, tp in enumerate(timed_paths):
         timed_file = out_dir / f"timed_att_{tp.tx}_{tp.rx}_{i}.txt"
@@ -350,7 +372,11 @@ def _build_interf_argv(
 
     if isinstance(src, BurstInterference):
         argv: list = [bin_dir / "bs_device_2G4_burst_interf"] + common
-        argv += [f"-centerfreq={src.center_freq_mhz}", f"-power={src.power_dbm}", f"-type={src.interf_type}"]
+        argv += [
+            f"-centerfreq={src.center_freq_mhz}",
+            f"-power={src.power_dbm}",
+            f"-type={src.interf_type}",
+        ]
         if src.rand_seed is not None:
             argv.append(f"-rs={src.rand_seed}")
         _append_windows(argv, src.windows)
@@ -362,7 +388,11 @@ def _build_interf_argv(
             argv.append(f"-channel={src.channel}")
         else:
             argv.append(f"-centerfreq={src.center_freq_mhz}")
-        argv += [f"-power={src.power_dbm}", f"-mod={src.mod_type}", f"-ConfigSet={src.config_set}"]
+        argv += [
+            f"-power={src.power_dbm}",
+            f"-mod={src.mod_type}",
+            f"-ConfigSet={src.config_set}",
+        ]
         if src.rand_seed is not None:
             argv.append(f"-rs={src.rand_seed}")
         _append_windows(argv, src.windows)

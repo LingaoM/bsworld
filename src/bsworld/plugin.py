@@ -47,7 +47,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         except argparse.ArgumentError:
             pass
 
-    _add("--out-dir", default=None, help="base output directory; run-<timestamp>/<uid> is appended (default: /tmp)")
+    _add(
+        "--out-dir",
+        default=None,
+        help="base output directory; run-<timestamp>/<uid> is appended (default: /tmp)",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -59,7 +63,9 @@ def pytest_configure(config: pytest.Config) -> None:
         now_tag = worker_input["bsworld_now_tag"]
         uid = worker_input["bsworld_run_uid"]
     else:
-        base_dir, now_tag, uid = resolve_run_identity(out_dir=config.getoption("--out-dir", default=None))
+        base_dir, now_tag, uid = resolve_run_identity(
+            out_dir=config.getoption("--out-dir", default=None)
+        )
     config._bsworld_out_dir = base_dir
     config._bsworld_now_tag = now_tag
     config._bsworld_run_uid = uid
@@ -76,7 +82,11 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     if getattr(session.config, "workerinput", None):
         return
 
-    out_dir = Path(session.config._bsworld_out_dir) / session.config._bsworld_now_tag / session.config._bsworld_run_uid
+    out_dir = (
+        Path(session.config._bsworld_out_dir)
+        / session.config._bsworld_now_tag
+        / session.config._bsworld_run_uid
+    )
     tr = session.config.pluginmanager.get_plugin("terminalreporter")
     if tr is not None:
         tr.write_line(f"[bsworld] log dir: {out_dir}", bold=True, green=True)

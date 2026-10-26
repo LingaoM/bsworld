@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Unit tests for the logging helpers and Die exception."""
+
 from __future__ import annotations
 
 import io

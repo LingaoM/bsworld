@@ -9,7 +9,12 @@ from bscontroller.linklayer import (
     PDU_ADV_EXT_PAYLOAD_SIZE_MAX,
     PDU_HEADER_SIZE,
 )
-from bscontroller.radio.base import PHY_CODED_S2_FACTOR, PHY_CODED_S8_FACTOR, Phy, RadioSwitch
+from bscontroller.radio.base import (
+    PHY_CODED_S2_FACTOR,
+    PHY_CODED_S8_FACTOR,
+    Phy,
+    RadioSwitch,
+)
 
 
 @pytest.mark.parametrize(

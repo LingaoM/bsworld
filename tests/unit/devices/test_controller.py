@@ -23,7 +23,9 @@ def _controller(tmp_path, address: str | None = None) -> ZephyrController:
 
 
 def test_controller_normalizes_public_address(tmp_path) -> None:
-    assert _controller(tmp_path, "c0:ff:ee:00:00:03").public_address == "C0:FF:EE:00:00:03"
+    assert (
+        _controller(tmp_path, "c0:ff:ee:00:00:03").public_address == "C0:FF:EE:00:00:03"
+    )
 
 
 @pytest.mark.parametrize(

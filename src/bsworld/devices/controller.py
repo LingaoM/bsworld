@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Virtual Controller endpoint allocated for one Bluetooth Host."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -35,7 +36,9 @@ def _normalize_controller_address(address: str) -> str:
         try:
             value = int(part, 16)
         except ValueError as exc:
-            raise ValueError("controller address must use AA:BB:CC:DD:EE:FF format") from exc
+            raise ValueError(
+                "controller address must use AA:BB:CC:DD:EE:FF format"
+            ) from exc
         octets.append(f"{value:02X}")
 
     if all(octet == "00" for octet in octets):
@@ -52,6 +55,7 @@ class Controller(ABC):
     without waiting for other PHY participants to register. The backend waits
     for HCI socket readiness separately.
     """
+
     controller_dev_id: int
     sim_id: str
     phy_id: str

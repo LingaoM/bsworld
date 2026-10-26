@@ -51,7 +51,9 @@ def test_detect_does_not_guess_missing_artifacts(monkeypatch) -> None:
     assert env.hci_virt_bin is None
 
 
-def test_env_path_expands_home_and_resolves_relative_paths(monkeypatch, tmp_path) -> None:
+def test_env_path_expands_home_and_resolves_relative_paths(
+    monkeypatch, tmp_path
+) -> None:
     monkeypatch.setenv("BSWORLD_NUTTX_BTSAK_BIN", "~/my project/nuttx")
     assert env_path("BSWORLD_NUTTX_BTSAK_BIN") == Path.home() / "my project" / "nuttx"
 

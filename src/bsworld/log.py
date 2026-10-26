@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Coloured stdout logging that tees into the active test log file."""
+
 from __future__ import annotations
 
 import sys
@@ -23,6 +24,8 @@ from typing import IO
 
 def _now() -> str:
     return f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}]"
+
+
 _file_sink: IO[str] | None = None
 
 

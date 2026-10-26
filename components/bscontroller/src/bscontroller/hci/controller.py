@@ -74,7 +74,8 @@ class Controller:
         self.le_connections: dict[hci.Address, ConnectionRecord] = {}
         self.advertising_sets: dict[int, AdvertisingSet] = {}
         self.le_legacy_advertiser = LegacyAdvertiser(self)
-        # Vol 4, Part E, 7.3.1, 7.3.69 and 7.8.1: power-on masks equal the Reset defaults.
+        # Vol 4, Part E, 7.3.1, 7.3.69 and 7.8.1: power-on masks equal the Reset
+        # defaults.
         self.event_mask = hci.HCI_EVENT_MASK_DEFAULT
         self.event_mask_page_2 = 0
         self.le_event_mask = hci.HCI_LE_EVENT_MASK_DEFAULT
@@ -82,9 +83,13 @@ class Controller:
         if isinstance(public_address, hci.Address):
             self._public_address = public_address
         else:
-            self._public_address = hci.Address(public_address or '00:00:00:00:00:00', hci.AddressType.PUBLIC_DEVICE)
+            self._public_address = hci.Address(
+                public_address or '00:00:00:00:00:00', hci.AddressType.PUBLIC_DEVICE
+            )
         self.hci_sink = host_sink
-        self.terminated: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self.terminated: asyncio.Future[None] = (
+            asyncio.get_running_loop().create_future()
+        )
         backend.bind(self)
         if host_source is not None:
             host_source.set_packet_sink(self)
@@ -138,14 +143,23 @@ class Controller:
             opcode, size = struct.unpack_from('<HB', packet, 1)
             if opcode not in self.supported_commands and len(packet) == size + 4:
                 # An unsupported opcode has no parameter schema at this Controller.
-                command_class = hci.HCI_Command.command_classes.get(opcode, hci.HCI_Command)
-                generic = hci.HCI_AsyncCommand if issubclass(command_class, hci.HCI_AsyncCommand) else hci.HCI_Command
+                command_class = hci.HCI_Command.command_classes.get(
+                    opcode, hci.HCI_Command
+                )
+                generic = (
+                    hci.HCI_AsyncCommand
+                    if issubclass(command_class, hci.HCI_AsyncCommand)
+                    else hci.HCI_Command
+                )
                 self.on_hci_packet(generic(packet[4:], op_code=opcode))
                 return
         self.on_hci_packet(hci.HCI_Packet.from_bytes(packet))
 
     def on_hci_packet(self, packet: hci.HCI_Packet) -> None:
-        logger.debug(f'{color("<<<", "blue")} [{self.name}] {color("HOST -> CONTROLLER", "blue")}: {packet}')
+        logger.debug(
+            f'{color("<<<", "blue")} [{self.name}] '
+            f'{color("HOST -> CONTROLLER", "blue")}: {packet}'
+        )
 
         # If the packet is a command, invoke the handler for this packet
         match packet:
@@ -164,7 +178,9 @@ class Controller:
         handler_name = f'on_{command.name.lower()}'
         if command.op_code not in self.supported_commands:
             if isinstance(command, hci.HCI_AsyncCommand):
-                self._send_hci_command_status(hci.HCI_ErrorCode.UNKNOWN_HCI_COMMAND_ERROR, command.op_code)
+                self._send_hci_command_status(
+                    hci.HCI_ErrorCode.UNKNOWN_HCI_COMMAND_ERROR, command.op_code
+                )
                 return
             handler = self.on_hci_command
         else:
@@ -173,11 +189,17 @@ class Controller:
                 handler_name,
                 getattr(self, handler_name, self.on_hci_command),
             )
-        if handler != self.on_hci_command and not self.le_procedures.command_allowed(command.op_code):
+        if handler != self.on_hci_command and not self.le_procedures.command_allowed(
+            command.op_code
+        ):
             if isinstance(command, hci.HCI_AsyncCommand):
-                self._send_hci_command_status(hci.HCI_ErrorCode.COMMAND_DISALLOWED_ERROR, command.op_code)
+                self._send_hci_command_status(
+                    hci.HCI_ErrorCode.COMMAND_DISALLOWED_ERROR, command.op_code
+                )
                 return
-            result = hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.COMMAND_DISALLOWED_ERROR)
+            result = hci.HCI_StatusReturnParameters(
+                hci.HCI_ErrorCode.COMMAND_DISALLOWED_ERROR
+            )
         else:
             result = handler(command)
         if isinstance(command, hci.HCI_SyncCommand) or handler == self.on_hci_command:
@@ -201,14 +223,19 @@ class Controller:
         # Look for the connection to which this data belongs
         connection = self.find_connection_by_handle(packet.connection_handle)
         if connection is None:
-            logger.warning(f'!!! no connection for handle 0x{packet.connection_handle:04X}')
+            logger.warning(
+                f'!!! no connection for handle 0x{packet.connection_handle:04X}'
+            )
             return
 
         # Pass the packet to the connection
         connection.on_hci_acl_data_packet(packet)
 
     def send_hci_packet(self, packet: hci.HCI_Packet) -> None:
-        logger.debug(f'{color(">>>", "green")} [{self.name}] {color("CONTROLLER -> HOST", "green")}: {packet}')
+        logger.debug(
+            f'{color(">>>", "green")} [{self.name}] '
+            f'{color("CONTROLLER -> HOST", "green")}: {packet}'
+        )
         if self.host:
             data = bytes(packet)
             if self._snoop is not None:
@@ -217,22 +244,34 @@ class Controller:
 
     def _send_hci_command_status(self, status: int, op_code: int) -> None:
         self.send_hci_packet(
-            hci.HCI_Command_Status_Event(status=status, num_hci_command_packets=1, command_opcode=op_code)
+            hci.HCI_Command_Status_Event(
+                status=status, num_hci_command_packets=1, command_opcode=op_code
+            )
         )
 
     @property
     def is_advertising(self) -> bool:
-        return self.le_legacy_advertiser.enabled or any(s.enabled for s in self.advertising_sets.values())
+        return self.le_legacy_advertiser.enabled or any(
+            s.enabled for s in self.advertising_sets.values()
+        )
 
-    def on_hci_command(self, command: hci.HCI_Command) -> hci.HCI_StatusReturnParameters:
+    def on_hci_command(
+        self, command: hci.HCI_Command
+    ) -> hci.HCI_StatusReturnParameters:
         logger.warning(color(f'--- Unsupported command {command}', 'red'))
-        return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.UNKNOWN_HCI_COMMAND_ERROR)
+        return hci.HCI_StatusReturnParameters(
+            hci.HCI_ErrorCode.UNKNOWN_HCI_COMMAND_ERROR
+        )
 
-    def on_hci_set_event_mask_command(self, command: hci.HCI_Set_Event_Mask_Command) -> hci.HCI_StatusReturnParameters:
+    def on_hci_set_event_mask_command(
+        self, command: hci.HCI_Set_Event_Mask_Command
+    ) -> hci.HCI_StatusReturnParameters:
         '''
         See Bluetooth spec Vol 4, Part E - 7.3.1 Set Event Mask Command
         '''
-        self.event_mask = int.from_bytes(command.event_mask, byteorder='little', signed=False)
+        self.event_mask = int.from_bytes(
+            command.event_mask, byteorder='little', signed=False
+        )
         return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.SUCCESS)
 
     def on_hci_set_event_mask_page_2_command(
@@ -241,7 +280,9 @@ class Controller:
         '''
         See Bluetooth spec Vol 4, Part E - 7.3.69 Set Event Mask Page 2 Command
         '''
-        self.event_mask_page_2 = int.from_bytes(command.event_mask_page_2, byteorder='little', signed=False)
+        self.event_mask_page_2 = int.from_bytes(
+            command.event_mask_page_2, byteorder='little', signed=False
+        )
         return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.SUCCESS)
 
     def on_hci_read_local_version_information_command(
@@ -268,7 +309,8 @@ class Controller:
         return hci.HCI_Read_Local_Supported_Commands_ReturnParameters(
             hci.HCI_ErrorCode.SUCCESS,
             supported_commands=sum(
-                hci.HCI_SUPPORTED_COMMANDS_MASKS.get(opcode, 0) for opcode in self.supported_commands
+                hci.HCI_SUPPORTED_COMMANDS_MASKS.get(opcode, 0)
+                for opcode in self.supported_commands
             ).to_bytes(64, 'little'),
         )
 
@@ -300,7 +342,9 @@ class Controller:
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.1 LE Set Event Mask Command
         '''
-        self.le_event_mask = int.from_bytes(command.le_event_mask, byteorder='little', signed=False)
+        self.le_event_mask = int.from_bytes(
+            command.le_event_mask, byteorder='little', signed=False
+        )
         return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.SUCCESS)
 
     def on_hci_le_read_buffer_size_command(
@@ -342,7 +386,18 @@ class Controller:
         See Bluetooth spec Vol 4, Part E - 5.3.1 Controller handles (0x0000 to 0x0EFF)
         '''
         handles = {record.handle for record in self.le_connections.values()}
-        return next(handle for handle in range(1, HCI_CONNECTION_HANDLE_MAX + 1) if handle not in handles)
+        return next(
+            handle
+            for handle in range(1, HCI_CONNECTION_HANDLE_MAX + 1)
+            if handle not in handles
+        )
 
     def find_connection_by_handle(self, handle: int) -> ConnectionRecord | None:
-        return next((record for record in self.le_connections.values() if record.handle == handle), None)
+        return next(
+            (
+                record
+                for record in self.le_connections.values()
+                if record.handle == handle
+            ),
+            None,
+        )

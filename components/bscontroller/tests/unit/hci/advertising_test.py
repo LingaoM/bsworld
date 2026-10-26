@@ -35,15 +35,22 @@ async def test_read_advertising_power_is_advertised_and_returns_default_power():
     events = []
     controller.send_hci_packet = events.append
     controller.on_packet(bytes(hci.HCI_Read_Local_Supported_Commands_Command()))
-    mask = hci.HCI_SUPPORTED_COMMANDS_MASKS[hci.HCI_LE_READ_ADVERTISING_PHYSICAL_CHANNEL_TX_POWER_COMMAND]
-    assert int.from_bytes(events.pop().return_parameters.supported_commands, 'little') & mask
+    mask = hci.HCI_SUPPORTED_COMMANDS_MASKS[
+        hci.HCI_LE_READ_ADVERTISING_PHYSICAL_CHANNEL_TX_POWER_COMMAND
+    ]
+    assert (
+        int.from_bytes(events.pop().return_parameters.supported_commands, 'little')
+        & mask
+    )
     controller.on_packet(bytes.fromhex('01072000'))
     assert bytes(events.pop()) == bytes.fromhex('040e050107200000')
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('power_dbm', [-127, -20, 0, 20])
-async def test_read_advertising_power_uses_legacy_radio_state_and_signed_encoding(power_dbm):
+async def test_read_advertising_power_uses_legacy_radio_state_and_signed_encoding(
+    power_dbm,
+):
     controller = Controller('test', backend=radio_backend())
     controller.le_procedures._legacy().tx_power_dbm = power_dbm
     events = []
@@ -53,7 +60,9 @@ async def test_read_advertising_power_uses_legacy_radio_state_and_signed_encodin
     event = events[0]
     assert event.return_parameters.status == ErrorCode.SUCCESS
     assert event.return_parameters.tx_power_level == power_dbm
-    assert bytes(event) == bytes.fromhex('040e0501072000') + power_dbm.to_bytes(1, 'little', signed=True)
+    assert bytes(event) == bytes.fromhex('040e0501072000') + power_dbm.to_bytes(
+        1, 'little', signed=True
+    )
 
 
 @pytest.mark.asyncio
@@ -200,7 +209,10 @@ async def test_radio_advertising_uses_controller_owned_set_records():
     assert controller.advertising_sets[0].data == b'firstlast'
     assert backend.link.advertisers[0].data == b'firstlast'
     assert not procedures.fragments
-    assert procedures._set_data(0, 2, b'bad', 'data').status == ErrorCode.COMMAND_DISALLOWED_ERROR
+    assert (
+        procedures._set_data(0, 2, b'bad', 'data').status
+        == ErrorCode.COMMAND_DISALLOWED_ERROR
+    )
     assert (
         procedures._set_data(0, 3, bytes(HCI_LE_ADV_DATA_SIZE_MAX + 1), 'data').status
         == ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
@@ -208,7 +220,9 @@ async def test_radio_advertising_uses_controller_owned_set_records():
     assert not controller.advertising_sets[0].data
     assert not backend.link.advertisers[0].data
     assert (
-        procedures.on_hci_le_remove_advertising_set_command(hci.HCI_LE_Remove_Advertising_Set_Command(0)).status
+        procedures.on_hci_le_remove_advertising_set_command(
+            hci.HCI_LE_Remove_Advertising_Set_Command(0)
+        ).status
         == ErrorCode.SUCCESS
     )
     assert not controller.advertising_sets and not backend.link.advertisers
@@ -216,7 +230,9 @@ async def test_radio_advertising_uses_controller_owned_set_records():
 
 async def test_advertising_capacity_and_atomic_enable(hci_dut):
     tester = hci_dut
-    result = await tester.command(hci.HCI_LE_Read_Number_Of_Supported_Advertising_Sets_Command())
+    result = await tester.command(
+        hci.HCI_LE_Read_Number_Of_Supported_Advertising_Sets_Command()
+    )
     assert result.num_supported_advertising_sets == CONTROLLER_ADVERTISING_SET_COUNT
     for handle in range(result.num_supported_advertising_sets):
         await tester.command(extended_parameters(advertising_handle=handle))
@@ -228,17 +244,27 @@ async def test_advertising_capacity_and_atomic_enable(hci_dut):
         hci.HCI_LE_Set_Extended_Advertising_Enable_Command(1, [0, 254], [0, 0], [0, 0]),
         ErrorCode.UNKNOWN_ADVERTISING_IDENTIFIER_ERROR,
     )
-    assert not any(item.enabled for item in tester.input.backend.link.advertisers.values())
-    await tester.command(hci.HCI_LE_Set_Extended_Advertising_Enable_Command(1, [0, 1], [0, 0], [0, 0]))
-    assert all(tester.input.backend.link.advertisers[handle].enabled for handle in (0, 1))
-    await tester.command(hci.HCI_LE_Set_Extended_Advertising_Enable_Command(0, [], [], []))
+    assert not any(
+        item.enabled for item in tester.input.backend.link.advertisers.values()
+    )
+    await tester.command(
+        hci.HCI_LE_Set_Extended_Advertising_Enable_Command(1, [0, 1], [0, 0], [0, 0])
+    )
+    assert all(
+        tester.input.backend.link.advertisers[handle].enabled for handle in (0, 1)
+    )
+    await tester.command(
+        hci.HCI_LE_Set_Extended_Advertising_Enable_Command(0, [], [], [])
+    )
     await tester.command(hci.HCI_LE_Clear_Advertising_Sets_Command())
 
 
 def test_random_address_update_is_atomic_and_preserves_address_selection(controller):
     commands = controller.le_procedures
     new_address = hci.Address('C0:12:34:56:78:9A')
-    for handle, own in enumerate((hci.OwnAddressType.PUBLIC, hci.OwnAddressType.RANDOM)):
+    for handle, own in enumerate(
+        (hci.OwnAddressType.PUBLIC, hci.OwnAddressType.RANDOM)
+    ):
         assert (
             commands.on_hci_le_set_extended_advertising_parameters_command(
                 extended_parameters(advertising_handle=handle, own_address_type=own)
@@ -247,17 +273,28 @@ def test_random_address_update_is_atomic_and_preserves_address_selection(control
         )
         item = controller.backend.link.advertisers[handle]
         original_address = item.address
-        command = hci.HCI_LE_Set_Advertising_Set_Random_Address_Command(handle, new_address)
+        command = hci.HCI_LE_Set_Advertising_Set_Random_Address_Command(
+            handle, new_address
+        )
         item.enabled = True
         assert (
-            commands.on_hci_le_set_advertising_set_random_address_command(command).status
+            commands.on_hci_le_set_advertising_set_random_address_command(
+                command
+            ).status
             == ErrorCode.COMMAND_DISALLOWED_ERROR
         )
         assert item.address == original_address and item.random_address is None
         item.enabled = False
-        assert commands.on_hci_le_set_advertising_set_random_address_command(command).status == ErrorCode.SUCCESS
+        assert (
+            commands.on_hci_le_set_advertising_set_random_address_command(
+                command
+            ).status
+            == ErrorCode.SUCCESS
+        )
         assert controller.advertising_sets[handle].random_address == new_address
-        assert item.address == (new_address if own == hci.OwnAddressType.RANDOM else original_address)
+        assert item.address == (
+            new_address if own == hci.OwnAddressType.RANDOM else original_address
+        )
     assert (
         commands.on_hci_le_set_advertising_set_random_address_command(
             hci.HCI_LE_Set_Advertising_Set_Random_Address_Command(99, new_address)

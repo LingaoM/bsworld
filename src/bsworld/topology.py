@@ -92,7 +92,9 @@ class BluetoothTopology:
         """
         self._ensure_configurable()
         log_path = (
-            Path(log_subdir) if log_subdir is not None else Path("controllers") / f"hci{len(self.bsim.controllers)}"
+            Path(log_subdir)
+            if log_subdir is not None
+            else Path("controllers") / f"hci{len(self.bsim.controllers)}"
         )
         return self.bsim.add_controller(
             controller_type=controller_type or self.default_controller_type,
@@ -105,12 +107,20 @@ class BluetoothTopology:
         """Register an Application process that will be started with the topology."""
         self._ensure_configurable()
         if any(existing.label == process.label for existing in self.processes):
-            raise ValueError(f"Application process label is already registered: {process.label}")
-        if any(existing.controller is process.controller for existing in self.processes):
-            raise ValueError("a Virtual Controller can only be attached to one Application process")
+            raise ValueError(
+                f"Application process label is already registered: {process.label}"
+            )
+        if any(
+            existing.controller is process.controller for existing in self.processes
+        ):
+            raise ValueError(
+                "a Virtual Controller can only be attached to one Application process"
+            )
         self.bsim.reserve_application_device(process.controller)
         # An Application keeps its Controller's capture beside its own logs.
-        self.bsim.set_snoop_dir(process.controller, self.test_log_dir / process.log_subdir)
+        self.bsim.set_snoop_dir(
+            process.controller, self.test_log_dir / process.log_subdir
+        )
         self.processes.append(process)
         return process
 
@@ -150,7 +160,8 @@ class BluetoothTopology:
     ) -> InterferenceRef:
         """Inject a burst interferer at the given frequency.
 
-        windows: list of (start_us, end_us) pairs; omit for full-simulation interference.
+        windows: list of (start_us, end_us) pairs; omit for full-simulation
+        interference.
         """
         return self._add_interference_source(
             BurstInterference(
@@ -192,9 +203,12 @@ class BluetoothTopology:
     def add_playback_interference(self, input_file: "Path | str") -> InterferenceRef:
         """Replay recorded interference from BabbleSim CSV dumps.
 
-        input_file: path prefix without extension (.Tx/.Rx/.RSSI/.CCA.csv expected alongside).
+        input_file: path prefix without extension (.Tx/.Rx/.RSSI/.CCA.csv expected
+        alongside).
         """
-        return self._add_interference_source(PlaybackInterference(input_file=Path(input_file)))
+        return self._add_interference_source(
+            PlaybackInterference(input_file=Path(input_file))
+        )
 
     def _add_interference_source(self, source) -> InterferenceRef:
         self._ensure_configurable()
@@ -214,7 +228,9 @@ class BluetoothTopology:
         await self.bsim.wait_for_hci_sockets()
         layout = self.bsim.plan_devices()
         for process in self.processes:
-            process.start(self.pm, self.test_log_dir, layout.application_slot(process.controller))
+            process.start(
+                self.pm, self.test_log_dir, layout.application_slot(process.controller)
+            )
         await asyncio.to_thread(self.bsim.wait_for_devices_registered)
         if self.bsim.clock is not None:
             loop = asyncio.get_running_loop()

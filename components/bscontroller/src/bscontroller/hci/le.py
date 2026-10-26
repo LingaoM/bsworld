@@ -60,7 +60,9 @@ EXTENDED_ADVERTISING_COMMANDS = frozenset(
 )
 
 
-class LeControllerProcedures(LeAdvertisingCommands, LeScanningCommands, LeConnectionCommands):
+class LeControllerProcedures(
+    LeAdvertisingCommands, LeScanningCommands, LeConnectionCommands
+):
     """One command endpoint, grouped by the LE procedures each command configures."""
 
     def command_allowed(self, opcode: int) -> bool:

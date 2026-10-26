@@ -274,9 +274,9 @@ def check_advertising_stopped(tester, connection_end, observation_end):
                 and int(packet['phy_address'], 16) == PDU_ADV_ACCESS_ADDRESS
             ):
                 raw = bytes.fromhex(packet['packet'])
-                assert (
-                    raw[0] & PDU_ADV_TYPE_MASK != AdvertisingPduType.ADV_IND
-                ), 'IUT continued advertising after accepting CONNECT_IND'
+                assert raw[0] & PDU_ADV_TYPE_MASK != AdvertisingPduType.ADV_IND, (
+                    'IUT continued advertising after accepting CONNECT_IND'
+                )
 
 
 def check_connection_silent(
@@ -402,9 +402,9 @@ def _scanning_check_reports(
             tester.events.remove(event)
     accepted = round_.target is None or round_.target == DUT_ADDRESS
     if not accepted:
-        assert (
-            not reports
-        ), f'round{round_.number}: advertising for another target was reported'
+        assert not reports, (
+            f'round{round_.number}: advertising for another target was reported'
+        )
         return (False, False)
     if not reports:
         return (False, False)

@@ -77,7 +77,9 @@ def test_python_controller_rejects_invalid_worker_interval(tmp_path, interval):
 
 
 async def test_python_controller_delegates_h4_and_capture_to_worker(tmp_path, worker):
-    ctl = _python_controller(tmp_path, public_address="c0:ff:ee:00:00:01", max_step_us=250)
+    ctl = _python_controller(
+        tmp_path, public_address="c0:ff:ee:00:00:01", max_step_us=250
+    )
     await ctl.start(ProcessManager(), SimpleNamespace(), log_dir=tmp_path)
     instance = worker.instances[0]
     await instance.started.wait()
@@ -97,13 +99,18 @@ async def test_python_controller_uses_worker_defaults(tmp_path, worker):
     ctl = _python_controller(tmp_path)
     await ctl.start(ProcessManager(), SimpleNamespace(), log_dir=tmp_path)
     await ctl.stop()
-    assert worker.instances[0].options == {"hci_snoop_file": ctl.hci_snoop_file, "hci_socket": ctl.hci_sock}
+    assert worker.instances[0].options == {
+        "hci_snoop_file": ctl.hci_snoop_file,
+        "hci_socket": ctl.hci_sock,
+    }
     assert worker.instances[0].max_step_us == 1750
     assert worker.instances[0].closed
     assert not ctl.hci_sock.exists()
 
 
-async def test_python_controller_propagates_worker_failure_during_cleanup(tmp_path, worker, monkeypatch):
+async def test_python_controller_propagates_worker_failure_during_cleanup(
+    tmp_path, worker, monkeypatch
+):
     monkeypatch.setattr(worker, "failure", RuntimeError("worker failed"))
     ctl = _python_controller(tmp_path)
     await ctl.start(ProcessManager(), SimpleNamespace(), log_dir=tmp_path)
@@ -120,14 +127,20 @@ async def test_python_controller_passes_application_capture_path(tmp_path, worke
     ctl = _python_controller(tmp_path, hci_snoop_file=path)
     try:
         await ctl.start(ProcessManager(), SimpleNamespace(), log_dir=tmp_path)
-        assert worker.instances[0].options == {"hci_snoop_file": path, "hci_socket": ctl.hci_sock}
+        assert worker.instances[0].options == {
+            "hci_snoop_file": path,
+            "hci_socket": ctl.hci_sock,
+        }
     finally:
         await ctl.stop()
 
 
-async def test_python_controller_start_failure_preserves_existing_path(tmp_path, worker, monkeypatch):
+async def test_python_controller_start_failure_preserves_existing_path(
+    tmp_path, worker, monkeypatch
+):
     ctl = _python_controller(tmp_path)
     ctl.hci_sock.write_text("owned by another endpoint")
+
     async def fail_start(self, sim_id, dev_id):
         raise FileExistsError(ctl.hci_sock)
 
@@ -152,7 +165,9 @@ async def test_python_controllers_have_distinct_default_addresses(tmp_path, work
         await second.stop()
 
 
-async def test_stop_releases_other_controllers_and_phy_after_worker_failure(tmp_path, monkeypatch):
+async def test_stop_releases_other_controllers_and_phy_after_worker_failure(
+    tmp_path, monkeypatch
+):
     topo = BluetoothTopology(make_env(tmp_path), "sim", tmp_path / "log")
     python = topo.add_controller(controller_type=BSController)
     zephyr = topo.add_controller()

@@ -19,6 +19,7 @@ built outside pytest and selected through environment variables. These checks
 run before a topology starts so a missing artifact is reported once, with the
 setup guide, instead of surfacing as a failed process spawn.
 """
+
 from __future__ import annotations
 
 import os
@@ -60,7 +61,10 @@ def check_babblesim_ready(env: Env) -> None:
     """Validate the selected BabbleSim runtime outputs."""
     if env.bsim_dir is None:
         raise BSWorldSetupError(
-            "Set BSIM_OUT_PATH to the BabbleSim output directory containing bin/ and lib/. See README.md."
+            (
+                "Set BSIM_OUT_PATH to the BabbleSim output directory containing bin/ "
+                "and lib/. See README.md."
+            )
         )
     missing = [
         str(env.bsim_dir / rel)
@@ -82,7 +86,9 @@ def check_controller_ready(env: Env) -> None:
     """Validate the native Virtual Controller executable."""
     binary = env.hci_virt_bin
     if binary is None or not binary.is_file() or not os.access(binary, os.X_OK):
-        raise BSWorldSetupError(f"Virtual Controller executable unavailable: {binary}\n{_CONTROLLER_HINT}")
+        raise BSWorldSetupError(
+            f"Virtual Controller executable unavailable: {binary}\n{_CONTROLLER_HINT}"
+        )
 
 
 def controller_bin(env: Env) -> Path:

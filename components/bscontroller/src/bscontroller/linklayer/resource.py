@@ -44,12 +44,18 @@ if TYPE_CHECKING:
 
 
 def connection_window(connection: Connection) -> RadioReservation:
-    """Next connection event, from its (widened) start to the guard before the next anchor."""
+    """Next connection event, from its (widened) start to the guard before the next
+    anchor.
+    """
     return RadioReservation(
         connection.event_start_us - RADIO_SWITCH_TIME_US,
         max(
             connection.next_exchange_us(),
-            (connection.parameters.window_size * LL_CONN_INTERVAL_UNIT_US if not connection.established else 0),
+            (
+                connection.parameters.window_size * LL_CONN_INTERVAL_UNIT_US
+                if not connection.established
+                else 0
+            ),
         )
         + LL_CONN_EVENT_GUARD_US
         + RADIO_SWITCH_TIME_US,
@@ -76,12 +82,16 @@ def periodic_transmit_window(item: Advertising) -> RadioReservation:
 
 
 def periodic_receive_window(sync: PeriodicSync) -> RadioReservation:
-    """Next synchronized receive window, widened on both sides (Core Vol 6, Part B, 4.2.4)."""
+    """Next synchronized receive window, widened on both sides (Core Vol 6, Part B,
+    4.2.4).
+    """
     assert sync.info is not None
     widening = window_widening(sync.next_us - sync.last_rx_us, sync.info.sca)
     return RadioReservation(
         sync.next_us - widening - RADIO_SWITCH_TIME_US,
-        2 * widening + sync.phy.airtime_us(PDU_HEADER_SIZE + PDU_ADV_EXT_PAYLOAD_SIZE_MAX) + RADIO_SWITCH_TIME_US,
+        2 * widening
+        + sync.phy.airtime_us(PDU_HEADER_SIZE + PDU_ADV_EXT_PAYLOAD_SIZE_MAX)
+        + RADIO_SWITCH_TIME_US,
         sync.info.interval * LL_PERIODIC_INTERVAL_UNIT_US * sync.event_step,
         RadioPriority.PERIODIC_RX,
     )
@@ -107,11 +117,15 @@ class RadioResourceManager:
     @staticmethod
     def select(operations: list[PendingOperation]) -> PendingOperation:
         """Earliest due event, then radio priority and per-role fairness."""
-        return min(operations, key=lambda entry: (entry.due_us, entry.priority, entry.order))
+        return min(
+            operations, key=lambda entry: (entry.due_us, entry.priority, entry.order)
+        )
 
     @contextmanager
     def claim(self, owner: object = None):
-        """Bound an event's work by the next competing reservation; release on all exits."""
+        """Bound an event's work by the next competing reservation; release on all
+        exits.
+        """
         previous = self.deadline_us
         self.deadline_us = self.radio_limit(owner)
         try:
@@ -126,7 +140,9 @@ class RadioResourceManager:
     def reservations(self, *, exclude: object = None) -> list[RadioReservation]:
         """Every periodic activity's next window, other than exclude's."""
         result = [
-            connection_window(connection) for connection in self.link.connections.values() if connection is not exclude
+            connection_window(connection)
+            for connection in self.link.connections.values()
+            if connection is not exclude
         ]
         result += [
             periodic_transmit_window(item)

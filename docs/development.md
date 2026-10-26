@@ -26,28 +26,31 @@ pytest tests/unit -q
 
 The unit suite covers environment and artifact resolution, topology and Controller lifecycle, BabbleSim command generation, RF configuration, simulation-time scheduling, FIFO clock communication, and log collection. End-to-end Bluetooth behavior is covered by `tests/integration/`.
 
-## Lint
+## Code Style
 
-With Docker:
+The rules apply to all Python source, examples, and tests maintained in this repository. Dependency checkouts and generated build artifacts are excluded.
 
-```sh
-sudo docker run --rm \
-  --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
-  -e PYTHONPATH=/workspace \
-  ghcr.io/xiaomi/bsworld:latest ruff check --no-cache src tests
-```
+| Language | Formatter | Rules |
+|---|---|---|
+| Python | Ruff 0.14.10 | 88-character target line width, four-space indentation, sorted imports, preserved quote style |
 
-With the local virtual environment:
+Python uses Ruff for both import sorting and formatting. Both Python packages pin the same Ruff version. `E501` checks long lines that the formatter cannot wrap, including comments and strings. Two public Bluetooth error identifiers require local `# noqa: E501` exceptions to retain their existing API names; Ruff also permits unbreakable words and trailing URLs. Wrap explanatory prose rather than adding blanket exceptions.
 
-```sh
-ruff check src tests
-```
-
-To apply safe automatic fixes locally:
+From the repository root, use the Python development environment to check all maintained Python code:
 
 ```sh
-ruff check --fix src tests
+ruff check .
+ruff format --check .
 ```
+
+To apply formatting locally:
+
+```sh
+ruff check --select I --fix .
+ruff format .
+```
+
+The `Code style` GitHub Actions workflow runs these checks on every push and pull request and fails when formatting or lint differs. It checks all maintained Python files in the checkout, including existing files.
 
 ## Coverage
 

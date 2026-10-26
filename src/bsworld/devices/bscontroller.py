@@ -44,15 +44,19 @@ class BSController(Controller):
         if self._worker is not None:
             raise RuntimeError("BSController is already started")
         if self.hci_snoop_file is None:
-            raise RuntimeError("hci_snoop_file is assigned when the Controller is allocated")
+            raise RuntimeError(
+                "hci_snoop_file is assigned when the Controller is allocated"
+            )
         options = {"hci_snoop_file": self.hci_snoop_file, "hci_socket": self.hci_sock}
         if self.max_step_us is not None:
             options["max_step_us"] = self.max_step_us
         self._worker = RadioController(
             f"hci{self.controller_dev_id}",
-            self.public_address or (
+            self.public_address
+            or (
                 f"F0:F1:F2:{(self.controller_dev_id >> 16) & 255:02X}:"
-                f"{(self.controller_dev_id >> 8) & 255:02X}:{self.controller_dev_id & 255:02X}"
+                f"{(self.controller_dev_id >> 8) & 255:02X}:"
+                f"{self.controller_dev_id & 255:02X}"
             ),
             **options,
         )

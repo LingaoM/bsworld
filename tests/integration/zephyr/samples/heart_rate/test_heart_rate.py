@@ -16,8 +16,15 @@
 
 from __future__ import annotations
 
-from tests.integration.zephyr.samples.common import load_zephyr_profile, require_binaries, sample_log_subdir
-from tests.integration.zephyr.samples.heart_rate.devices import ZEPHYR_CENTRAL_HR, ZEPHYR_PERIPHERAL_HR
+from tests.integration.zephyr.samples.common import (
+    load_zephyr_profile,
+    require_binaries,
+    sample_log_subdir,
+)
+from tests.integration.zephyr.samples.heart_rate.devices import (
+    ZEPHYR_CENTRAL_HR,
+    ZEPHYR_PERIPHERAL_HR,
+)
 
 _TIMEOUT = 60.0
 
@@ -31,7 +38,9 @@ async def test_zephyr_central_hr_receives_heart_rate_notifications(topo):
         ZEPHYR_PERIPHERAL_HR,
         log_subdir=sample_log_subdir("peripheral_hr"),
     )
-    central = load_zephyr_profile(topo, ZEPHYR_CENTRAL_HR, log_subdir=sample_log_subdir("central_hr"))
+    central = load_zephyr_profile(
+        topo, ZEPHYR_CENTRAL_HR, log_subdir=sample_log_subdir("central_hr")
+    )
 
     await topo.start()
 

@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Readiness checks for artifacts built outside pytest."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -77,7 +78,9 @@ def test_babblesim_check_names_the_unusable_output(tmp_path, break_output) -> No
     _write_bsim_outputs(env)
     break_output(env)
 
-    with pytest.raises(deps.BSWorldSetupError, match="BabbleSim build outputs are missing"):
+    with pytest.raises(
+        deps.BSWorldSetupError, match="BabbleSim build outputs are missing"
+    ):
         deps.check_babblesim_ready(env)
 
 

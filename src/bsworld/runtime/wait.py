@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 """Deadline-based condition-wait helpers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +30,9 @@ def _describe(paths: Sequence[Path]) -> str:
     return ", ".join(str(path) for path in paths)
 
 
-def _remaining(pred: Callable[[], bool], deadline: float, timeout: float, desc: str) -> float:
+def _remaining(
+    pred: Callable[[], bool], deadline: float, timeout: float, desc: str
+) -> float:
     """Time left before the deadline, or 0.0 once the predicate holds.
 
     Raises TimeoutError when the deadline passes without the predicate
@@ -59,7 +62,9 @@ def wait_for(
         time.sleep(min(poll, left))
 
 
-def wait_for_paths(paths: Sequence[Path], timeout: float = 10.0, *, poll: float = 0.05) -> None:
+def wait_for_paths(
+    paths: Sequence[Path], timeout: float = 10.0, *, poll: float = 0.05
+) -> None:
     wait_for(lambda: _present(paths), timeout=timeout, poll=poll, desc=_describe(paths))
 
 
@@ -67,7 +72,9 @@ def wait_for_path(path: Path, timeout: float = 10.0, *, poll: float = 0.05) -> N
     wait_for_paths([path], timeout=timeout, poll=poll)
 
 
-async def wait_for_paths_async(paths: Sequence[Path], timeout: float = 10.0, *, poll: float = 0.05) -> None:
+async def wait_for_paths_async(
+    paths: Sequence[Path], timeout: float = 10.0, *, poll: float = 0.05
+) -> None:
     """Wait for startup paths while allowing other event-loop tasks to run."""
     deadline = time.monotonic() + timeout
     described = _describe(paths)
