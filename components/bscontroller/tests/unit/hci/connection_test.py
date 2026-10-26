@@ -38,7 +38,7 @@ async def test_radio_random_address_change_is_atomic_during_initiation(initiatin
     old_address = controller.random_address
     new_address = hci.Address('C0:12:34:56:78:9A')
     if initiating:
-        controller.le_procedures.link.initiating = SimpleNamespace()
+        controller.le_procedures.link.roles.scanning.start_initiating(SimpleNamespace())
     packets = []
     controller.send_hci_packet = packets.append
     controller.on_packet(bytes(hci.HCI_LE_Set_Random_Address_Command(new_address)))
@@ -54,7 +54,7 @@ async def test_radio_random_address_change_is_atomic_during_initiation(initiatin
 
 def test_read_rssi_uses_received_strength_and_distinguishes_unknown_handle(connection):
     connection.report_created()
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     command = hci.HCI_Read_RSSI_Command(connection.handle)
     assert listener.on_hci_read_rssi_command(command).rssi == HCI_RSSI_NOT_AVAILABLE
     connection.radio.incoming.append(Received(b'\x01\x00', -53.4, 1300, 1380, True))
@@ -74,18 +74,18 @@ def test_read_rssi_uses_received_strength_and_distinguishes_unknown_handle(conne
 
 def test_hci_acl_and_disconnect_route_to_only_the_selected_handle(connection):
     second = add_connection(connection, 1)
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     packet = hci.HCI_AclDataPacket(
         second.handle, hci.HCI_ACL_PB_FIRST_FLUSHABLE, 0, 6, b'second'
     )
     listener.on_hci_acl_data_packet(packet)
-    assert not connection.queue and second.queue[-1].payload == b'second'
+    assert not connection.event.queue and second.event.queue[-1].payload == b'second'
     listener.on_hci_disconnect_command(
         hci.HCI_Disconnect_Command(
             second.handle, ErrorCode.REMOTE_USER_TERMINATED_CONNECTION_ERROR
         )
     )
-    assert not connection.queue and len(second.queue) == 2
+    assert not connection.event.queue and len(second.event.queue) == 2
     second.complete(ErrorCode.CONNECTION_TERMINATED_BY_LOCAL_HOST_ERROR)
     assert connection.link.connections == {connection.handle: connection}
     assert listener.controller.find_connection_by_handle(connection.handle) is not None
@@ -94,7 +94,7 @@ def test_hci_acl_and_disconnect_route_to_only_the_selected_handle(connection):
 
 def test_peer_duplicates_and_shared_connection_capacity(connection):
     connection.report_created()
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     listener.on_hci_le_create_connection_command(
         create_connection(peer_address=connection.peer)
     )
@@ -116,7 +116,7 @@ def test_peer_duplicates_and_shared_connection_capacity(connection):
 def test_rejected_initiating_command_preserves_pending_context(
     connection, existing_extended
 ):
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     if existing_extended:
         listener.on_hci_le_extended_create_connection_command(
             create_connection(extended=True)
@@ -141,9 +141,9 @@ def test_initiating_templates_do_not_allocate_wire_identity(connection, extended
     random_state = link.random.getstate()
     command = create_connection(extended=extended)
     handler = (
-        link.listener.on_hci_le_extended_create_connection_command
+        link.listener.sink.on_hci_le_extended_create_connection_command
         if extended
-        else link.listener.on_hci_le_create_connection_command
+        else link.listener.sink.on_hci_le_create_connection_command
     )
     handler(command)
     assert link.initiating is not None
@@ -165,7 +165,7 @@ def test_host_channel_classification_is_atomic_and_only_targets_centrals(connect
     command = hci.HCI_LE_Set_Host_Channel_Classification_Command(
         channel_map.to_bytes(5, 'little')
     )
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     assert (
         listener.on_hci_le_set_host_channel_classification_command(command).status
         == ErrorCode.COMMAND_DISALLOWED_ERROR
@@ -186,7 +186,7 @@ def test_host_channel_classification_is_atomic_and_only_targets_centrals(connect
 
 def test_hci_busy_or_known_unsupported_peer(connection):
     connection.establish()
-    p = connection.link.listener
+    p = connection.link.listener.sink
     command = hci.HCI_LE_Set_Data_Length_Command(
         connection.handle, PDU_DATA_PAYLOAD_SIZE_MAX, PDU_DATA_PAYLOAD_TIME_CODED_MAX_US
     )
@@ -205,11 +205,11 @@ def test_hci_busy_or_known_unsupported_peer(connection):
 
 def test_oversize_host_acl_is_rejected_at_hci_ingress(connection):
     connection.report_created()
-    controller = connection.link.listener.controller
+    controller = connection.link.listener.sink.controller
     data = bytes(controller.le_acl_data_packet_length + 1)
     packet = hci.HCI_AclDataPacket(
         connection.handle, hci.HCI_ACL_PB_FIRST_FLUSHABLE, 0, len(data), data
     )
     with pytest.raises(ValueError, match='HCI buffer'):
         controller.on_hci_acl_data_packet(packet)
-    assert not connection.queue
+    assert not connection.event.queue

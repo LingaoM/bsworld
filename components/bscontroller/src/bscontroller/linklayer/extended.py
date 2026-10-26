@@ -26,8 +26,6 @@ from bscontroller.linklayer import (
     LL_IFS_US,
     LL_MAFS_US,
     LL_PERIODIC_INTERVAL_MIN,
-    LL_PERIODIC_INTERVAL_UNIT_US,
-    LL_PERIODIC_SYNC_ESTABLISHMENT_EVENTS,
     LL_SCA_50_PPM,
     LL_SCA_500_PPM,
     PDU_ADV_ADDRESS_SIZE,
@@ -53,6 +51,7 @@ from bscontroller.linklayer.advertising import (
     scan_request,
 )
 from bscontroller.linklayer.parameters import Parameters
+from bscontroller.linklayer.results import ConnectionAccepted, SyncInfoReceived
 from bscontroller.linklayer.state import (
     LL_ADV_FILTER_CONNECT_MASK,
     LL_ADV_FILTER_SCAN_MASK,
@@ -238,7 +237,7 @@ class ExtendedProcedures:
         if start + unit <= packet.end_us + LL_MAFS_US:
             return None
         until = start + widening + unit + phy.address_us
-        if until <= self.link.now_us or not self.link.fits_radio(until):
+        if until <= self.link.now_us or not self.link.resource.fits_radio(until):
             return None
         received = await self.link.radio.receive(
             aux.channel,
@@ -419,7 +418,7 @@ class ExtendedProcedures:
             and pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.CONNECT_IND
             and len(pdu) == PDU_ADV_CONNECT_SIZE
         ):
-            if not link.can_connect(peer):
+            if not link.roles.connections.can_accept(peer):
                 return False
             if (
                 item.target is None
@@ -447,20 +446,22 @@ class ExtendedProcedures:
                 phy=item.secondary_phy,
                 power_dbm=item.tx_power_dbm,
             )
-            link.create_connection(
-                parameters,
-                peer,
-                Role.PERIPHERAL,
-                packet.end_us,
-                csa2=True,
-                self_address=item.address,
-                advertiser=item,
-                window_delay_us=(
-                    LL_CONN_AUX_WINDOW_DELAY_CODED_US
-                    if packet.phy == Phy.LE_CODED
-                    else LL_CONN_AUX_WINDOW_DELAY_UNCODED_US
-                ),
-                phy=packet.phy,
+            link.roles.connections.accepted(
+                ConnectionAccepted(
+                    parameters,
+                    peer,
+                    Role.PERIPHERAL,
+                    packet.end_us,
+                    csa2=True,
+                    self_address=item.address,
+                    advertiser=item,
+                    window_delay_us=(
+                        LL_CONN_AUX_WINDOW_DELAY_CODED_US
+                        if packet.phy == Phy.LE_CODED
+                        else LL_CONN_AUX_WINDOW_DELAY_UNCODED_US
+                    ),
+                    phy=packet.phy,
+                )
             )
             return True
         return False
@@ -545,35 +546,9 @@ class ExtendedProcedures:
             return
         sid = ext.adi >> PDU_ADV_ADI_DID_BITS if ext.adi is not None else None
         info = ext.sync_info
-        sync = link.sync
-        if (
-            sync
-            and sync.info is None
-            and info
-            and not any(
-                active.address == address and active.sid == sid
-                for active in link.syncs.values()
-            )
-            and (
-                (address, sid) in link.periodic_advertiser_list
-                if sync.use_list
-                else sync.address == address and sync.sid == sid
-            )
-        ):
-            # SyncInfo predicts the first periodic receive window, not successful
-            # synchronization. periodic_receive publishes success on a valid
-            # AUX_SYNC_IND.
-            sync.address, sync.sid = address, sid
-            sync.info, sync.next_us, sync.counter = (
-                info,
-                received.start_us + info.offset_us,
-                info.event_counter,
-            )
-            sync.last_rx_us, sync.phy = received.start_us, received.phy
-            sync.deadline_us = sync.next_us + (
-                LL_PERIODIC_SYNC_ESTABLISHMENT_EVENTS
-                * info.interval
-                * LL_PERIODIC_INTERVAL_UNIT_US
+        if info is not None and sid is not None:
+            link.roles.synchronization.acquired(
+                SyncInfoReceived(address, sid, info, received)
             )
         if link.scan and link.scan.filter_policy and address not in link.accept_list:
             return
@@ -648,7 +623,7 @@ class ExtendedProcedures:
         """
         link, item = self.link, self.link.initiating
         assert item is not None
-        if not link.can_connect(address):
+        if not link.roles.connections.can_accept(address):
             return
         # Core Vol 4, Part E, 7.8.66 permits a supplied PHY's parameters as fallback.
         parameters = (item.phy_parameters or {}).get(packet.phy, item.parameters)
@@ -663,7 +638,7 @@ class ExtendedProcedures:
         parameters = link.connection_parameters(
             parameters, request_end, window_delay, packet.phy
         )
-        if parameters is None or not link.fits_radio(
+        if parameters is None or not link.resource.fits_radio(
             request_end
             + LL_IFS_US
             + packet.phy.airtime_us(PDU_ADV_AUX_CONNECT_RSP_SIZE)
@@ -700,14 +675,16 @@ class ExtendedProcedures:
             return
         # Keep the attempt pending on a missing or mismatched response. Only the
         # confirmed AUX_CONNECT_RSP lets us commit this connection.
-        link.initiating = None
-        link.create_connection(
-            parameters,
-            address,
-            Role.CENTRAL,
-            request_end,
-            csa2=True,
-            self_address=item.address,
-            window_delay_us=window_delay,
-            phy=packet.phy,
+        link.roles.connections.accepted(
+            ConnectionAccepted(
+                parameters,
+                address,
+                Role.CENTRAL,
+                request_end,
+                csa2=True,
+                self_address=item.address,
+                window_delay_us=window_delay,
+                phy=packet.phy,
+                initiator=item,
+            )
         )

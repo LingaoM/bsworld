@@ -50,7 +50,7 @@ Protocol behavior follows [Bluetooth Core 6.3](https://www.bluetooth.com/wp-cont
 
 ### Internal architecture
 
-The following diagram expands one Controller instance. Each ACL connection has its own connection context, LLCP, and event-execution state; connections and connectionless roles share one RadioResourceManager.
+The following diagram expands one Controller instance. LL role managers own active contexts and their lifetimes. Each ACL connection has its own LLCP, packet-security state, and event executor; all roles share one RadioResourceManager.
 
 ![Internal modules, state ownership and principal interaction paths of one Controller](docs/images/radio_controller_internal_arch.svg)
 
@@ -61,16 +61,22 @@ Nested boxes show object and state ownership. Black arrows denote operations/con
 | Module | Responsibilities and state ownership |
 | --- | --- |
 | `hci/` | H4 framing, command decoding and parameter conversion, command-family selection, unfinished HCI fragments, event masks, duplicate filtering, and report encoding |
-| `linklayer/service.py` | `LinkLayerService` / `AdvertisingService` commit live role state, initializing scan backoff, publishing payloads and DID, enabling/disabling roles, cancelling sync acquisition, and configuring defaults |
+| `linklayer/api.py`, `service.py` | Decoded configuration, read-only queries, and role commands; HCI submits `AdvertisingConfig` without radio deadlines or event counters |
+| `linklayer/notifications.py`, `listener.py` | Convert committed LL state to frozen notification snapshots before passing it to HCI; active contexts remain inside LL |
+| `linklayer/roles.py`, `results.py` | Own connection handles, advertising/scanning/initiating/synchronization contexts, lifetime transitions, next activities, and validated RF outcomes |
 | `linklayer/connection.py` | `Connection` manages lifetime, current parameters, anchor, and supervision timeout |
-| `linklayer/llcp.py` | `LlcpCoordinator` handles control admission, transmitted requests awaiting replies, encryption-phase TX/RX gates, RX/ACK routing, and deadline aggregation; the shared `ProcedureResponseTimer` records its current procedure owner |
-| `linklayer/control.py`, `encryption.py`, `data_length.py` | Individual control state transitions, collision rules, Instant updates, key/cipher transitions, and data-length negotiation, connected to the event executor by the coordinator |
-| `linklayer/connection_event.py` | `ConnectionEvent` owns the TX queue, SN/NESN, LL fragmentation, and retry snapshot, executing channel selection and exchanges within one connection event |
-| `linklayer/primary.py`, `extended.py`, `periodic.py` | Legacy/extended advertising, scanning, initiating, and periodic TX/RX execution; role contexts are defined in `discovery.py` |
+| `linklayer/llcp.py`, `procedure.py` | `LlcpCoordinator` handles control admission, procedure contexts and reply association, packet-level TX/RX gates, ACK routing, and response-timer ownership |
+| `linklayer/control.py`, `phy.py`, `connection_parameters.py`, `encryption.py`, `data_length.py` | Procedure-owned state transitions, collision rules, Instant updates, key/mode transitions, and data-length negotiation; PHY and connection parameters have their own handlers |
+| `linklayer/connection_event.py`, `data_path.py` | `ConnectionEvent` owns the TX queue, SN/NESN, LL fragmentation, and retry snapshot; packet security, effective limits, and RX facts form its explicit contract with LLCP |
+| `linklayer/primary.py`, `extended.py`, `periodic.py` | Execute role-specific packet validation and immediate exchanges, reporting connection/sync outcomes to the role owner; active contexts are defined in `discovery.py` |
 | `linklayer/resource.py`, `scheduler.py` | `RadioResourceManager` supplies shared reservations, priorities, arbitration, and activity-window release; scheduling helpers find complete, non-preemptive slots |
 | `radio/`, `runtime/` | Radio supplies TX/RX, physical time, and BabbleSim FIFO adaptation; Runtime composes threads, event loops, sessions, and PHY process lifecycle |
 
-Control requests pass through the LL service to LLCP admission. Asynchronous procedures return a `PreparedProcedure`: HCI emits Command Status before calling `start()`, so immediate completion from cached information also follows Command Status. Host ACL data enters the event queue through the LL service. The receive path authenticates, checks admissibility, and then commits the ACK. LL commits state before notifying HCI through `linklayer/listener.py` to encode the result.
+Control requests pass through the LL service to LLCP admission. Asynchronous procedures return a `PreparedProcedure`: HCI emits Command Status before calling `start()`, so immediate completion from cached information also follows Command Status. HCI queries and notifications return detached values rather than live Connection, Advertising, or PeriodicSync objects. Configuration commits preserve LL-owned event timing and counters; reading advertising TX power does not create or reconfigure a role.
+
+Role managers prepare activities and reservations, commit validated connection/synchronization outcomes, and publish notifications after updating their resource tables. RadioLink drives these managers and the shared scheduler. Packet validation and T_IFS responses stay in the event executors; cross-role lifetime changes go through the owning manager.
+
+Host ACL data enters the event queue through the LL service. RX facts include the prospective control ACK without consuming it. LLCP authenticates and checks admissibility before the executor commits ARQ state. Effective limits and packet-security modes are separate from procedure state; sent/ACK callbacks may change encryption inside one connection event.
 
 Outstanding requests are removed on a matching reply or link teardown; delayed replies during an encryption pause are routed using the same association. The shared response timer records its current procedure owner, so PHY completion stops only its own timer. Public HCI connection identities are read-only, advertising payload views return `bytes`, and scan configuration reads return detached copies. Updates go through HCI commands or LL services.
 

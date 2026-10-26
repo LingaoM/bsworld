@@ -32,7 +32,7 @@ IV = bytes.fromhex('24ABDCBABEBAAFDE')
 def test_encryption_setup_remains_per_connection(connection):
     connection.role = hci.Role.CENTRAL
     second = add_connection(connection, 1)
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     for value, key in ((connection, b'1' * 16), (second, b'2' * 16)):
         listener.on_hci_le_enable_encryption_command(
             hci.HCI_LE_Enable_Encryption_Command(
@@ -45,7 +45,7 @@ def test_encryption_setup_remains_per_connection(connection):
         assert listener.controller.events[-1].status == ErrorCode.SUCCESS
         assert value.encryption.ltk == key
     assert connection.encryption is not second.encryption
-    assert len(connection.queue) == len(second.queue) == 1
+    assert len(connection.event.queue) == len(second.event.queue) == 1
 
 
 @pytest.mark.parametrize(
@@ -125,27 +125,27 @@ def test_counter_exhaustion_never_reuses_a_nonce():
 
 @pytest.mark.asyncio
 async def test_encrypted_retransmission_preserves_ciphertext_and_counter(connection):
-    connection.encryption.cipher = PacketCipher(KEY, IV, central=True)
-    connection.encryption.tx_enabled = True
+    connection.packet_security.cipher = PacketCipher(KEY, IV, central=True)
+    connection.packet_security.tx_enabled = True
     connection.enqueue_acl(False, b'payload')
     await connection.send(0, 100)
     wire = connection.radio.sent[-1][2]
     await connection.send(0, connection.radio.now_us + 100)
     assert connection.radio.sent[-1][2] == wire
-    assert connection.encryption.cipher.tx_counter == 1
+    assert connection.packet_security.cipher.tx_counter == 1
 
 
 def test_mic_failure_never_acknowledges_or_delivers_data(connection):
     connection.reported = True
-    connection.encryption.cipher = PacketCipher(KEY, IV, central=False)
-    connection.encryption.rx_enabled = True
+    connection.packet_security.cipher = PacketCipher(KEY, IV, central=False)
+    connection.packet_security.rx_enabled = True
     tx = PacketCipher(KEY, IV, central=True)
     payload = bytearray(tx.encrypt(LlId.START, b'bad mic'))
     payload[-1] ^= 1
     connection.accept(bytes([LlId.START, len(payload)]) + payload, True)
-    assert connection.closed and connection.rx_nesn == 0
+    assert connection.closed and connection.event.rx_nesn == 0
     assert (
-        connection.link.listener.controller.events[-1].reason
+        connection.link.listener.sink.controller.events[-1].reason
         == hci.HCI_ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
     )
 
@@ -153,7 +153,7 @@ def test_mic_failure_never_acknowledges_or_delivers_data(connection):
 def test_unexpected_control_during_start_closes_connection(connection):
     connection.encryption.state = State.START_REQ
     connection.accept(bytes([LlId.CONTROL, 1, Opcode.LL_VERSION_IND]), True)
-    assert connection.closed and connection.rx_nesn == 0
+    assert connection.closed and connection.event.rx_nesn == 0
 
 
 @pytest.mark.parametrize(
@@ -165,20 +165,20 @@ def test_no_new_plaintext_procedure_while_host_key_is_pending(
 ):
     connection.encryption.state = State.KEY
     connection.accept(bytes([llid, len(payload)]) + payload, True)
-    assert connection.closed and connection.rx_nesn == 0
+    assert connection.closed and connection.event.rx_nesn == 0
 
 
 @pytest.mark.parametrize(
     'opcode', [Opcode.LL_VERSION_IND, Opcode.LL_FEATURE_RSP, Opcode.LL_PING_RSP]
 )
 def test_overlapping_control_is_deferred_until_encryption_completes(connection, opcode):
-    from bscontroller.linklayer.connection import Outbound
+    from bscontroller.linklayer.connection_event import Outbound
 
     connection.encryption.state = State.ENC_RSP
-    connection.queue.append(Outbound(LlId.CONTROL, bytes([opcode])))
-    assert connection._next_outbound().payload == b''
+    connection.event.queue.append(Outbound(LlId.CONTROL, bytes([opcode])))
+    assert connection.event._next_outbound().payload == b''
     connection.encryption.state = State.IDLE
-    assert connection._next_outbound().payload == bytes([opcode])
+    assert connection.event._next_outbound().payload == bytes([opcode])
 
 
 def test_ping_budget_covers_request_alignment_and_peer_reply(connection):
@@ -203,35 +203,41 @@ def test_failed_refresh_never_resumes_unencrypted_user_traffic(connection):
     connection.reported = True
     connection.role = hci.Role.CENTRAL
     encryption = connection.encryption
-    encryption.enabled = encryption.tx_enabled = encryption.rx_enabled = True
+    encryption.enabled = encryption.security.tx_enabled = (
+        encryption.security.rx_enabled
+    ) = True
     encryption.start(bytes(8), 0, KEY)
     encryption.finish(hci.HCI_ErrorCode.PIN_OR_KEY_MISSING_ERROR)
-    assert connection.closed and not encryption.tx_enabled and not encryption.rx_enabled
+    assert (
+        connection.closed
+        and not encryption.security.tx_enabled
+        and not encryption.security.rx_enabled
+    )
 
 
 def test_duplicate_pause_packet_survives_rx_mode_transition(connection):
     encryption = connection.encryption
-    encryption.cipher = PacketCipher(KEY, IV, central=False)
-    encryption.rx_enabled = True
+    encryption.security.cipher = PacketCipher(KEY, IV, central=False)
+    encryption.security.rx_enabled = True
     tx = PacketCipher(KEY, IV, central=True)
     wire = tx.encrypt(LlId.CONTROL, bytes([Opcode.LL_PAUSE_ENC_REQ]))
     assert encryption.receive(LlId.CONTROL, wire, duplicate=False) == bytes(
         [Opcode.LL_PAUSE_ENC_REQ]
     )
-    encryption.rx_enabled = False
+    encryption.security.rx_enabled = False
     encryption.state = State.PAUSE_ACK
     assert encryption.receive(LlId.CONTROL, wire, duplicate=True) == bytes(
         [Opcode.LL_PAUSE_ENC_REQ]
     )
-    assert encryption.cipher.rx_counter == 1
+    assert encryption.security.cipher.rx_counter == 1
 
 
 def test_pre_encryption_plaintext_cannot_acknowledge_encrypted_data(connection):
     encryption = connection.encryption
     plain = bytes([Opcode.LL_VERSION_IND])
     assert encryption.receive(LlId.CONTROL, plain, duplicate=False) == plain
-    encryption.cipher = PacketCipher(KEY, IV, central=False)
-    encryption.rx_enabled = True
+    encryption.security.cipher = PacketCipher(KEY, IV, central=False)
+    encryption.security.rx_enabled = True
     assert encryption.receive(LlId.CONTROL, plain, duplicate=True) is None
     assert connection.closed
 
@@ -243,7 +249,7 @@ async def test_paused_user_queue_sends_only_empty_packets_without_md(connection)
     await connection.send(0, 100)
     packet = connection.radio.sent[-1][2]
     assert packet[PDU_HEADER_SIZE:] == b'' and not packet[0] & PDU_DATA_MD_MASK
-    assert connection.queue[0].payload == b'must wait for encryption'
+    assert connection.event.queue[0].payload == b'must wait for encryption'
 
 
 async def _request_key(connection, *, refresh=False, extended=False):
@@ -291,7 +297,7 @@ async def test_missing_refresh_key_performs_acl_termination(connection, acknowle
         connection.radio.now_us = connection.termination_deadline_us
         connection.check_timeout()
     assert connection.closed
-    event = connection.link.listener.controller.events[-1]
+    event = connection.link.listener.sink.controller.events[-1]
     assert isinstance(event, hci.HCI_Disconnection_Complete_Event)
     assert event.reason == ErrorCode.PIN_OR_KEY_MISSING_ERROR
 
@@ -342,10 +348,10 @@ async def test_missing_initial_key_keeps_acl_paused_until_rejection_ack(
     assert encryption.deadline_us == 0
     assert (
         not encryption.enabled
-        and not encryption.tx_enabled
-        and not encryption.rx_enabled
+        and not encryption.security.tx_enabled
+        and not encryption.security.rx_enabled
     )
-    events = connection.link.listener.controller.events
+    events = connection.link.listener.sink.controller.events
     assert [
         event.data for event in events if isinstance(event, hci.HCI_AclDataPacket)
     ] == ([peer_data] if peer_data else [])
@@ -374,7 +380,7 @@ async def test_missing_initial_key_rejects_data_without_rejection_ack(
     connection.accept(bytes([header, 4]) + b'data', True)
     assert connection.closed
     assert (
-        connection.link.listener.controller.events[-1].reason
+        connection.link.listener.sink.controller.events[-1].reason
         == ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
     )
 
@@ -391,7 +397,7 @@ async def test_missing_initial_key_rejection_retains_response_timeout(connection
     connection.radio.now_us = deadline
     assert connection.check_timeout()
     assert (
-        connection.link.listener.controller.events[-1].reason
+        connection.link.listener.sink.controller.events[-1].reason
         == ErrorCode.LMP_OR_LL_RESPONSE_TIMEOUT_ERROR
     )
 
@@ -402,7 +408,7 @@ async def _start_encryption_after_phy_request(connection, *, extended=False):
     connection.peer_features = (
         int(hci.LeFeatureMask.EXTENDED_REJECT_INDICATION) if extended else 0
     )
-    connection.controls.request_phy(1, 1)
+    connection.controls.phy.request_phy(1, 1)
     await connection.send(0, 100)
     assert connection.radio.sent[-1][2][PDU_HEADER_SIZE:] == bytes(
         [Opcode.LL_PHY_REQ, 1, 1]
@@ -447,8 +453,10 @@ async def test_delayed_phy_unknown_rsp_survives_key_rejection(
     )
     assert not connection.closed and encryption.busy
     assert encryption.deadline_us == deadline
-    assert not connection.controls.phy_request and connection.controls.deadline_us == 0
-    events = connection.link.listener.controller.events
+    assert (
+        not connection.controls.phy.phy_request and connection.controls.deadline_us == 0
+    )
+    events = connection.link.listener.sink.controller.events
     phy_events = [
         event
         for event in events
@@ -458,7 +466,7 @@ async def test_delayed_phy_unknown_rsp_survives_key_rejection(
         len(phy_events) == 1
         and phy_events[0].status == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
     )
-    assert connection.queue[0].payload == user_data
+    assert connection.event.queue[0].payload == user_data
     if key_reply == 'after-unknown-rsp':
         encryption.supply_key(None)
 
@@ -507,7 +515,7 @@ async def test_unknown_rsp_exception_requires_a_sent_peripheral_control(
     connection.accept(bytes([header, len(response)]) + response, True)
     assert connection.closed
     assert (
-        connection.link.listener.controller.events[-1].reason
+        connection.link.listener.sink.controller.events[-1].reason
         == ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
     )
 
@@ -540,17 +548,18 @@ async def test_delayed_unknown_rsp_with_a_key_preserves_encryption_handshake(
     deadline = encryption.deadline_us
     connection.accept(bytes([header, len(response)]) + response, True)
     if mode == 'bad-mic':
-        assert connection.closed and connection.pending is not None
-        assert connection.controls.phy_request
+        assert connection.closed and connection.event.pending is not None
+        assert connection.controls.phy.phy_request
         assert (
-            connection.link.listener.controller.events[-1].reason
+            connection.link.listener.sink.controller.events[-1].reason
             == ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
         )
     else:
         assert not connection.closed and encryption.state == State.START_RSP
         assert encryption.deadline_us == deadline
         assert (
-            not connection.controls.phy_request and connection.controls.deadline_us == 0
+            not connection.controls.phy.phy_request
+            and connection.controls.deadline_us == 0
         )
         connection.enqueue_acl(False, b'waiting for encrypted START_ENC_RSP')
         await connection.send(0, connection.radio.now_us + 100)

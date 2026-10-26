@@ -20,12 +20,10 @@ from bscontroller.linklayer import (
     ControlOpcode,
     LlId,
 )
-from bscontroller.linklayer.connection import (
-    LL_CONTROL_PDU_SENDER_ROLES,
-    Outbound,
-)
-from bscontroller.linklayer.control import InstantUpdate
+from bscontroller.linklayer.connection_event import Outbound
 from bscontroller.linklayer.data_length import DataLengths
+from bscontroller.linklayer.instant import InstantUpdate
+from bscontroller.linklayer.llcp import LL_CONTROL_PDU_SENDER_ROLES
 from bscontroller.linklayer.timing import window_widening
 from bscontroller.radio.base import (
     PHY_CODED_S2_FACTOR,
@@ -77,21 +75,24 @@ async def test_csa1_uses_live_connection_channel_state(
 def test_receive_duplicate_and_bad_crc_do_not_redeliver(connection):
     packet = b"\x02\x03abc"
     connection.accept(packet, False)
-    assert not connection.established and not connection.link.listener.controller.events
+    assert (
+        not connection.established
+        and not connection.link.listener.sink.controller.events
+    )
     connection.accept(packet, True)
-    assert connection.established and connection.rx_nesn == 1
+    assert connection.established and connection.event.rx_nesn == 1
     acl = [
         event
-        for event in connection.link.listener.controller.events
+        for event in connection.link.listener.sink.controller.events
         if isinstance(event, hci.HCI_AclDataPacket)
     ]
     assert len(acl) == 1 and acl[0].data == b"abc"
     connection.accept(packet, True)
-    assert connection.rx_nesn == 1
+    assert connection.event.rx_nesn == 1
     assert (
         sum(
             isinstance(event, hci.HCI_AclDataPacket)
-            for event in connection.link.listener.controller.events
+            for event in connection.link.listener.sink.controller.events
         )
         == 1
     )
@@ -100,53 +101,58 @@ def test_receive_duplicate_and_bad_crc_do_not_redeliver(connection):
 @pytest.mark.parametrize("pdu", [b"", b"\x01", b"\x02\x02x", b"\x02\x1c" + bytes(28)])
 def test_invalid_data_pdu(connection, pdu):
     connection.accept(pdu, True)
-    assert not connection.established and not connection.link.listener.controller.events
+    assert (
+        not connection.established
+        and not connection.link.listener.sink.controller.events
+    )
 
 
 def test_reserved_llid_updates_arq_without_dispatch(connection):
     connection.establish()
-    connection.pending = Outbound(LlId.CONTROL, bytes([ControlOpcode.LL_FEATURE_REQ]))
-    connection.sent_pending = True
+    connection.event.pending = Outbound(
+        LlId.CONTROL, bytes([ControlOpcode.LL_FEATURE_REQ])
+    )
+    connection.event.sent_pending = True
     payload = bytes(
         [ControlOpcode.LL_TERMINATE_IND, ErrorCode.AUTHENTICATION_FAILURE_ERROR]
     )
     connection.accept(
         bytes([LlId.RESERVED | PDU_DATA_NESN_MASK, len(payload)]) + payload, True
     )
-    assert connection.pending is None
-    assert (connection.tx_sn, connection.rx_nesn) == (1, 1)
-    assert connection.remote_termination is None and not connection.queue
+    assert connection.event.pending is None
+    assert (connection.event.tx_sn, connection.event.rx_nesn) == (1, 1)
+    assert connection.remote_termination is None and not connection.event.queue
     assert not any(
         isinstance(event, hci.HCI_AclDataPacket)
-        for event in connection.link.listener.controller.events
+        for event in connection.link.listener.sink.controller.events
     )
 
 
 def test_retransmit_keeps_sn_and_payload_until_ack(connection):
-    connection.queue.append(Outbound(LlId.START, b"payload", True))
+    connection.event.queue.append(Outbound(LlId.START, b"payload", True))
     asyncio.run(connection.send(7, 1))
     asyncio.run(connection.send(14, 1000))
     assert (
         connection.radio.sent[0][2] == connection.radio.sent[1][2] == b"\x02\x07payload"
     )
-    assert connection.retries == 1 and connection.tx_sn == 0
+    assert connection.event.retries == 1 and connection.event.tx_sn == 0
     connection.accept(b"\x01\x00", True)  # NESN=0: not acknowledged.
-    assert connection.pending is not None and connection.tx_sn == 0
+    assert connection.event.pending is not None and connection.event.tx_sn == 0
     connection.accept(b"\x0d\x00", True)  # NESN=1, new SN=1.
-    assert connection.pending is None and connection.tx_sn == 1
+    assert connection.event.pending is None and connection.event.tx_sn == 1
     completed = [
         event
-        for event in connection.link.listener.controller.events
+        for event in connection.link.listener.sink.controller.events
         if isinstance(event, hci.HCI_Number_Of_Completed_Packets_Event)
     ]
     assert len(completed) == 1 and completed[0].num_completed_packets == [1]
 
 
 def test_crc_error_cannot_acknowledge_outstanding_packet(connection):
-    connection.queue.append(Outbound(LlId.START, b"test", True))
+    connection.event.queue.append(Outbound(LlId.START, b"test", True))
     asyncio.run(connection.send(7, 1))
     connection.accept(b"\x05\x00", False)
-    assert connection.pending is not None and connection.tx_sn == 0
+    assert connection.event.pending is not None and connection.event.tx_sn == 0
 
 
 @pytest.mark.parametrize(
@@ -154,7 +160,7 @@ def test_crc_error_cannot_acknowledge_outstanding_packet(connection):
 )
 def test_acl_packet_boundaries(connection, pb, llid):
     connection.enqueue_acl(pb == 1, b"abc")
-    assert connection.queue.pop() == Outbound(llid, b"abc", True)
+    assert connection.event.queue.pop() == Outbound(llid, b"abc", True)
 
 
 @pytest.mark.parametrize('continuation', [False, True])
@@ -162,19 +168,19 @@ def test_empty_host_fragment_preserves_only_a_pending_start_boundary(
     connection, continuation
 ):
     connection.enqueue_acl(continuation, b'')
-    assert not connection.queue
-    assert connection.tx_start_pending == (not continuation)
-    completed = connection.link.listener.controller.events[-1]
+    assert not connection.event.queue
+    assert connection.event.tx_start_pending == (not continuation)
+    completed = connection.link.listener.sink.controller.events[-1]
     assert isinstance(completed, hci.HCI_Number_Of_Completed_Packets_Event)
     assert completed.connection_handles == [connection.handle]
     assert completed.num_completed_packets == [1]
     connection.enqueue_acl(True, b'first bytes')
-    assert connection.queue.pop() == Outbound(
+    assert connection.event.queue.pop() == Outbound(
         LlId.CONTINUATION if continuation else LlId.START, b'first bytes', True
     )
-    assert not connection.tx_start_pending
+    assert not connection.event.tx_start_pending
     connection.enqueue_acl(True, b'next bytes')
-    assert connection.queue.pop().llid == LlId.CONTINUATION
+    assert connection.event.queue.pop().llid == LlId.CONTINUATION
 
 
 def test_empty_host_start_cannot_relabel_already_queued_or_control_data(connection):
@@ -182,7 +188,7 @@ def test_empty_host_start_cannot_relabel_already_queued_or_control_data(connecti
     connection.enqueue_acl(False, b'')
     connection.enqueue_control(bytes([ControlOpcode.LL_PING_REQ]))
     connection.enqueue_acl(True, b'new frame')
-    assert [(item.llid, item.payload) for item in connection.queue] == [
+    assert [(item.llid, item.payload) for item in connection.event.queue] == [
         (LlId.START, b'older frame'),
         (LlId.CONTROL, bytes([ControlOpcode.LL_PING_REQ])),
         (LlId.START, b'new frame'),
@@ -198,7 +204,7 @@ def test_local_termination_waits_for_ack(connection):
     connection.accept(b"\x0d\x00", True)
     assert (
         connection.closed
-        and connection.link.listener.controller.events[-1].reason
+        and connection.link.listener.sink.controller.events[-1].reason
         == ErrorCode.CONNECTION_TERMINATED_BY_LOCAL_HOST_ERROR
     )
 
@@ -219,7 +225,7 @@ def test_termination_deadline_is_not_restarted_by_valid_rx(connection):
     connection.radio.now_us = deadline
     assert connection.check_timeout()
     assert (
-        connection.link.listener.controller.events[-1].reason
+        connection.link.listener.sink.controller.events[-1].reason
         == ErrorCode.CONNECTION_TERMINATED_BY_LOCAL_HOST_ERROR
     )
 
@@ -258,7 +264,7 @@ def test_supervision_timeout_uses_last_valid_rx(connection):
     assert asyncio.run(connection.advance_to_us(1_000_080)) == 1_000_080
     assert (
         connection.closed
-        and connection.link.listener.controller.events[-1].reason
+        and connection.link.listener.sink.controller.events[-1].reason
         == ErrorCode.CONNECTION_TIMEOUT_ERROR
     )
 
@@ -315,16 +321,17 @@ def test_earlier_software_timer_does_not_expire_connection(connection, establish
 def test_first_connection_failure_is_not_a_disconnection(connection):
     connection.anchor_us = 200_000
     assert asyncio.run(connection.advance_to_us(180_000)) == 180_000
-    event = connection.link.listener.controller.events[-1]
+    event = connection.link.listener.sink.controller.events[-1]
     assert isinstance(event, hci.HCI_LE_Enhanced_Connection_Complete_Event)
     assert event.status == ErrorCode.CONNECTION_FAILED_TO_BE_ESTABLISHED_ERROR
 
 
 def test_created_connection_is_reported_once_before_physical_establishment(connection):
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     connection.report_created()
     assert not connection.established
-    assert listener._connection(connection.handle) is connection
+    snapshot = listener.ll.connection_snapshot(connection.handle)
+    assert snapshot.handle == connection.handle
     connection.report_created()
     connection.establish()
     events = listener.controller.events
@@ -345,7 +352,7 @@ def test_created_connection_failure_reports_disconnection(connection):
     connection.report_created()
     connection.anchor_us = 200_000
     asyncio.run(connection.advance_to_us(180_000))
-    event = connection.link.listener.controller.events[-1]
+    event = connection.link.listener.sink.controller.events[-1]
     assert isinstance(event, hci.HCI_Disconnection_Complete_Event)
     assert event.status == ErrorCode.SUCCESS
     assert event.reason == ErrorCode.CONNECTION_FAILED_TO_BE_ESTABLISHED_ERROR
@@ -354,12 +361,12 @@ def test_created_connection_failure_reports_disconnection(connection):
 def test_unknown_control_dispatch_never_echoes_its_own_response(connection):
     unknown_opcode = 0xFF  # Reserved opcode, not a supported control procedure.
     connection.control(bytes([unknown_opcode]))
-    response = connection.queue.popleft()
+    response = connection.event.queue.popleft()
     assert response == Outbound(
         LlId.CONTROL, bytes([ControlOpcode.LL_UNKNOWN_RSP, unknown_opcode])
     )
     connection.control(response.payload)
-    assert not connection.queue and not connection.closed
+    assert not connection.event.queue and not connection.closed
 
 
 @pytest.mark.parametrize('opcode,sender_role', LL_CONTROL_PDU_SENDER_ROLES.items())
@@ -379,10 +386,10 @@ def test_control_role_dispatch_precedes_procedure_state(
     payload = bytes([opcode])
     connection.control(payload)
     if legal_sender:
-        assert dispatched == [payload] and not connection.queue
+        assert dispatched == [payload] and not connection.event.queue
     else:
         assert not dispatched
-        assert list(connection.queue) == [
+        assert list(connection.event.queue) == [
             Outbound(LlId.CONTROL, bytes([ControlOpcode.LL_UNKNOWN_RSP, opcode]))
         ]
     assert not connection.closed
@@ -394,10 +401,10 @@ def test_bad_crc_physical_reception_establishes_without_accepting_payload(connec
         Received(bytes([LlId.START, 3]) + b'abc', -45, 1300, 1404, False)
     )
     asyncio.run(connection.receive(7, 2000))
-    assert connection.established and connection.rx_nesn == 0
+    assert connection.established and connection.event.rx_nesn == 0
     assert not any(
         isinstance(event, hci.HCI_AclDataPacket)
-        for event in connection.link.listener.controller.events
+        for event in connection.link.listener.sink.controller.events
     )
 
 
@@ -453,7 +460,7 @@ async def test_radio_conflict_skips_without_consuming_pending_acl(connection):
         connection.anchor_us + 100, radio_until_us=connection.anchor_us + 100
     )
     assert not connection.radio.sent and connection.event_counter == 1
-    assert connection.queue[-1].payload == b'keep until acknowledged'
+    assert connection.event.queue[-1].payload == b'keep until acknowledged'
 
 
 @pytest.mark.parametrize(
@@ -487,6 +494,6 @@ def test_initial_exchange_does_not_reserve_a_maximum_size_ack(connection, encryp
         PDU_DATA_PAYLOAD_SIZE_MAX,
         PDU_DATA_PAYLOAD_TIME_UNCODED_MAX_US,
     )
-    connection.encryption.rx_enabled = encrypted
+    connection.packet_security.rx_enabled = encrypted
     assert connection.next_exchange_us(max_rx=False) == minimal_exchange
     assert connection.next_exchange_us() > minimal_exchange

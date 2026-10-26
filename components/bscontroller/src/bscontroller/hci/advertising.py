@@ -4,8 +4,6 @@
 
 """Legacy, extended and periodic advertising HCI validation and data assembly."""
 
-from dataclasses import replace
-
 from bscontroller import hci
 from bscontroller.capabilities import CONTROLLER_ADVERTISING_SET_COUNT
 from bscontroller.hci import (
@@ -38,8 +36,7 @@ from bscontroller.linklayer import (
     AdvertisingMode,
     AdvertisingPduType,
 )
-from bscontroller.linklayer.discovery import Advertising
-from bscontroller.linklayer.service import AdvertisingService
+from bscontroller.linklayer.api import AdvertisingConfig
 from bscontroller.linklayer.timing import LL_DIRECT_ADV_INTERVAL_US
 from bscontroller.radio.base import RADIO_TX_POWER_MAX_DBM, RADIO_TX_POWER_MIN_DBM, Phy
 
@@ -108,20 +105,21 @@ class LeAdvertisingCommands(LeControllerContext):
         '''
         # Core Vol 4, Part E, 7.8.6: report the power used by legacy advertising.
         return hci.HCI_LE_Read_Advertising_Physical_Channel_Tx_Power_ReturnParameters(
-            status=SUCCESS, tx_power_level=self._legacy().tx_power_dbm
+            status=SUCCESS,
+            tx_power_level=(
+                state.tx_power_dbm
+                if (state := self.ll.advertising.snapshot(-1)) is not None
+                else 0
+            ),
         )
 
-    def _legacy(self) -> Advertising:
-        """Translate saved legacy configuration; LL retains active payload and timing
-        state.
-        """
+    def _legacy_configuration(self) -> AdvertisingConfig:
+        """Decode HCI parameters without creating or changing an active advertiser."""
         record = self.controller.le_legacy_advertiser
         pdu_type = LEGACY_PDU_TYPES[record.advertising_type]
         high_duty = record.advertising_type == LegacyAdvertisingType.ADV_DIRECT_IND
-        configuration = Advertising(
+        return AdvertisingConfig(
             self._address(record.own_address_type),
-            data=bytearray(record.advertising_data),
-            scan_response=bytearray(record.scan_response_data),
             interval_us=LL_DIRECT_ADV_INTERVAL_US
             if high_duty
             else record.advertising_interval_min * HCI_LE_ADV_INTERVAL_UNIT_US,
@@ -133,13 +131,12 @@ class LeAdvertisingCommands(LeControllerContext):
             high_duty=high_duty,
             filter_policy=record.advertising_filter_policy,
         )
-        return self.ll.advertising.configure_legacy(configuration)
 
     def on_hci_le_set_advertising_parameters_command(self, command):
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.5 LE Set Advertising Parameters Command
         '''
-        if any(item.enabled for item in self.link.advertisers.values()):
+        if self.ll.advertising.any_enabled():
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if (
             command.advertising_type not in LEGACY_PDU_TYPES
@@ -196,7 +193,7 @@ class LeAdvertisingCommands(LeControllerContext):
         '''
         if len(command.advertising_data) > PDU_ADV_LEGACY_DATA_SIZE_MAX:
             return hci.HCI_StatusReturnParameters(INVALID)
-        self._legacy()
+        self.ll.advertising.configure_legacy(self._legacy_configuration())
         self.ll.advertising.store_data(-1, 'data', command.advertising_data)
         return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.SUCCESS)
 
@@ -206,7 +203,7 @@ class LeAdvertisingCommands(LeControllerContext):
         '''
         if len(command.scan_response_data) > PDU_ADV_LEGACY_DATA_SIZE_MAX:
             return hci.HCI_StatusReturnParameters(INVALID)
-        self._legacy()
+        self.ll.advertising.configure_legacy(self._legacy_configuration())
         self.ll.advertising.store_data(-1, 'scan_response', command.scan_response_data)
         return hci.HCI_StatusReturnParameters(hci.HCI_ErrorCode.SUCCESS)
 
@@ -216,13 +213,11 @@ class LeAdvertisingCommands(LeControllerContext):
         '''
         if command.advertising_enable not in (0, 1):
             return hci.HCI_StatusReturnParameters(INVALID)
-        if command.advertising_enable and (
-            any(key != -1 for key in self.link.advertisers)
-        ):
+        if command.advertising_enable and (self.ll.advertising.has_extended_sets()):
             return hci.HCI_StatusReturnParameters(DISALLOWED)
-        item = self._legacy()
+        self.ll.advertising.configure_legacy(self._legacy_configuration())
         return hci.HCI_StatusReturnParameters(
-            self.ll.advertising.enable_legacy(item, bool(command.advertising_enable))
+            self.ll.advertising.enable_legacy(bool(command.advertising_enable))
         )
 
     def _extended_advertising_status(self, command):
@@ -311,69 +306,53 @@ class LeAdvertisingCommands(LeControllerContext):
             status = INVALID
         return status
 
-    def _extended_advertiser(self, command):
-        """Build a candidate configuration, retaining the set's existing payloads."""
+    def _extended_advertising_configuration(self, command) -> AdvertisingConfig:
+        """Translate decoded HCI fields; LL retains payloads and runtime state."""
         properties = command.advertising_event_properties
-        item = self.link.advertisers.get(command.advertising_handle)
-        # Build a candidate that retains existing data buffers; publish it only
-        # after checking that those buffers still fit the new PDU properties.
-        item = (
-            replace(
-                item,
-                data=bytes(item.data),
-                scan_response=bytes(item.scan_response),
-                periodic_data=bytes(item.periodic_data),
-            )
-            if item
-            else Advertising(self._address(command.own_address_type))
-        )
-        item.address = (
-            (item.random_address or self.controller.random_address)
-            if command.own_address_type == hci.OwnAddressType.RANDOM
-            else self.controller.public_address
-        )
-        item.interval_us = (
-            command.primary_advertising_interval_min * HCI_LE_ADV_INTERVAL_UNIT_US
-        )
-        item.interval_max_us = (
-            command.primary_advertising_interval_max * HCI_LE_ADV_INTERVAL_UNIT_US
-        )
-        item.channel_map = command.primary_advertising_channel_map
-        item.extended = not properties & Properties.USE_LEGACY_ADVERTISING_PDUS
-        item.pdu_type = LEGACY_ADVERTISING_PROPERTIES.get(
-            properties, AdvertisingPduType.ADV_NONCONN_IND
-        )
-        item.target = (
-            command.peer_address
-            if properties & Properties.DIRECTED_ADVERTISING
-            else None
-        )
-        item.high_duty = bool(
+        high_duty = bool(
             properties & Properties.HIGH_DUTY_CYCLE_DIRECTED_CONNECTABLE_ADVERTISING
         )
-        if item.high_duty:
-            item.interval_us = LL_DIRECT_ADV_INTERVAL_US
-        item.mode = int(
-            properties
-            & (Properties.CONNECTABLE_ADVERTISING | Properties.SCANNABLE_ADVERTISING)
+        return AdvertisingConfig(
+            address=self._address(command.own_address_type),
+            interval_us=LL_DIRECT_ADV_INTERVAL_US
+            if high_duty
+            else (
+                command.primary_advertising_interval_min * HCI_LE_ADV_INTERVAL_UNIT_US
+            ),
+            interval_max_us=(
+                command.primary_advertising_interval_max * HCI_LE_ADV_INTERVAL_UNIT_US
+            ),
+            channel_map=command.primary_advertising_channel_map,
+            extended=not properties & Properties.USE_LEGACY_ADVERTISING_PDUS,
+            pdu_type=LEGACY_ADVERTISING_PROPERTIES.get(
+                properties, AdvertisingPduType.ADV_NONCONN_IND
+            ),
+            target=(
+                command.peer_address
+                if properties & Properties.DIRECTED_ADVERTISING
+                else None
+            ),
+            high_duty=high_duty,
+            mode=int(
+                properties
+                & (
+                    Properties.CONNECTABLE_ADVERTISING
+                    | Properties.SCANNABLE_ADVERTISING
+                )
+            ),
+            primary_phy=Phy(command.primary_advertising_phy),
+            secondary_phy=Phy(command.secondary_advertising_phy),
+            notify_scan_request=bool(command.scan_request_notification_enable),
+            filter_policy=command.advertising_filter_policy,
+            anonymous=bool(properties & Properties.ANONYMOUS_ADVERTISING),
+            tx_power_dbm=(
+                0
+                if command.advertising_tx_power == TX_POWER_NO_PREFERENCE
+                else command.advertising_tx_power
+            ),
+            include_tx_power=bool(properties & Properties.INCLUDE_TX_POWER),
+            sid=command.advertising_sid,
         )
-        item.primary_phy = Phy(command.primary_advertising_phy)
-        item.secondary_phy = Phy(command.secondary_advertising_phy)
-        item.notify_scan_request = bool(command.scan_request_notification_enable)
-        item.filter_policy = command.advertising_filter_policy
-        item.anonymous = bool(properties & Properties.ANONYMOUS_ADVERTISING)
-        item.tx_power_dbm = (
-            0
-            if command.advertising_tx_power == TX_POWER_NO_PREFERENCE
-            else command.advertising_tx_power
-        )
-        item.include_tx_power = bool(properties & Properties.INCLUDE_TX_POWER)
-        item.sid = command.advertising_sid
-        return item
-
-    @staticmethod
-    def _advertising_data_status(item):
-        return AdvertisingService.data_status(item)
 
     def on_hci_le_set_extended_advertising_parameters_command(self, command):
         '''
@@ -385,10 +364,10 @@ class LeAdvertisingCommands(LeControllerContext):
             return hci.HCI_LE_Set_Extended_Advertising_Parameters_ReturnParameters(
                 status, 0
             )
-        item = self._extended_advertiser(command)
+        config = self._extended_advertising_configuration(command)
         # Parameter validity alone is insufficient: changing mode or PHY can make
         # previously accepted data illegal or too long for the interval.
-        status = self.ll.advertising.configure(command.advertising_handle, item)
+        status = self.ll.advertising.configure(command.advertising_handle, config)
         if status == SUCCESS:
             record = self.controller.advertising_sets.setdefault(
                 command.advertising_handle,
@@ -396,7 +375,7 @@ class LeAdvertisingCommands(LeControllerContext):
             )
             record.parameters = command
         return hci.HCI_LE_Set_Extended_Advertising_Parameters_ReturnParameters(
-            status, item.tx_power_dbm if status == SUCCESS else 0
+            status, config.tx_power_dbm if status == SUCCESS else 0
         )
 
     def on_hci_le_set_advertising_set_random_address_command(self, command):
@@ -405,9 +384,6 @@ class LeAdvertisingCommands(LeControllerContext):
                 command.advertising_handle, command.random_address
             )
         )
-
-    def _store_data(self, handle, field, value):
-        self.ll.advertising.store_data(handle, field, value)
 
     def _set_data(self, handle, operation, data, field):
         """Assemble and publish one advertising payload from HCI fragments.
@@ -420,7 +396,7 @@ class LeAdvertisingCommands(LeControllerContext):
         Once FIRST/COMPLETE discards the previous payload, later length/airtime
         failures leave it empty rather than restoring the old data.
         """
-        item = self.link.advertisers.get(handle)
+        item = self.ll.advertising.snapshot(handle)
         if item is None:
             return hci.HCI_StatusReturnParameters(UNKNOWN_ADV)
 
@@ -496,7 +472,7 @@ class LeAdvertisingCommands(LeControllerContext):
             # FIRST/COMPLETE starts a new sequence: discard both staged and published
             # data. A later failure leaves the payload empty rather than restoring it.
             self.fragments.pop(key, None)
-            self._store_data(handle, field, b'')
+            self.ll.advertising.store_data(handle, field, b'')
 
         value = (
             self.fragments.get(key, b'')
@@ -507,7 +483,7 @@ class LeAdvertisingCommands(LeControllerContext):
         if len(value) > maximum:
             # Abandon the entire oversized sequence; later fragments must not revive it.
             self.fragments.pop(key, None)
-            self._store_data(handle, field, b'')
+            self.ll.advertising.store_data(handle, field, b'')
             return hci.HCI_StatusReturnParameters(
                 hci.HCI_ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
             )
@@ -518,7 +494,7 @@ class LeAdvertisingCommands(LeControllerContext):
             # one AUX_ADV_IND; other trains must fit the configured interval
             # (Vol 4, Part E, 7.8.54/7.8.55/7.8.62; 7.8.56).
             self.fragments.pop(key, None)
-            self._store_data(handle, field, b'')
+            self.ll.advertising.store_data(handle, field, b'')
             return hci.HCI_StatusReturnParameters(
                 hci.HCI_ErrorCode.PACKET_TOO_LONG_ERROR
             )
@@ -532,7 +508,7 @@ class LeAdvertisingCommands(LeControllerContext):
 
             # Publish only on LAST/COMPLETE. Advance the data identity once and
             # release staging storage after the payload becomes visible to LL.
-            self._store_data(handle, field, value)
+            self.ll.advertising.store_data(handle, field, value)
             self.ll.advertising.renew_data_identity(handle)
             self.fragments.pop(key, None)
         else:
@@ -623,7 +599,7 @@ class LeAdvertisingCommands(LeControllerContext):
         See Bluetooth spec Vol 4, Part E - 7.8.61 LE Set Periodic Advertising Parameters
         Command
         '''
-        item = self.link.advertisers.get(command.advertising_handle)
+        item = self.ll.advertising.snapshot(command.advertising_handle)
         if item is None:
             return hci.HCI_StatusReturnParameters(UNKNOWN_ADV)
         if item.periodic_enabled:
@@ -652,7 +628,7 @@ class LeAdvertisingCommands(LeControllerContext):
         See Bluetooth spec Vol 4, Part E - 7.8.62 LE Set Periodic Advertising Data
         Command
         '''
-        item = self.link.advertisers.get(command.advertising_handle)
+        item = self.ll.advertising.snapshot(command.advertising_handle)
         if item is None:
             return hci.HCI_StatusReturnParameters(UNKNOWN_ADV)
         if not item.periodic_interval:
@@ -669,20 +645,14 @@ class LeAdvertisingCommands(LeControllerContext):
         See Bluetooth spec Vol 4, Part E - 7.8.63 LE Set Periodic Advertising Enable
         Command
         '''
-        item = self.link.advertisers.get(command.advertising_handle)
+        item = self.ll.advertising.snapshot(command.advertising_handle)
         if item is None:
             return hci.HCI_StatusReturnParameters(UNKNOWN_ADV)
         if command.enable not in (0, 1):
             return hci.HCI_StatusReturnParameters(UNSUPPORTED)
         if (
-            not item.extended
-            or not item.periodic_interval
-            or item.mode
-            or item.anonymous
-            or (
-                command.enable
-                and (command.advertising_handle, 'periodic_data') in self.fragments
-            )
+            command.enable
+            and (command.advertising_handle, 'periodic_data') in self.fragments
         ):
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         return hci.HCI_StatusReturnParameters(

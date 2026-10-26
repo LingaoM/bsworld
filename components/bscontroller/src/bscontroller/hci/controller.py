@@ -43,9 +43,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Vol 4, Part E, 5.3.1: Connection_Handle values are 12 bits, at most 0x0EFF.
-HCI_CONNECTION_HANDLE_MAX = 0x0EFF
-
 
 class Controller:
     """One LE Controller's Lower HCI endpoint."""
@@ -379,17 +376,6 @@ class Controller:
         '''
         return hci.HCI_LE_Read_Supported_States_ReturnParameters(
             status=hci.HCI_ErrorCode.SUCCESS, le_states=self.le_states
-        )
-
-    def allocate_connection_handle(self) -> int:
-        '''
-        See Bluetooth spec Vol 4, Part E - 5.3.1 Controller handles (0x0000 to 0x0EFF)
-        '''
-        handles = {record.handle for record in self.le_connections.values()}
-        return next(
-            handle
-            for handle in range(1, HCI_CONNECTION_HANDLE_MAX + 1)
-            if handle not in handles
         )
 
     def find_connection_by_handle(self, handle: int) -> ConnectionRecord | None:

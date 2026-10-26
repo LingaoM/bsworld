@@ -41,6 +41,7 @@ from bscontroller.linklayer.advertising import (
 from bscontroller.linklayer.discovery import Advertising
 from bscontroller.linklayer.extended import advertising_time_us
 from bscontroller.linklayer.parameters import Parameters
+from bscontroller.linklayer.results import ConnectionAccepted
 from bscontroller.linklayer.state import (
     LL_ADV_FILTER_CONNECT_MASK,
     LL_ADV_FILTER_SCAN_MASK,
@@ -53,6 +54,24 @@ from bscontroller.radio.base import RADIO_SWITCH_TIME_US, Phy, Received
 
 if TYPE_CHECKING:
     from bscontroller.linklayer.link import RadioLink
+    from bscontroller.linklayer.results import ScanEvent
+
+
+async def receive_scan_event(link: RadioLink, event: ScanEvent) -> None:
+    """Execute a prepared window without deciding the scanning role's lifetime."""
+    if event.channel is None:
+        await link.radio.advance_to_us(event.end_us)
+        return
+    packet = await link.radio.receive(event.channel, event.end_us, phy=event.phy)
+    if packet:
+        if event.initiator is not None:
+            # A Host cancellation/restart may occur while waiting for RX. An old
+            # window cannot initiate on behalf of the newly configured request.
+            if link.initiating is not event.initiator:
+                return
+            await initiate(link, event.channel, packet)
+        else:
+            await scan_packet(link, event.channel, packet)
 
 
 def advertising_event_time_us(item: Advertising) -> int:
@@ -129,7 +148,7 @@ async def advertising_request(
         and pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.CONNECT_IND
         and len(pdu) == PDU_ADV_CONNECT_SIZE
     ):
-        if not link.can_connect(peer):
+        if not link.roles.connections.can_accept(peer):
             return False
         if (
             item.target is None
@@ -142,16 +161,18 @@ async def advertising_request(
         except ValueError as error:
             link.trace(f'LL CONNECT REJECTED {error}')
             return False
-        # Commit only a fully decoded CONNECT_IND. create_connection disables this
-        # advertiser as it transfers ownership of the radio activity to the connection.
-        link.create_connection(
-            parameters,
-            peer,
-            Role.PERIPHERAL,
-            packet.end_us,
-            csa2=bool(pdu[0] & PDU_ADV_CHSEL_MASK),
-            self_address=item.address,
-            advertiser=item,
+        # The role owner disables this advertiser only after a fully validated
+        # CONNECT_IND transfers the radio activity to the new connection.
+        link.roles.connections.accepted(
+            ConnectionAccepted(
+                parameters,
+                peer,
+                Role.PERIPHERAL,
+                packet.end_us,
+                self_address=item.address,
+                csa2=bool(pdu[0] & PDU_ADV_CHSEL_MASK),
+                advertiser=item,
+            )
         )
         return True
     return False
@@ -164,7 +185,7 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
     item = link.initiating
     pdu = packet.pdu
     if pdu and pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_EXT_IND:
-        await link._scan_extended(packet, initiating=True)
+        await scan_extended(link, packet, initiating=True)
         return
     if (
         item is None
@@ -187,7 +208,7 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
     )
     if peer not in link.accept_list if item.filter_policy else peer != item.peer:
         return
-    if not link.can_connect(peer):
+    if not link.roles.connections.can_accept(peer):
         return
     # Choose a usable first connection window before sending CONNECT_IND;
     # its timing becomes shared state as soon as the peer accepts the request.
@@ -211,14 +232,16 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
         + parameters.encode()
     )
     end_us = await link._transmit(channel, pdu, start_us=packet.end_us + LL_IFS_US)
-    link.initiating = None
-    link.create_connection(
-        parameters,
-        peer,
-        Role.CENTRAL,
-        end_us,
-        csa2=csa2,
-        self_address=item.address,
+    link.roles.connections.accepted(
+        ConnectionAccepted(
+            parameters,
+            peer,
+            Role.CENTRAL,
+            end_us,
+            self_address=item.address,
+            csa2=csa2,
+            initiator=item,
+        )
     )
 
 
@@ -230,7 +253,7 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
     if len(pdu) < PDU_HEADER_SIZE or pdu[1] != len(pdu) - PDU_HEADER_SIZE:
         return
     if pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_EXT_IND:
-        await link._scan_extended(packet)
+        await scan_extended(link, packet)
         return
     flags = AdvertisingProperties
     types: dict[int, AdvertisingProperties] = {
@@ -377,7 +400,7 @@ async def advertise_legacy(link: RadioLink, item: Advertising) -> None:
                     end_us,
                     deadline_us=item.deadline_us if item.high_duty else None,
                 )
-                if packet and await link._advertising_request(item, channel, packet):
+                if packet and await advertising_request(link, item, channel, packet):
                     # A connection ends the entire advertising event, including
                     # transmissions that were still due on other primary channels.
                     break

@@ -4,7 +4,6 @@
 
 """One HCI configuration and notification context shared by LE command groups."""
 
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from bscontroller import hci
@@ -15,6 +14,7 @@ from bscontroller.hci import (
 )
 from bscontroller.hci.events import LeControllerEvents
 from bscontroller.linklayer.link import RadioLink
+from bscontroller.linklayer.notifications import NotificationAdapter
 from bscontroller.linklayer.service import LinkLayerService
 from bscontroller.radio.base import Radio
 
@@ -34,12 +34,14 @@ class LeControllerContext(LeControllerEvents):
 
     def __init__(self, controller: 'Controller', radio: Radio):
         self.controller = controller
+        notifications = NotificationAdapter(self)
         self.link = RadioLink(
             radio,
-            self,
+            notifications,
             int(controller.le_features),
             seed=int.from_bytes(bytes(controller.public_address), 'little'),
         )
+        notifications.bind(self.link)
         self.extended_scan = False
         self.ll = LinkLayerService(
             self.link,
@@ -55,7 +57,7 @@ class LeControllerContext(LeControllerEvents):
 
     @property
     def now_us(self) -> int:
-        return self.link.now_us
+        return self.ll.now_us
 
     def _address(self, own_address_type: int):
         return (
@@ -66,22 +68,8 @@ class LeControllerContext(LeControllerEvents):
 
     @property
     def scan_parameters(self):
-        return replace(
-            self.ll.scan_parameters,
-            backoff=replace(self.ll.scan_parameters.backoff),
-            windows=tuple(
-                replace(window) for window in self.ll.scan_parameters.windows
-            ),
-        )
+        return self.ll.scan_parameters
 
     @property
     def host_channel_map(self):
         return self.ll.host_channel_map
-
-    @property
-    def default_tx_phys(self):
-        return self.ll.default_tx_phys
-
-    @property
-    def default_rx_phys(self):
-        return self.ll.default_rx_phys

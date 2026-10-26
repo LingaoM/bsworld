@@ -52,7 +52,12 @@ async def test_read_advertising_power_uses_legacy_radio_state_and_signed_encodin
     power_dbm,
 ):
     controller = Controller('test', backend=radio_backend())
-    controller.le_procedures._legacy().tx_power_dbm = power_dbm
+    from dataclasses import replace
+
+    commands = controller.le_procedures
+    commands.ll.advertising.configure_legacy(
+        replace(commands._legacy_configuration(), tx_power_dbm=power_dbm)
+    )
     events = []
     controller.send_hci_packet = events.append
     controller.on_packet(bytes.fromhex('01072000'))
@@ -84,7 +89,7 @@ async def test_read_advertising_power_obeys_legacy_extended_family_and_reset():
 
 @pytest.mark.parametrize('phy', list(Phy))
 def test_periodic_maximum_chain_budget(connection, phy):
-    p = connection.link.listener
+    p = connection.link.listener.sink
     item = Advertising(
         p.controller.public_address,
         extended=True,
@@ -122,7 +127,7 @@ def test_periodic_maximum_chain_budget(connection, phy):
 
 
 def test_active_data_update_discards_data_when_event_would_not_fit(connection):
-    procedures = connection.link.listener
+    procedures = connection.link.listener.sink
     item = Advertising(
         procedures.controller.public_address,
         extended=True,
@@ -141,7 +146,7 @@ def test_active_data_update_discards_data_when_event_would_not_fit(connection):
 
 
 def test_enable_selects_interval_that_fits_data_within_host_range(connection):
-    procedures = connection.link.listener
+    procedures = connection.link.listener.sink
     item = Advertising(
         procedures.controller.public_address,
         extended=True,
@@ -163,7 +168,7 @@ def test_enable_selects_interval_that_fits_data_within_host_range(connection):
 
 
 def test_periodic_enable_rejects_combination_without_radio_time(connection):
-    procedures = connection.link.listener
+    procedures = connection.link.listener.sink
     item = Advertising(
         procedures.controller.public_address,
         extended=True,
@@ -180,7 +185,7 @@ def test_periodic_enable_rejects_combination_without_radio_time(connection):
 
 
 def test_periodic_data_update_rejects_unavailable_radio_budget(connection):
-    procedures = connection.link.listener
+    procedures = connection.link.listener.sink
     item = Advertising(
         procedures.controller.public_address,
         extended=True,

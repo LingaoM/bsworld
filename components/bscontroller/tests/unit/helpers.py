@@ -214,7 +214,7 @@ async def bind_candidate(connection, *, skip=0, timeout_us=100_000):
     link = connection.link
     link.connections.clear()
     sync = PeriodicSync(connection.peer, 3, timeout_us, 0, skip=skip)
-    link.sync = sync
+    link.roles.synchronization.pending = sync
     # Searching may outlive the Host's established-synchronization timeout.
     link.radio.now_us = 3 * timeout_us
     start = link.radio.now_us + 1000

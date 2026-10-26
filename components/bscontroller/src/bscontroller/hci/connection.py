@@ -41,8 +41,8 @@ from bscontroller.linklayer import (
     PDU_DATA_PAYLOAD_SIZE_MAX,
     PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
 )
+from bscontroller.linklayer.api import InitiatingConfig, ScanWindowConfig
 from bscontroller.linklayer.data_length import valid_data_length
-from bscontroller.linklayer.discovery import Initiating, ScanWindow
 from bscontroller.linklayer.parameters import (
     Parameters,
     valid_channel_map,
@@ -78,17 +78,12 @@ class LeConnectionCommands(LeControllerContext):
             return
         # Commit after validation. Keep the first window in the common fields
         # and retain the full per-PHY configuration for the selected air PHY.
-        window = windows[0]
         status = self.ll.start_initiating(
-            Initiating(
+            InitiatingConfig(
                 self._address(command.own_address_type),
                 command.peer_address,
-                window.interval_us,
-                window.window_us,
-                next(iter(parameters.values())),
-                self.now_us,
-                windows=windows,
-                phy_parameters=parameters,
+                windows,
+                tuple(parameters.items()),
                 filter_policy=command.initiator_filter_policy,
             )
         )
@@ -129,7 +124,7 @@ class LeConnectionCommands(LeControllerContext):
             command,
             {Phy.LE_1M: parameters},
             (
-                ScanWindow(
+                ScanWindowConfig(
                     Phy.LE_1M,
                     command.le_scan_interval * HCI_LE_SCAN_INTERVAL_UNIT_US,
                     command.le_scan_window * HCI_LE_SCAN_INTERVAL_UNIT_US,
@@ -184,7 +179,7 @@ class LeConnectionCommands(LeControllerContext):
             command,
             values,
             tuple(
-                ScanWindow(
+                ScanWindowConfig(
                     phy,
                     command.scan_intervals[index] * HCI_LE_SCAN_INTERVAL_UNIT_US,
                     command.scan_windows[index] * HCI_LE_SCAN_INTERVAL_UNIT_US,
@@ -207,8 +202,8 @@ class LeConnectionCommands(LeControllerContext):
                 status=hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR,
                 connection_handle=0,
                 role=0,
-                peer_address_type=item.peer.address_type,
-                peer_address=item.peer,
+                peer_address_type=item.address_type,
+                peer_address=item,
                 connection_interval=0,
                 peripheral_latency=0,
                 supervision_timeout=0,
@@ -221,14 +216,11 @@ class LeConnectionCommands(LeControllerContext):
         status = self.ll.disconnect(command.connection_handle, command.reason)
         self.controller._send_hci_command_status(status, command.op_code)
 
-    def _connection(self, handle):
-        return self.ll.connection(handle)
-
     def on_hci_read_rssi_command(self, command):
         '''
         See Bluetooth spec Vol 4, Part E - 7.5.4 Read RSSI Command
         '''
-        connection = self._connection(command.handle)
+        connection = self.ll.connection_snapshot(command.handle)
         return hci.HCI_Read_RSSI_ReturnParameters(
             (
                 SUCCESS
@@ -284,7 +276,7 @@ class LeConnectionCommands(LeControllerContext):
         See Bluetooth spec Vol 4, Part E - 7.3.93 Read Authenticated Payload Timeout
         Command
         '''
-        connection = self._connection(command.connection_handle)
+        connection = self.ll.connection_snapshot(command.connection_handle)
         return hci.HCI_Read_Authenticated_Payload_Timeout_ReturnParameters(
             (
                 SUCCESS
@@ -292,8 +284,7 @@ class LeConnectionCommands(LeControllerContext):
                 else hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
             ),
             command.connection_handle,
-            connection.encryption.auth_timeout_us
-            // HCI_AUTHENTICATED_PAYLOAD_TIMEOUT_UNIT_US
+            connection.auth_timeout_us // HCI_AUTHENTICATED_PAYLOAD_TIMEOUT_UNIT_US
             if connection
             else 0,
         )
@@ -313,7 +304,7 @@ class LeConnectionCommands(LeControllerContext):
         See Bluetooth spec Vol 4, Part E - 7.8.23 LE Rand Command
         '''
         return hci.HCI_LE_Rand_ReturnParameters(
-            SUCCESS, self.link.random.randbytes(LL_ENCRYPTION_RANDOM_SIZE)
+            SUCCESS, self.ll.random_bytes(LL_ENCRYPTION_RANDOM_SIZE)
         )
 
     def on_hci_le_read_remote_features_command(self, command):
@@ -370,7 +361,7 @@ class LeConnectionCommands(LeControllerContext):
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.20 LE Read Channel Map Command
         '''
-        connection = self._connection(command.connection_handle)
+        connection = self.ll.connection_snapshot(command.connection_handle)
         return hci.HCI_LE_Read_Channel_Map_ReturnParameters(
             (
                 SUCCESS
@@ -406,7 +397,7 @@ class LeConnectionCommands(LeControllerContext):
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.47 LE Read PHY Command
         '''
-        connection = self._connection(command.connection_handle)
+        connection = self.ll.connection_snapshot(command.connection_handle)
         return hci.HCI_LE_Read_PHY_ReturnParameters(
             (
                 SUCCESS
@@ -452,7 +443,7 @@ class LeConnectionCommands(LeControllerContext):
         )
 
     def on_hci_acl_data_packet(self, packet):
-        connection = self._connection(packet.connection_handle)
+        connection = self.ll.connection_snapshot(packet.connection_handle)
         if (
             connection is None
             or packet.bc_flag
@@ -487,7 +478,7 @@ class LeConnectionCommands(LeControllerContext):
         Command
         '''
         return hci.HCI_LE_Read_Suggested_Default_Data_Length_ReturnParameters(
-            SUCCESS, self.link.default_tx_octets, self.link.default_tx_time
+            SUCCESS, *self.ll.default_data_length()
         )
 
     def on_hci_le_write_suggested_default_data_length_command(self, command):

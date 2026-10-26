@@ -29,12 +29,16 @@ from bscontroller.linklayer import (
     PDU_DATA_PAYLOAD_TIME_CODED_MIN_US,
     PDU_DATA_SN_MASK,
     PDU_HEADER_SIZE,
-    ControlOpcode,
     LlId,
 )
 from bscontroller.linklayer.channel_selection import (
     channel_selection_1,
     channel_selection_2,
+)
+from bscontroller.linklayer.data_path import (
+    PacketControl,
+    PacketSecurity,
+    ReceiveContext,
 )
 from bscontroller.linklayer.state import Role
 from bscontroller.linklayer.timing import (
@@ -47,9 +51,6 @@ if TYPE_CHECKING:
     from bscontroller.linklayer.connection import Connection
 
 
-Opcode = ControlOpcode
-
-
 @dataclass(frozen=True)
 class Outbound:
     llid: int
@@ -58,8 +59,12 @@ class Outbound:
 
 
 class ConnectionEvent:
-    def __init__(self, connection: Connection):
+    def __init__(
+        self, connection: Connection, control: PacketControl, security: PacketSecurity
+    ):
         self.connection = connection
+        self.control = control
+        self.security = security
         self.tx_sn = self.rx_nesn = 0
         self.pending: Outbound | None = None
         self.sent_pending = False
@@ -88,16 +93,6 @@ class ConnectionEvent:
         else:
             self.queue.append(item)
 
-    def acknowledges_control(self, header: int, payloads: tuple[bytes, ...]) -> bool:
-        """Inspect a potential ACK without consuming the pending transmission."""
-        return (
-            self.pending is not None
-            and self.pending.llid == LlId.CONTROL
-            and self.pending.payload in payloads
-            and self.sent_pending
-            and bool(header & PDU_DATA_NESN_MASK) != self.tx_sn
-        )
-
     def accept(self, pdu: bytes, valid_crc: bool) -> None:
         """Validate RX, then process its ACK independently of new peer data.
 
@@ -110,15 +105,26 @@ class ConnectionEvent:
         ):
             return
         header, _ = pdu[:PDU_HEADER_SIZE]
-        payload = self.connection.llcp.receive(
-            header,
-            pdu[PDU_HEADER_SIZE:],
-            duplicate=bool(header & PDU_DATA_SN_MASK) != self.rx_nesn,
+        acknowledged_control = (
+            self.pending.payload
+            if self.pending is not None
+            and self.pending.llid == LlId.CONTROL
+            and self.sent_pending
+            and bool(header & PDU_DATA_NESN_MASK) != self.tx_sn
+            else None
+        )
+        payload = self.control.receive(
+            ReceiveContext(
+                header,
+                pdu[PDU_HEADER_SIZE:],
+                duplicate=bool(header & PDU_DATA_SN_MASK) != self.rx_nesn,
+                acknowledged_control=acknowledged_control,
+            )
         )
         if payload is None or len(payload) > (
             PDU_CONTROL_PAYLOAD_SIZE_INITIAL_MAX
             if header & PDU_DATA_LLID_MASK == LlId.CONTROL
-            else self.connection.controls.data_length.local.rx_octets
+            else self.control.packet_limits().rx_octets
         ):
             return
         # Validate the payload before using its ACK or returning Host credit;
@@ -137,14 +143,13 @@ class ConnectionEvent:
             self.sent_pending = False
             self.pending_wire = None
             self.tx_sn ^= 1
+            terminate_reason = None
             if acknowledged.llid == LlId.CONTROL:
-                self.connection.llcp.acknowledged(acknowledged.payload)
+                terminate_reason = self.control.acknowledged(acknowledged.payload)
             if acknowledged.host_packet:
                 self.connection.listener.on_acl_completed(self.connection)
-            if acknowledged.llid == LlId.CONTROL and acknowledged.payload[:1] == bytes(
-                [Opcode.LL_TERMINATE_IND]
-            ):
-                self.connection.complete(self.connection.termination_status)
+            if terminate_reason is not None:
+                self.connection.complete(terminate_reason)
                 return
         if bool(header & PDU_DATA_SN_MASK) != self.rx_nesn:
             # Retransmissions can carry a new ACK, but must not redeliver their payload.
@@ -154,23 +159,21 @@ class ConnectionEvent:
         llid = header & PDU_DATA_LLID_MASK
         # Reserved LLID participates in ARQ, but has no payload interpretation.
         if llid == LlId.CONTROL:
-            self.connection.control(payload)
+            self.control.control(payload)
         elif llid != LlId.RESERVED and payload:
             self.connection.listener.on_acl_received(
                 self.connection, llid == LlId.CONTINUATION, payload
             )
 
     def _next_outbound(self) -> Outbound:
-        if self.connection.encryption.busy:
-            return next(
-                (
-                    item
-                    for item in self.queue
-                    if self.connection.llcp.can_send(item.llid, item.payload)
-                ),
-                Outbound(LlId.CONTINUATION, b''),
-            )
-        return self.queue[0] if self.queue else Outbound(LlId.CONTINUATION, b'')
+        return next(
+            (
+                item
+                for item in self.queue
+                if self.control.can_send(item.llid, item.payload)
+            ),
+            Outbound(LlId.CONTINUATION, b''),
+        )
 
     async def send(self, channel: int, start_us: int) -> bool:
         """Send a queued fragment or retransmit the pending wire snapshot.
@@ -185,7 +188,7 @@ class ConnectionEvent:
             if self.pending in self.queue:
                 self.queue.remove(self.pending)
             if self.pending.llid != LlId.CONTROL:
-                limit = self.connection.controls.data_length.tx_payload_limit()
+                limit = self.control.packet_limits().tx_payload
                 if len(self.pending.payload) > limit:
                     # Keep the original HCI packet's single completion credit on the
                     # final
@@ -209,16 +212,11 @@ class ConnectionEvent:
         if item.llid == LlId.CONTROL and not self.sent_pending:
             # Finalize the Instant just before first TX to account for queueing delay.
             # Retries retain the already transmitted value.
-            item = Outbound(LlId.CONTROL, self.connection.llcp.prepare(item.payload))
+            item = Outbound(LlId.CONTROL, self.control.prepare(item.payload))
             self.pending = item
-        more = (
-            # Paused Host data must not set MD and keep an otherwise idle event open.
-            any(
-                self.connection.llcp.can_send(entry.llid, entry.payload)
-                for entry in self.queue
-            )
-            if self.connection.encryption.busy
-            else bool(self.queue)
+        # Paused Host data must not keep an otherwise idle event open.
+        more = any(
+            self.control.can_send(entry.llid, entry.payload) for entry in self.queue
         )
         header = (
             item.llid
@@ -230,11 +228,7 @@ class ConnectionEvent:
             # Cache ciphertext so a retry reuses its packet counter and MIC instead
             # of encrypting again (Vol 6, Part E, 2.1).
             self.pending_wire = item.payload
-            if self.connection.encryption.tx_enabled:
-                assert self.connection.encryption.cipher is not None
-                self.pending_wire = self.connection.encryption.cipher.encrypt(
-                    header, self.pending_wire
-                )
+            self.pending_wire = self.security.encrypt(header, self.pending_wire)
         pdu = bytes([header, len(self.pending_wire)]) + self.pending_wire
         self.connection.link.trace(
             f"LL TX event={self.connection.event_counter} ch={channel} pdu={pdu.hex()}"
@@ -249,7 +243,7 @@ class ConnectionEvent:
             coding=self.connection.tx_coding,
         )
         if item.llid == LlId.CONTROL:
-            self.connection.llcp.sent(item.payload, first=not self.sent_pending)
+            self.control.sent(item.payload, first=not self.sent_pending)
         self.sent_pending = True
         return bool(header & PDU_DATA_MD_MASK)
 
@@ -286,7 +280,7 @@ class ConnectionEvent:
                 packet.pdu[0] & PDU_DATA_LLID_MASK == LlId.CONTROL
                 or packet.end_us - packet.start_us
                 <= max(
-                    self.connection.controls.data_length.local.rx_time,
+                    self.control.packet_limits().rx_time,
                     (
                         PDU_DATA_PAYLOAD_TIME_CODED_MIN_US
                         if self.connection.rx_phy == Phy.LE_CODED
@@ -302,36 +296,15 @@ class ConnectionEvent:
         Vol 6, Part B, 4.1.1, 4.5.10).
         """
         item = self.pending or self._next_outbound()
-        lengths = self.connection.controls.data_length
+        limits = self.control.packet_limits()
         tx_length = (
             len(item.payload)
             if self.pending or item.llid == LlId.CONTROL
-            else min(len(item.payload), lengths.tx_payload_limit())
+            else min(len(item.payload), limits.tx_payload)
         )
-        effective = lengths.effective()
-        tx_length += (
-            PDU_DATA_MIC_SIZE
-            if self.connection.encryption.tx_enabled and tx_length
-            else 0
-        )
-        rx_length = (
-            max(
-                PDU_CONTROL_PAYLOAD_SIZE_INITIAL_MAX,
-                lengths.packet_limit(
-                    self.connection.rx_phy,
-                    effective.rx_time,
-                    effective.rx_octets,
-                    encrypted=self.connection.encryption.rx_enabled,
-                ),
-            )
-            if max_rx
-            else 0
-        )
-        rx_length += (
-            PDU_DATA_MIC_SIZE
-            if self.connection.encryption.rx_enabled and rx_length
-            else 0
-        )
+        tx_length += PDU_DATA_MIC_SIZE if self.security.tx_enabled and tx_length else 0
+        rx_length = limits.rx_payload if max_rx else 0
+        rx_length += PDU_DATA_MIC_SIZE if self.security.rx_enabled and rx_length else 0
         return (
             self.connection.tx_phy.airtime_us(
                 PDU_HEADER_SIZE + tx_length, self.connection.tx_coding
@@ -357,7 +330,7 @@ class ConnectionEvent:
             await self.connection.radio.advance_to_us(min(target_us, deadline))
             self.connection.check_timeout()
             return self.connection.radio.now_us
-        self.connection.llcp.event_prepare()
+        self.control.event_prepare()
         if self.connection.closed:
             return self.connection.radio.now_us
         self.connection.unmapped_channel = (

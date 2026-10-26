@@ -16,6 +16,7 @@ from bscontroller.linklayer import (
 )
 from bscontroller.linklayer.advertising import ExtendedPdu, SyncInfo
 from bscontroller.linklayer.discovery import Advertising, PeriodicSync
+from bscontroller.linklayer.periodic import periodic_receive
 from tests.unit.helpers import bind_candidate, received_packet
 
 ErrorCode = hci.HCI_ErrorCode
@@ -48,10 +49,10 @@ async def test_periodic_chain_establishes_before_collection_and_preserves_identi
         info=SyncInfo(600, 80, (1 << 37) - 1, 0x9A328370, 0x123456, 0),
         next_us=10_000,
     )
-    link.sync = sync
+    link.roles.synchronization.pending = sync
     packet = received_packet(ExtendedPdu(tx_power=power, data=b'head'), 10_000)
     connection.radio.incoming.append(packet)
-    controller = link.listener.controller
+    controller = link.listener.sink.controller
 
     async def collect(received, fields, **parameters):
         assert received is packet
@@ -64,10 +65,9 @@ async def test_periodic_chain_establishes_before_collection_and_preserves_identi
         assert sync.last_rx_us == packet.start_us
         assert sync.deadline_us == packet.end_us + sync.timeout_us
         if action == 'terminate':
-            result = (
-                link.listener.on_hci_le_periodic_advertising_terminate_sync_command(
-                    hci.HCI_LE_Periodic_Advertising_Terminate_Sync_Command(sync.handle)
-                )
+            sink = link.listener.sink
+            result = sink.on_hci_le_periodic_advertising_terminate_sync_command(
+                hci.HCI_LE_Periodic_Advertising_Terminate_Sync_Command(sync.handle)
             )
             assert result.status == ErrorCode.SUCCESS
         elif action == 'disable':
@@ -82,7 +82,7 @@ async def test_periodic_chain_establishes_before_collection_and_preserves_identi
         )
 
     monkeypatch.setattr(link.extended, 'collect', collect)
-    await link._periodic_receive(sync)
+    await periodic_receive(link, sync)
     reports = [
         event
         for event in controller.events
@@ -114,9 +114,9 @@ async def test_candidate_deadline_and_listening_step_ignore_host_skip_and_timeou
         == sync.next_us + LL_PERIODIC_SYNC_ESTABLISHMENT_EVENTS * interval_us
     )
     assert sync.event_step == 1
-    assert connection.link.reservations()[0].interval_us == interval_us
+    assert connection.link.resource.reservations()[0].interval_us == interval_us
     before = sync.next_us
-    await connection.link._periodic_receive(sync)
+    await periodic_receive(connection.link, sync)
     assert sync.next_us == before + interval_us
     assert sync.counter == LL_EVENT_COUNTER_MASK
     assert not sync.established
@@ -131,7 +131,7 @@ async def test_first_periodic_packet_switches_to_host_timeout_and_skip(
     first = sync.next_us
     packet = received_packet(ExtendedPdu(data=b'data'), first)
     connection.radio.incoming.append(packet)
-    await connection.link._periodic_receive(sync)
+    await periodic_receive(connection.link, sync)
     assert sync.established and connection.link.sync is None
     assert connection.link.syncs[sync.handle] is sync
     assert sync.deadline_us == packet.end_us + sync.timeout_us
@@ -170,7 +170,7 @@ async def test_periodic_rx_yields_without_refreshing_its_loss_timeout(
             periodic_next_us=10_100,
             periodic_interval=40,
         )
-    await link._periodic_receive(sync)
+    await periodic_receive(link, sync)
     assert connection.radio.now_us == 9999  # No RX request was admitted.
     assert sync.next_us == 10_000 + 3 * 40 * LL_PERIODIC_INTERVAL_UNIT_US
     assert sync.counter == 1
