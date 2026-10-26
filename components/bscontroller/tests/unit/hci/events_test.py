@@ -20,7 +20,7 @@ ADDRESS = hci.Address('F0:F1:F2:F3:F4:01', hci.Address.PUBLIC_DEVICE_ADDRESS)
 
 def test_masked_version_completion_retains_cache_and_clears_request(connection):
     connection.report_created()
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     controller = listener.controller
     controller.event_mask &= ~(
         1 << (hci.HCI_READ_REMOTE_VERSION_INFORMATION_COMPLETE_EVENT - 1)
@@ -49,7 +49,7 @@ def test_received_acl_uses_controller_to_host_packet_boundaries(
     connection.accept(bytes([llid, 3]) + b'abc', True)
     packet = next(
         event
-        for event in connection.link.listener.controller.events
+        for event in connection.link.listener.sink.controller.events
         if isinstance(event, hci.HCI_AclDataPacket)
     )
     assert packet.pb_flag == boundary
@@ -57,7 +57,7 @@ def test_received_acl_uses_controller_to_host_packet_boundaries(
 
 
 def test_advertisement_event_masks_and_duplicates(controller):
-    controller.backend.link.scan = Scanning(ADDRESS, 30_000, 30_000)
+    controller.backend.link.roles.scanning.enable(Scanning(ADDRESS, 30_000, 30_000))
     controller.le_procedures.extended_scan = True
     controller.le_procedures.filter_duplicates = True
     controller.le_procedures.on_advertisement(

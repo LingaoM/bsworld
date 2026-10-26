@@ -71,7 +71,7 @@ async def test_advertising_duration_expiry_reports_timeout(
     link = connection.link
     link.connections.clear()
     item = Advertising(
-        link.listener.controller.public_address,
+        link.listener.sink.controller.public_address,
         enabled=True,
         high_duty=high_duty,
         deadline_us=10,
@@ -86,7 +86,7 @@ async def test_advertising_duration_expiry_reports_timeout(
     )
     link.radio.now_us = item.deadline_us
     if scheduled:
-        await link._expire_advertiser(item)
+        await link.roles.advertising.expire_deadline(item)
     else:
         await link.advance_to_us(20)
     assert not item.enabled
@@ -100,7 +100,7 @@ async def test_advertising_event_limit_is_not_a_duration_timeout(
     link = connection.link
     link.connections.clear()
     item = Advertising(
-        link.listener.controller.public_address,
+        link.listener.sink.controller.public_address,
         enabled=True,
         max_events=1,
         events=1,
@@ -124,11 +124,11 @@ async def test_search_without_syncinfo_has_no_established_sync_timeout(connectio
     link = connection.link
     link.connections.clear()
     sync = PeriodicSync(connection.peer, 3, 100_000, 0)
-    link.sync = sync
+    link.roles.synchronization.pending = sync
     await link.advance_to_us(500_000)
     assert link.sync is sync and sync.info is None
     assert sync.deadline_us == 0
-    assert not link.listener.controller.events
+    assert not link.listener.sink.controller.events
 
 
 @pytest.mark.asyncio
@@ -155,7 +155,7 @@ async def test_six_missed_acquisition_events_expire_once_without_counter_wrap_er
     assert connection.link.sync is None and not connection.link.syncs
     events = [
         event
-        for event in connection.link.listener.controller.events
+        for event in connection.link.listener.sink.controller.events
         if isinstance(event, hci.HCI_LE_Periodic_Advertising_Sync_Established_Event)
     ]
     assert len(events) == 1
@@ -208,7 +208,7 @@ async def test_earlier_periodic_tx_protects_a_later_connection_window(
     connection.anchor_us = 10_000 + offset
     connection.radio.now_us = 9999
     item = Advertising(
-        connection.link.listener.controller.public_address,
+        connection.link.listener.sink.controller.public_address,
         periodic_enabled=True,
         periodic_next_us=10_000,
         periodic_interval=160,
@@ -353,7 +353,7 @@ async def test_expired_sync_removes_only_its_own_handle(controller):
         peer, 1, 100_000, 123, info=info, next_us=10_000, established=True, handle=1
     )
     active = replace(expired, handle=2, sid=2, deadline_us=500_000)
-    link.syncs = {1: expired, 2: active}
+    link.roles.synchronization.active = {1: expired, 2: active}
     link.radio.now_us = 123
     await link.advance_to_us(124)
     assert link.syncs == {2: active}

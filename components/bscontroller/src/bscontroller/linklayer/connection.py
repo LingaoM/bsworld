@@ -22,10 +22,8 @@ from bscontroller.linklayer import (
     LL_SUPERVISION_TIMEOUT_UNIT_US,
     ControlOpcode,
 )
-from bscontroller.linklayer.connection_event import ConnectionEvent, Outbound
-from bscontroller.linklayer.llcp import (
-    LL_CONTROL_PDU_SENDER_ROLES as LL_CONTROL_PDU_SENDER_ROLES,
-)
+from bscontroller.linklayer.connection_event import ConnectionEvent
+from bscontroller.linklayer.data_path import PacketSecurity
 from bscontroller.linklayer.llcp import LlcpCoordinator
 from bscontroller.linklayer.parameters import Parameters
 from bscontroller.linklayer.state import Role
@@ -59,7 +57,7 @@ class Connection:
         phy: Phy = Phy.LE_1M,
     ):
         self.link = link
-        self.handle = link.listener.allocate_connection_handle()
+        self.handle = link.roles.connections.allocate_handle()
         self.radio: Radio = link.radio
         self.parameters: Parameters = parameters
         self.peer = peer
@@ -92,10 +90,9 @@ class Connection:
         self.rssi: int | None = None
         self.tx_coding: int = PHY_CODED_S8_FACTOR
         self.update_window: bool = False
-        self.event = ConnectionEvent(self)
+        self.packet_security = PacketSecurity()
         self.llcp = LlcpCoordinator(self)
-        self.controls.tx_phys = link.default_tx_phys
-        self.controls.rx_phys = link.default_rx_phys
+        self.event = ConnectionEvent(self, self.llcp, self.packet_security)
         self.link.trace(
             f"LL CREATED role={role} aa={parameters.access_address:08x} "
             f"anchor={self.anchor_us} "
@@ -109,70 +106,6 @@ class Connection:
     @property
     def encryption(self):
         return self.llcp.encryption
-
-    @property
-    def pending(self):
-        return self.event.pending
-
-    @pending.setter
-    def pending(self, value):
-        self.event.pending = value
-
-    @property
-    def pending_wire(self):
-        return self.event.pending_wire
-
-    @pending_wire.setter
-    def pending_wire(self, value):
-        self.event.pending_wire = value
-
-    @property
-    def queue(self):
-        return self.event.queue
-
-    @queue.setter
-    def queue(self, value):
-        self.event.queue = value
-
-    @property
-    def retries(self):
-        return self.event.retries
-
-    @retries.setter
-    def retries(self, value):
-        self.event.retries = value
-
-    @property
-    def rx_nesn(self):
-        return self.event.rx_nesn
-
-    @rx_nesn.setter
-    def rx_nesn(self, value):
-        self.event.rx_nesn = value
-
-    @property
-    def sent_pending(self):
-        return self.event.sent_pending
-
-    @sent_pending.setter
-    def sent_pending(self, value):
-        self.event.sent_pending = value
-
-    @property
-    def tx_sn(self):
-        return self.event.tx_sn
-
-    @tx_sn.setter
-    def tx_sn(self, value):
-        self.event.tx_sn = value
-
-    @property
-    def tx_start_pending(self):
-        return self.event.tx_start_pending
-
-    @tx_start_pending.setter
-    def tx_start_pending(self, value):
-        self.event.tx_start_pending = value
 
     @property
     def listener(self) -> ConnectionListener:
@@ -209,8 +142,10 @@ class Connection:
             return
         self.llcp.close(reason)
         self.closed = True
-        self.link.trace(f"LL DISCONNECTED reason=0x{reason:02x} retries={self.retries}")
-        self.link.connections.pop(self.handle, None)
+        self.link.trace(
+            f"LL DISCONNECTED reason=0x{reason:02x} retries={self.event.retries}"
+        )
+        self.link.roles.connections.release(self)
         self.listener.on_disconnected(self, reason)
 
     def report_created(self) -> None:
@@ -234,9 +169,6 @@ class Connection:
 
     def accept(self, pdu: bytes, valid_crc: bool) -> None:
         return self.event.accept(pdu, valid_crc)
-
-    def _next_outbound(self) -> Outbound:
-        return self.event._next_outbound()
 
     async def send(self, channel: int, start_us: int) -> bool:
         return await self.event.send(channel, start_us)

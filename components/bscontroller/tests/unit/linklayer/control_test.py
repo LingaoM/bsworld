@@ -22,13 +22,13 @@ from bscontroller.linklayer import (
     PDU_CONTROL_INSTANT_SIZE,
     ControlOpcode,
 )
-from bscontroller.linklayer.control import (
-    InstantUpdate,
+from bscontroller.linklayer.connection_parameters import (
     anchor_offset,
     preferred_interval,
     preferred_periodicity,
-    valid_minimum_channels,
 )
+from bscontroller.linklayer.control import valid_minimum_channels
+from bscontroller.linklayer.instant import InstantUpdate
 from bscontroller.linklayer.timing import LL_INSTANT_PAST_THRESHOLD
 from bscontroller.radio.base import Phy
 
@@ -98,8 +98,10 @@ def test_preferred_anchor_uses_reference_counter_and_wrap(
 def test_delayed_parameter_indication_recomputes_anchor_at_actual_instant(connection):
     connection.role = hci.Role.CENTRAL
     controls = connection.controls
-    controls.request_update(18, 0, 300, reference=(connection.event_counter, 1))
-    payload = connection.queue[-1].payload
+    controls.connection_parameters.request_update(
+        18, 0, 300, reference=(connection.event_counter, 1)
+    )
+    payload = connection.event.queue[-1].payload
     connection.event_counter += 1
     rewritten = controls.prepare(payload)
     _, offset, interval, _, _, instant = struct.unpack('<BHHHHH', rewritten[1:])
@@ -137,7 +139,7 @@ def test_minimum_channels_apply_to_peripheral_transmit_phy(
     if applies:
         assert controls.pending.channel_map == 0x0F
     else:
-        assert not connection.queue
+        assert not connection.event.queue
     assert connection.parameters.channel_map == 0x03
     assert not controls.deadline_us
 
@@ -148,7 +150,7 @@ def test_invalid_minimum_channel_indication_preserves_state(
 ):
     connection = minimum_channel_connection
     connection.control(bytes([Opcode.LL_MIN_USED_CHANNELS_IND, phys, minimum]))
-    assert connection.queue[-1].payload == bytes(
+    assert connection.event.queue[-1].payload == bytes(
         [Opcode.LL_UNKNOWN_RSP, Opcode.LL_MIN_USED_CHANNELS_IND]
     )
     assert not connection.controls.peer_minimum_channel_phys
@@ -197,17 +199,17 @@ def test_minimum_channel_requirements_are_connection_local(minimum_channel_conne
     assert first.controls.pending.channel_map == LL_DATA_CHANNEL_MAP_ALL
     assert not second.controls.peer_minimum_channel_phys
     assert second.controls.selected_channel_map() == 0x03
-    assert second.controls.pending is None and not second.queue
+    assert second.controls.pending is None and not second.event.queue
 
 
 def test_minimum_channels_wait_for_existing_instant(minimum_channel_connection):
     connection = minimum_channel_connection
     controls = connection.controls
-    controls.request_update(40, 0, 100)
-    payload = controls.prepare(connection.queue.popleft().payload)
+    controls.connection_parameters.request_update(40, 0, 100)
+    payload = controls.prepare(connection.event.queue.popleft().payload)
     original = controls.pending
     connection.control(bytes([Opcode.LL_MIN_USED_CHANNELS_IND, hci.PhyBit.LE_1M, 4]))
-    assert controls.pending is original and not connection.queue
+    assert controls.pending is original and not connection.event.queue
     controls.acknowledge(payload)
     connection.event_counter = original.instant
     controls.apply()
@@ -215,7 +217,7 @@ def test_minimum_channels_wait_for_existing_instant(minimum_channel_connection):
     assert connection.parameters.channel_map == 0x03
     assert controls.pending.channel_map == 0x0F
     assert controls.pending.instant != original.instant
-    payload = controls.prepare(connection.queue.popleft().payload)
+    payload = controls.prepare(connection.event.queue.popleft().payload)
     controls.acknowledge(payload)
     connection.event_counter = controls.pending.instant
     controls.apply()
@@ -264,7 +266,7 @@ def test_peripheral_minimum_channel_request_requires_peer_support(
         connection.controls.request_minimum_channels(
             hci.PhyBit.LE_1M, LL_DATA_CHANNEL_COUNT
         )
-        assert connection.queue[-1].payload == bytes(
+        assert connection.event.queue[-1].payload == bytes(
             [Opcode.LL_MIN_USED_CHANNELS_IND, hci.PhyBit.LE_1M, LL_DATA_CHANNEL_COUNT]
         )
         assert not connection.controls.deadline_us
@@ -273,12 +275,12 @@ def test_peripheral_minimum_channel_request_requires_peer_support(
             connection.controls.request_minimum_channels(
                 hci.PhyBit.LE_1M, LL_DATA_CHANNEL_COUNT
             )
-        assert not connection.queue
+        assert not connection.event.queue
 
 
 def test_minimum_channel_indication_is_peripheral_only(connection):
     connection.control(bytes([Opcode.LL_MIN_USED_CHANNELS_IND, hci.PhyBit.LE_1M, 2]))
-    assert connection.queue[-1].payload == bytes(
+    assert connection.event.queue[-1].payload == bytes(
         [Opcode.LL_UNKNOWN_RSP, Opcode.LL_MIN_USED_CHANNELS_IND]
     )
     connection.role = hci.Role.CENTRAL
@@ -297,15 +299,15 @@ def test_minimum_channel_request_validates_local_capability_and_connection(conne
         connection.controls.request_minimum_channels(hci.PhyBit.LE_1M, 2)
     connection.role = hci.Role.CENTRAL
     connection.control(bytes([Opcode.LL_MIN_USED_CHANNELS_IND, hci.PhyBit.LE_1M, 2]))
-    assert connection.queue[-1].payload == bytes(
+    assert connection.event.queue[-1].payload == bytes(
         [Opcode.LL_UNKNOWN_RSP, Opcode.LL_MIN_USED_CHANNELS_IND]
     )
-    connection.queue.clear()
+    connection.event.queue.clear()
     connection.role = hci.Role.PERIPHERAL
     connection.closed = True
     with pytest.raises(ValueError, match='live Peripheral'):
         connection.controls.request_minimum_channels(hci.PhyBit.LE_1M, 2)
-    assert not connection.queue
+    assert not connection.event.queue
 
 
 @pytest.mark.parametrize(
@@ -361,7 +363,7 @@ def test_parameter_update_resets_supervision_at_new_window(connection):
     )
     assert connection.supervision_deadline_us == 42_500 + 200 * 10_000
     assert connection.parameters == parameters and connection.update_window
-    assert connection.link.listener.controller.events[-1].connection_interval == 40
+    assert connection.link.listener.sink.controller.events[-1].connection_interval == 40
 
 
 @pytest.mark.parametrize('role', [hci.Role.CENTRAL, hci.Role.PERIPHERAL])
@@ -379,10 +381,10 @@ def test_asymmetric_phy_direction(connection, role):
 @pytest.mark.parametrize('local', [False, True])
 def test_no_change_phy_has_no_instant(connection, local):
     if local:
-        connection.controls.request_phy(1, 1)
+        connection.controls.phy.request_phy(1, 1)
     connection.controls.control(b'\x18\x00\x00\x00\x00')
     assert connection.controls.pending is None
-    events = connection.link.listener.controller.events
+    events = connection.link.listener.sink.controller.events
     if local:
         assert events[-1].tx_phy == Phy.LE_1M
     else:
@@ -394,12 +396,12 @@ def test_coded_phy_update_uses_single_wire_bit_not_hci_enum(connection, local):
     connection.role = hci.Role.CENTRAL
     mask = int(hci.PhyBit.LE_CODED)
     if local:
-        connection.controls.request_phy(mask, mask)
+        connection.controls.phy.request_phy(mask, mask)
         opcode = Opcode.LL_PHY_RSP
     else:
         opcode = Opcode.LL_PHY_REQ
     connection.controls.control(bytes([opcode, mask, mask]))
-    update = connection.queue[-1].payload
+    update = connection.event.queue[-1].payload
     assert update[0:3] == bytes([Opcode.LL_PHY_UPDATE_IND, mask, mask])
     pending = connection.controls.pending
     assert pending.central_tx_phy == pending.peripheral_tx_phy == Phy.LE_CODED
@@ -410,17 +412,21 @@ def test_central_no_change_phy_completion_depends_on_host_request(connection, lo
     connection.role = hci.Role.CENTRAL
     mask = int(hci.PhyBit.LE_1M)
     if local:
-        connection.controls.request_phy(mask, mask)
+        connection.controls.phy.request_phy(mask, mask)
         opcode = Opcode.LL_PHY_RSP
     else:
         opcode = Opcode.LL_PHY_REQ
     connection.controls.control(bytes([opcode, mask, mask]))
-    assert connection.queue[-1].payload == bytes([Opcode.LL_PHY_UPDATE_IND, 0, 0, 0, 0])
-    events = connection.link.listener.controller.events
+    assert connection.event.queue[-1].payload == bytes(
+        [Opcode.LL_PHY_UPDATE_IND, 0, 0, 0, 0]
+    )
+    events = connection.link.listener.sink.controller.events
     assert not events and connection.controls.busy
-    connection.controls.sent(connection.queue[-1].payload)
+    connection.controls.sent(connection.event.queue[-1].payload)
     assert bool(events) == local
-    assert not connection.controls.phy_request_local and not connection.controls.busy
+    assert (
+        not connection.controls.phy.phy_request_local and not connection.controls.busy
+    )
 
 
 @pytest.mark.parametrize(
@@ -462,9 +468,9 @@ def test_symmetric_phy_selection_uses_both_directional_intersections(
     connection, tx, rx, peer_tx, peer_rx, selected
 ):
     connection.role = hci.Role.CENTRAL
-    connection.controls.request_phy(int(tx), int(rx))
+    connection.controls.phy.request_phy(int(tx), int(rx))
     connection.control(bytes([Opcode.LL_PHY_RSP, peer_tx, peer_rx]))
-    assert connection.queue[-1].payload[1:3] == bytes(selected)
+    assert connection.event.queue[-1].payload[1:3] == bytes(selected)
 
 
 @pytest.mark.parametrize('central', [False, True])
@@ -472,10 +478,10 @@ def test_phy_response_timer_stops_at_indication_before_instant(connection, centr
     mask = int(hci.PhyBit.LE_2M)
     if central:
         connection.role = hci.Role.CENTRAL
-        connection.controls.request_phy(mask, mask)
+        connection.controls.phy.request_phy(mask, mask)
         connection.control(bytes([Opcode.LL_PHY_RSP, mask, mask]))
         assert connection.controls.deadline_us
-        update = connection.controls.prepare(connection.queue[-1].payload)
+        update = connection.controls.prepare(connection.event.queue[-1].payload)
         connection.controls.sent(update)
     else:
         connection.control(bytes([Opcode.LL_PHY_REQ, mask, mask]))
@@ -483,7 +489,7 @@ def test_phy_response_timer_stops_at_indication_before_instant(connection, centr
         connection.control(bytes([Opcode.LL_PHY_UPDATE_IND, mask, mask, 10, 0]))
     assert connection.controls.deadline_us == 0
     assert connection.controls.pending is not None
-    assert not connection.link.listener.controller.events
+    assert not connection.link.listener.sink.controller.events
     connection.radio.now_us = LL_RESPONSE_TIMEOUT_US
     assert not connection.controls.check_timeout()
 
@@ -492,22 +498,25 @@ def test_phy_response_timer_stops_at_indication_before_instant(connection, centr
 async def test_zero_update_retransmission_cannot_finish_a_new_phy_request(connection):
     connection.role = hci.Role.CENTRAL
     mask = int(hci.PhyBit.LE_1M)
-    connection.controls.request_phy(mask, mask)
+    connection.controls.phy.request_phy(mask, mask)
     connection.control(bytes([Opcode.LL_PHY_RSP, mask, mask]))
     # Isolate the transmission callback from the already tested LL handshake.
-    update = connection.queue.pop()
-    connection.queue.clear()
-    connection.queue.append(update)
-    assert not connection.link.listener.controller.events
+    update = connection.event.queue.pop()
+    connection.event.queue.clear()
+    connection.event.queue.append(update)
+    assert not connection.link.listener.sink.controller.events
     await connection.send(7, 1)
-    assert len(connection.link.listener.controller.events) == 1
-    connection.controls.request_phy(int(hci.PhyBit.LE_2M), int(hci.PhyBit.LE_2M))
+    assert len(connection.link.listener.sink.controller.events) == 1
+    connection.controls.phy.request_phy(int(hci.PhyBit.LE_2M), int(hci.PhyBit.LE_2M))
     await connection.send(
         7, connection.radio.earliest_start_us(7, connection.tx_phy, transmit=True)
     )
-    assert connection.controls.phy_request and connection.controls.phy_request_local
+    assert (
+        connection.controls.phy.phy_request
+        and connection.controls.phy.phy_request_local
+    )
     assert connection.controls.deadline_us
-    assert len(connection.link.listener.controller.events) == 1
+    assert len(connection.link.listener.sink.controller.events) == 1
 
 
 @pytest.mark.parametrize('role', [hci.Role.CENTRAL, hci.Role.PERIPHERAL])
@@ -520,7 +529,7 @@ def test_phy_preference_rfu_bits_do_not_reject_supported_request(connection, rol
     else:
         supported = int(hci.PhyBit.LE_1M | hci.PhyBit.LE_2M | hci.PhyBit.LE_CODED)
         expected = bytes([Opcode.LL_PHY_RSP, supported, supported])
-    assert [item.payload for item in connection.queue] == [expected]
+    assert [item.payload for item in connection.event.queue] == [expected]
 
 
 def test_received_coded_wire_bit_becomes_directional_hci_enum(connection):
@@ -560,7 +569,7 @@ def test_busy_phy_request_is_rejected_without_overwriting_instant(connection):
     mask = int(hci.PhyBit.LE_2M)
     connection.controls.control(bytes([Opcode.LL_PHY_REQ, mask, mask]))
     assert connection.controls.pending == update
-    assert connection.queue[-1].payload == bytes(
+    assert connection.event.queue[-1].payload == bytes(
         [
             Opcode.LL_REJECT_EXT_IND,
             Opcode.LL_PHY_REQ,
@@ -573,13 +582,13 @@ def test_deferred_phy_request_retains_local_timeout_and_original_stimulus(connec
     controls = connection.controls
     mask = int(hci.PhyBit.LE_2M)
     request = bytes([Opcode.LL_PHY_REQ, mask, mask])
-    controls.request_phy(mask, mask)
+    controls.phy.request_phy(mask, mask)
     deadline = controls.deadline_us
     controls.control(request)
-    assert controls.remote_phy_request == request
+    assert controls.phy.remote_phy_request == request
     assert controls.deadline_us == deadline
     controls.control(bytes([Opcode.LL_PHY_REQ, int(hci.PhyBit.LE_CODED), mask]))
-    assert controls.remote_phy_request == request
+    assert controls.phy.remote_phy_request == request
     assert controls.deadline_us == deadline
     controls.control(
         bytes(
@@ -590,7 +599,7 @@ def test_deferred_phy_request_retains_local_timeout_and_original_stimulus(connec
             ]
         )
     )
-    assert controls.remote_phy_request == request and controls.phy_request_local
+    assert controls.phy.remote_phy_request == request and controls.phy.phy_request_local
     connection.radio.now_us = deadline
     assert controls.check_timeout() and connection.closed
 
@@ -598,7 +607,7 @@ def test_deferred_phy_request_retains_local_timeout_and_original_stimulus(connec
 def test_rejected_phy_restarts_deferred_remote_response_timer(connection):
     controls = connection.controls
     mask = int(hci.PhyBit.LE_2M)
-    controls.request_phy(mask, mask)
+    controls.phy.request_phy(mask, mask)
     controls.control(bytes([Opcode.LL_PHY_REQ, mask, mask]))
     connection.radio.now_us = 1000
     controls.control(
@@ -610,8 +619,8 @@ def test_rejected_phy_restarts_deferred_remote_response_timer(connection):
             ]
         )
     )
-    assert controls.remote_phy_request is None
-    assert controls.phy_request and not controls.phy_request_local
+    assert controls.phy.remote_phy_request is None
+    assert controls.phy.phy_request and not controls.phy.phy_request_local
     assert controls.deadline_us == connection.radio.now_us + LL_RESPONSE_TIMEOUT_US
     connection.radio.now_us = controls.deadline_us
     assert controls.check_timeout() and connection.closed
@@ -621,11 +630,11 @@ def test_rejected_phy_restarts_deferred_remote_response_timer(connection):
 def test_phy_rejection_keeps_remote_parameter_response_timer(connection, host_replied):
     controls = connection.controls
     mask = int(hci.PhyBit.LE_2M)
-    controls.request_phy(mask, mask)
+    controls.phy.request_phy(mask, mask)
     controls.control(connection_parameter_request(30))
     connection.radio.now_us = 1000
     if host_replied:
-        controls.reply_parameters(30, 30, 0, 100)
+        controls.connection_parameters.reply_parameters(30, 30, 0, 100)
     deadline = controls.deadline_us
     controls.control(
         bytes(
@@ -643,11 +652,11 @@ def test_phy_rejection_keeps_remote_parameter_response_timer(connection, host_re
 
 def test_unknown_phy_request_finishes_without_a_stale_response_timer(connection):
     controls = connection.controls
-    controls.request_phy(1, 1)
+    controls.phy.request_phy(1, 1)
     controls.control(bytes([Opcode.LL_UNKNOWN_RSP, Opcode.LL_PHY_REQ]))
-    assert not controls.phy_request and not controls.phy_request_local
+    assert not controls.phy.phy_request and not controls.phy.phy_request_local
     assert controls.deadline_us == 0
-    event = connection.link.listener.controller.events[-1]
+    event = connection.link.listener.sink.controller.events[-1]
     assert isinstance(event, hci.HCI_LE_PHY_Update_Complete_Event)
     assert event.status == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
     connection.radio.now_us = LL_RESPONSE_TIMEOUT_US
@@ -655,7 +664,7 @@ def test_unknown_phy_request_finishes_without_a_stale_response_timer(connection)
 
 
 def test_ll_response_timeout_uses_simulated_time(connection):
-    connection.controls.request_parameters(24, 24, 0, 100)
+    connection.controls.connection_parameters.request_parameters(24, 24, 0, 100)
     connection.radio.now_us = LL_RESPONSE_TIMEOUT_US - 1
     connection.controls.apply()
     assert not connection.closed
@@ -668,15 +677,15 @@ def test_ll_response_timeout_uses_simulated_time(connection):
     'mask,current,expected', [(2, 1, 2), (4, 1, 3), (7, 1, 1), (0, 2, 2), (3, 3, 2)]
 )
 def test_phy_selection_prefers_current_then_2m(mask, current, expected):
-    from bscontroller.linklayer.control import ControlProcedures
+    from bscontroller.linklayer.phy import PhyProcedure
 
-    assert ControlProcedures.choose_phy(mask, current) == expected
+    assert PhyProcedure.choose_phy(mask, current) == expected
 
 
 def test_buffered_control_assigns_instant_at_first_transmission(connection):
     connection.role = hci.Role.CENTRAL
     connection.controls.request_channel_map(3)
-    payload = connection.queue.popleft().payload
+    payload = connection.event.queue.popleft().payload
     connection.event_counter = 40
     actual = connection.controls.prepare(payload)
     assert (
@@ -689,7 +698,7 @@ def test_buffered_control_assigns_instant_at_first_transmission(connection):
 
 def test_local_update_without_ack_does_not_switch_channel_map(connection):
     connection.controls.request_channel_map(3)
-    payload = connection.controls.prepare(connection.queue.popleft().payload)
+    payload = connection.controls.prepare(connection.event.queue.popleft().payload)
     connection.event_counter = int.from_bytes(
         payload[-PDU_CONTROL_INSTANT_SIZE:], 'little'
     )
@@ -699,7 +708,7 @@ def test_local_update_without_ack_does_not_switch_channel_map(connection):
 
 def test_local_update_with_ack_switches_at_instant(connection):
     connection.controls.request_channel_map(3)
-    payload = connection.controls.prepare(connection.queue.popleft().payload)
+    payload = connection.controls.prepare(connection.event.queue.popleft().payload)
     connection.controls.acknowledge(payload)
     connection.event_counter = int.from_bytes(
         payload[-PDU_CONTROL_INSTANT_SIZE:], 'little'
@@ -721,13 +730,13 @@ def test_current_instant_does_not_apply_old_transmit_window_offset(connection):
 @pytest.mark.parametrize('opcode', [Opcode.LL_CONNECTION_PARAM_REQ, Opcode.LL_PHY_REQ])
 def test_remote_reject_finishes_local_request(connection, opcode):
     if opcode == Opcode.LL_CONNECTION_PARAM_REQ:
-        connection.controls.request_parameters(24, 24, 0, 100)
+        connection.controls.connection_parameters.request_parameters(24, 24, 0, 100)
     else:
-        connection.controls.request_phy(2, 2)
+        connection.controls.phy.request_phy(2, 2)
     connection.controls.control(bytes([0x11, opcode, 0x3B]))
     assert not connection.controls.busy and connection.controls.deadline_us == 0
     assert (
-        connection.link.listener.controller.events[-1].status
+        connection.link.listener.sink.controller.events[-1].status
         == hci.HCI_ErrorCode.UNACCEPTABLE_CONNECTION_PARAMETERS_ERROR
     )
 
@@ -739,23 +748,23 @@ def test_parameter_request_collides_with_map_without_overwriting_it(connection, 
     connection.controls.pending = update
     connection.controls.control(connection_parameter_request())
     assert connection.controls.pending is update
-    assert connection.queue[-1].payload == bytes(
+    assert connection.event.queue[-1].payload == bytes(
         [
             Opcode.LL_REJECT_EXT_IND,
             Opcode.LL_CONNECTION_PARAM_REQ,
             hci.HCI_ErrorCode.DIFFERENT_TRANSACTION_COLLISION_ERROR,
         ]
     )
-    assert connection.controls.remote_parameters is None
+    assert connection.controls.connection_parameters.remote_parameters is None
 
 
 def test_central_rejects_same_procedure_collision(connection):
     connection.role = hci.Role.CENTRAL
-    connection.controls.request_parameters(24, 24, 0, 100)
+    connection.controls.connection_parameters.request_parameters(24, 24, 0, 100)
     connection.controls.control(connection_parameter_request(30))
-    assert connection.controls.parameter_request
-    assert connection.controls.remote_parameters is None
-    assert connection.queue[-1].payload == bytes(
+    assert connection.controls.connection_parameters.parameter_request
+    assert connection.controls.connection_parameters.remote_parameters is None
+    assert connection.event.queue[-1].payload == bytes(
         [
             Opcode.LL_REJECT_EXT_IND,
             Opcode.LL_CONNECTION_PARAM_REQ,
@@ -766,17 +775,19 @@ def test_central_rejects_same_procedure_collision(connection):
 
 @pytest.mark.parametrize('masked', [False, True])
 def test_peripheral_preserves_central_request_until_local_rejection(connection, masked):
+    connection.report_created()
+    connection.link.listener.sink.controller.events.clear()
     controls = connection.controls
-    controller = connection.link.listener.controller
+    controller = connection.link.listener.sink.controller
     if masked:
         controller.le_event_mask &= ~(
             1 << (hci.HCI_LE_REMOTE_CONNECTION_PARAMETER_REQUEST_EVENT - 1)
         )
-    controls.request_parameters(24, 24, 0, 100)
+    controls.connection_parameters.request_parameters(24, 24, 0, 100)
     request = connection_parameter_request(30)
     controls.control(request)
-    assert controls.remote_parameters == request[1:]
-    assert len(connection.queue) == 1
+    assert controls.connection_parameters.remote_parameters == request[1:]
+    assert len(connection.event.queue) == 1
     assert controller.events == []
     connection.radio.now_us = 1000
     controls.control(
@@ -788,14 +799,17 @@ def test_peripheral_preserves_central_request_until_local_rejection(connection, 
             ]
         )
     )
-    assert not controls.parameter_request
+    assert not controls.connection_parameters.parameter_request
     failure = controller.events[0]
     assert isinstance(failure, hci.HCI_LE_Connection_Update_Complete_Event)
     assert failure.status == PROCEDURE_COLLISION
     if masked:
         assert len(controller.events) == 1
-        assert controls.remote_parameters is None and controls.deadline_us == 0
-        assert connection.queue[-1].payload == bytes(
+        assert (
+            controls.connection_parameters.remote_parameters is None
+            and controls.deadline_us == 0
+        )
+        assert connection.event.queue[-1].payload == bytes(
             [
                 Opcode.LL_REJECT_EXT_IND,
                 Opcode.LL_CONNECTION_PARAM_REQ,
@@ -812,21 +826,21 @@ def test_peripheral_preserves_central_request_until_local_rejection(connection, 
             event.max_latency,
             event.timeout,
         ) == (connection.handle, 30, 30, 0, 100)
-        assert controls.remote_parameters == request[1:]
+        assert controls.connection_parameters.remote_parameters == request[1:]
         assert controls.deadline_us == connection.radio.now_us + LL_RESPONSE_TIMEOUT_US
-        controls.reply_parameters(30, 30, 0, 100)
-        assert controls.remote_parameters is None
-        assert connection.queue[-1].payload[0] == Opcode.LL_CONNECTION_PARAM_RSP
+        controls.connection_parameters.reply_parameters(30, 30, 0, 100)
+        assert controls.connection_parameters.remote_parameters is None
+        assert connection.event.queue[-1].payload[0] == Opcode.LL_CONNECTION_PARAM_RSP
 
 
 def test_second_central_request_does_not_replace_deferred_request(connection):
     controls = connection.controls
-    controls.request_parameters(24, 24, 0, 100)
+    controls.connection_parameters.request_parameters(24, 24, 0, 100)
     request = connection_parameter_request(30)
     controls.control(request)
     controls.control(connection_parameter_request(40))
-    assert controls.remote_parameters == request[1:]
-    assert connection.queue[-1].payload == bytes(
+    assert controls.connection_parameters.remote_parameters == request[1:]
+    assert connection.event.queue[-1].payload == bytes(
         [
             Opcode.LL_REJECT_EXT_IND,
             Opcode.LL_CONNECTION_PARAM_REQ,
@@ -837,7 +851,7 @@ def test_second_central_request_does_not_replace_deferred_request(connection):
 
 def test_unrelated_rejection_keeps_parameter_response_deadline(connection):
     controls = connection.controls
-    controls.request_parameters(24, 24, 0, 100)
+    controls.connection_parameters.request_parameters(24, 24, 0, 100)
     deadline = controls.deadline_us
     controls.control(
         bytes(
@@ -848,12 +862,15 @@ def test_unrelated_rejection_keeps_parameter_response_deadline(connection):
             ]
         )
     )
-    assert controls.parameter_request and controls.deadline_us == deadline
+    assert (
+        controls.connection_parameters.parameter_request
+        and controls.deadline_us == deadline
+    )
 
 
 def test_parameter_rejection_preserves_pending_channel_map(connection):
     controls = connection.controls
-    controls.request_parameters(24, 24, 0, 100)
+    controls.connection_parameters.request_parameters(24, 24, 0, 100)
     update = InstantUpdate(6, channel_map=3)
     controls.accept_instant(update)
     controls.control(
@@ -865,7 +882,10 @@ def test_parameter_rejection_preserves_pending_channel_map(connection):
             ]
         )
     )
-    assert controls.pending is update and not controls.parameter_request
+    assert (
+        controls.pending is update
+        and not controls.connection_parameters.parameter_request
+    )
     connection.event_counter = update.instant
     controls.apply()
     assert connection.parameters.channel_map == 3 and not connection.closed
@@ -873,7 +893,7 @@ def test_parameter_rejection_preserves_pending_channel_map(connection):
 
 def test_deferred_central_request_does_not_cancel_local_timeout(connection):
     controls = connection.controls
-    controls.request_parameters(24, 24, 0, 100)
+    controls.connection_parameters.request_parameters(24, 24, 0, 100)
     deadline = controls.deadline_us
     controls.control(connection_parameter_request(30))
     assert controls.deadline_us == deadline
@@ -891,10 +911,10 @@ def test_deferred_central_request_does_not_cancel_local_timeout(connection):
 def test_feature_query_uses_wire_response_and_then_cache(connection, role, opcode):
     connection.role = role
     connection.report_created()
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     command = hci.HCI_LE_Read_Remote_Features_Command(connection.handle)
     listener.on_hci_le_read_remote_features_command(command)
-    assert connection.queue.pop().payload == bytes(
+    assert connection.event.queue.pop().payload == bytes(
         [opcode]
     ) + connection.link.features.to_bytes(PDU_CONTROL_FEATURE_SET_SIZE, 'little')
     listener.on_hci_le_read_remote_features_command(command)
@@ -918,7 +938,7 @@ def test_feature_query_uses_wire_response_and_then_cache(connection, role, opcod
         and not connection.controls.feature_deadline_us
     )
     listener.on_hci_le_read_remote_features_command(command)
-    assert not connection.queue
+    assert not connection.event.queue
     assert isinstance(
         listener.controller.events[-1], hci.HCI_LE_Read_Remote_Features_Complete_Event
     )
@@ -935,7 +955,7 @@ def test_feature_query_failure_completes_once(connection, disconnect):
         assert connection.controls.check_timeout()
     events = [
         event
-        for event in connection.link.listener.controller.events
+        for event in connection.link.listener.sink.controller.events
         if isinstance(event, hci.HCI_LE_Read_Remote_Features_Complete_Event)
     ]
     assert len(events) == 1
@@ -959,12 +979,12 @@ def test_unknown_feature_request_reports_failure_without_answering_unknown_rsp(
     connection.role = role
     connection.report_created()
     connection.controls.request_features()
-    connection.queue.clear()
+    connection.event.queue.clear()
     connection.control(bytes([Opcode.LL_UNKNOWN_RSP, opcode]))
-    event = connection.link.listener.controller.events[-1]
+    event = connection.link.listener.sink.controller.events[-1]
     assert isinstance(event, hci.HCI_LE_Read_Remote_Features_Complete_Event)
     assert event.status == ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
-    assert not connection.queue and not connection.controls.feature_request
+    assert not connection.event.queue and not connection.controls.feature_request
 
 
 @pytest.mark.parametrize('role', [hci.Role.CENTRAL, hci.Role.PERIPHERAL])
@@ -974,35 +994,39 @@ def test_version_query_owns_one_indication_and_caches_first_peer_tuple(
     connection.role = role
     connection.report_created()
     controls = connection.controls
-    listener = connection.link.listener
+    listener = connection.link.listener.sink
     controller = listener.controller
     controller.lmp_version = hci.SpecificationVersion.BLUETOOTH_CORE_5_4
     controller.manufacturer_company_identifier = 0x0059
     controller.lmp_subversion = 0x1234
     command = hci.HCI_Read_Remote_Version_Information_Command(connection.handle)
     listener.on_hci_read_remote_version_information_command(command)
-    assert connection.queue[0].payload == bytes([Opcode.LL_VERSION_IND]) + struct.pack(
-        '<BHH', *listener.local_version
-    )
+    assert connection.event.queue[0].payload == bytes(
+        [Opcode.LL_VERSION_IND]
+    ) + struct.pack('<BHH', *listener.local_version)
     assert controls.version_deadline_us == LL_RESPONSE_TIMEOUT_US
     listener.on_hci_read_remote_version_information_command(command)
     assert controller.events[-1].status == ErrorCode.COMMAND_DISALLOWED_ERROR
-    assert len(connection.queue) == 1
+    assert len(connection.event.queue) == 1
     peer = (hci.SpecificationVersion.BLUETOOTH_CORE_5_0, 0x1234, 0x5678)
     connection.control(bytes([Opcode.LL_VERSION_IND]) + struct.pack('<BHH', *peer))
     event = controller.events[-1]
     assert isinstance(event, hci.HCI_Read_Remote_Version_Information_Complete_Event)
     assert (event.version, event.manufacturer_name, event.subversion) == peer
     assert not controls.version_request and not controls.version_deadline_us
-    assert len(connection.queue) == 1, 'peer collision queued a second local version'
+    assert len(connection.event.queue) == 1, (
+        'peer collision queued a second local version'
+    )
     controller.events.clear()
-    connection.queue.clear()
+    connection.event.queue.clear()
     connection.control(bytes([Opcode.LL_VERSION_IND]) + struct.pack('<BHH', 0, 0, 0))
     assert (
-        controls.peer_version == peer and not connection.queue and not controller.events
+        controls.peer_version == peer
+        and not connection.event.queue
+        and not controller.events
     )
     listener.on_hci_read_remote_version_information_command(command)
-    assert not connection.queue
+    assert not connection.event.queue
     assert isinstance(
         controller.events[-1], hci.HCI_Read_Remote_Version_Information_Complete_Event
     )
@@ -1019,7 +1043,7 @@ def test_version_timeout_and_disconnect_have_distinct_completion_semantics(
     else:
         connection.radio.now_us = LL_RESPONSE_TIMEOUT_US
         assert connection.controls.check_timeout()
-    events = connection.link.listener.controller.events
+    events = connection.link.listener.sink.controller.events
     versions = [
         event
         for event in events
@@ -1056,8 +1080,8 @@ def test_central_parameter_rejection_falls_back_only_for_unsupported_peer(
     connection.role = hci.Role.CENTRAL
     connection.establish()
     controls = connection.controls
-    controls.request_parameters(6, 6, 0, 300)
-    connection.queue.clear()
+    controls.connection_parameters.request_parameters(6, 6, 0, 300)
+    connection.event.queue.clear()
     reason = (
         ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
         if legacy
@@ -1066,17 +1090,17 @@ def test_central_parameter_rejection_falls_back_only_for_unsupported_peer(
     controls.control(
         bytes([Opcode.LL_REJECT_EXT_IND, Opcode.LL_CONNECTION_PARAM_REQ, reason])
     )
-    assert not controls.parameter_request
+    assert not controls.connection_parameters.parameter_request
     if legacy:
         assert controls.pending is not None
-        assert connection.queue[-1].payload[0] == Opcode.LL_CONNECTION_UPDATE_IND
+        assert connection.event.queue[-1].payload[0] == Opcode.LL_CONNECTION_UPDATE_IND
         assert not any(
             isinstance(event, hci.HCI_LE_Connection_Update_Complete_Event)
-            for event in connection.link.listener.controller.events
+            for event in connection.link.listener.sink.controller.events
         )
     else:
-        assert controls.pending is None and not connection.queue
-        assert connection.link.listener.controller.events[-1].status == reason
+        assert controls.pending is None and not connection.event.queue
+        assert connection.link.listener.sink.controller.events[-1].status == reason
 
 
 @pytest.mark.parametrize('known', [False, True])
@@ -1090,15 +1114,20 @@ def test_parameter_rejection_retains_only_learned_procedure_knowledge(
         | hci.LeFeatureMask.LE_2M_PHY
     )
     connection.peer_features = features if known else None
-    assert controls.supports_parameter_request
-    controls.request_parameters(24, 24, 0, 100)
-    controls.reject_parameters(
+    assert controls.connection_parameters.supports_parameter_request
+    controls.connection_parameters.request_parameters(24, 24, 0, 100)
+    controls.connection_parameters.reject_parameters(
         ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
         if unsupported
         else ErrorCode.UNACCEPTABLE_CONNECTION_PARAMETERS_ERROR
     )
-    assert controls.supports_parameter_request is (not unsupported)
-    assert not controls.parameter_request and controls.deadline_us == 0
+    assert controls.connection_parameters.supports_parameter_request is (
+        not unsupported
+    )
+    assert (
+        not controls.connection_parameters.parameter_request
+        and controls.deadline_us == 0
+    )
     # Do not invent a zero peer feature set from a single UNKNOWN_RSP.
     assert connection.peer_features == (
         features & ~int(hci.LeFeatureMask.CONNECTION_PARAMETERS_REQUEST_PROCEDURE)
@@ -1143,7 +1172,7 @@ def test_minimum_channel_argument_boundaries(phys, minimum, expected):
 def test_queued_procedure_pdu_restarts_response_timer(connection):
     # Core Vol 6, Part B, 5.2: each queued LL Control PDU resets a running T_PRT.
     controls = connection.controls
-    controls.request_phy(1, 1)
+    controls.phy.request_phy(1, 1)
     started = controls.deadline_us
     connection.radio.now_us += 1000
     controls.enqueue(bytes([0x16, 1, 1]))
@@ -1153,7 +1182,7 @@ def test_queued_procedure_pdu_restarts_response_timer(connection):
 def test_connection_update_has_no_response_timer(connection):
     # Core Vol 6, Part B, 5.2: Connection Update and Channel Map Update have no T_PRT.
     controls = connection.controls
-    controls.request_update(
+    controls.connection_parameters.request_update(
         connection.parameters.interval, 0, connection.parameters.timeout
     )
     controls.request_channel_map(connection.parameters.channel_map)

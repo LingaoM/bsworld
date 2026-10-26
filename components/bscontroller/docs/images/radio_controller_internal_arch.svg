@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2000" viewBox="0 0 1600 2000" role="img" aria-labelledby="title description">
   <title id="title">BSController internal architecture</title>
-  <desc id="description">A detailed view of one Controller. HCI framing and command dispatch submit decoded operations to LinkLayerService and AdvertisingService. RadioLink owns active role contexts, connections, and the shared radio resource manager. Each connection has a lifetime context, an LLCP coordinator with control, encryption and data-length procedures, and a connection-event executor that owns ARQ, the transmit queue and retry state. ACL data enters the executor through the LL service. Connectionless role executors and connection events share radio reservations and a BabbleSim radio adapter. Typed Listener callbacks return results to HCI event adaptation. Runtime composes the objects, drives LL time, gates PHY requests and manages the external PHY process.</desc>
+  <desc id="description">A detailed view of one Controller. HCI submits decoded configuration through LinkLayerService and reads frozen snapshots. LL role managers own active contexts, connection handles, and lifetime transitions. RadioLink drives their activities through the shared resource manager. Each connection has lifetime state, an LLCP coordinator with procedure contexts, packet security, and an event executor that owns ARQ and retransmission snapshots. RF executors submit validated outcomes to role managers. A NotificationAdapter converts committed LL state to frozen upper-layer notifications. Runtime composes the objects, drives LL time, gates PHY requests and manages the external PHY process.</desc>
   <defs>
     <marker id="call-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9 Z" fill="#333333"/></marker>
     <marker id="event-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9 Z" fill="#398152"/></marker>
@@ -98,37 +98,37 @@
     <g id="ll-service-boundary">
       <rect class="layer service" x="85" y="530" width="1160" height="100" rx="10"/>
       <text class="heading" x="665" y="557">LinkLayerService / AdvertisingService</text>
-      <text class="detail" x="665" y="582">service.py · commit active role state, publish advertising data, configure defaults, admit connection operations</text>
-      <text class="small" x="665" y="607">Decoded parameters / Controller error codes · PreparedProcedure.start() follows HCI Command Status</text>
+      <text class="detail" x="665" y="582">api.py · service.py · decoded configuration / commands / frozen queries · no active contexts cross HCI</text>
+      <text class="small" x="665" y="607">AdvertisingConfig excludes event state · PreparedProcedure.start() follows HCI Command Status</text>
     </g>
     <path class="query" d="M 740 350 V 530"/>
     <rect class="white" x="590" y="448" width="300" height="24"/>
     <text class="detail" x="740" y="466">decoded operations / status</text>
     <path class="notify" d="M 1275 670 H 1288 V 320 H 1245"/>
-    <text class="small green" x="1130" y="462">Listener callbacks · listener.py</text>
+    <text class="small green" x="1085" y="462">NotificationAdapter · frozen snapshots · notifications.py</text>
 
     <g id="radio-link">
       <rect class="boundary" x="75" y="690" width="1180" height="750" rx="12"/>
       <text class="heading start" x="95" y="721">RadioLink</text>
-      <text class="small" x="480" y="719">link.py · active contexts and role lifecycle</text>
-      <text class="small" x="480" y="743">collect PendingOperation · advance_to_us()</text>
+      <text class="small" x="480" y="719">link.py · composition and dispatch</text>
+      <text class="small" x="480" y="743">drive role activities · advance_to_us()</text>
 
       <g id="connectionless-contexts">
         <rect class="layer context" x="90" y="785" width="315" height="285" rx="10"/>
-        <text class="name" x="247" y="816">Connectionless role contexts</text>
-        <text class="file" x="247" y="842">discovery.py</text>
-        <text class="detail" x="247" y="880">Advertising</text>
+        <text class="name" x="247" y="816">Role managers</text>
+        <text class="file" x="247" y="842">roles.py · discovery.py</text>
+        <text class="detail" x="247" y="880">AdvertisingManager</text>
         <text class="small" x="247" y="903">sets, payloads, DID, periodic trains</text>
-        <text class="detail" x="247" y="939">Scanning / Initiating</text>
+        <text class="detail" x="247" y="939">ScanningManager</text>
         <text class="small" x="247" y="962">windows, backoff, connection attempt</text>
-        <text class="detail" x="247" y="998">PeriodicSync</text>
+        <text class="detail" x="247" y="998">SynchronizationManager</text>
         <text class="small" x="247" y="1021">acquisition, sync handle, train timing</text>
-        <text class="small" x="247" y="1053">Per-role state and next activity</text>
+        <text class="small" x="247" y="1053">Lifetime · next activity · result commit</text>
       </g>
       <g id="connection-instance">
         <rect class="boundary" x="440" y="770" width="560" height="655" rx="12"/>
-        <rect class="ll-frame" x="455" y="765" width="210" height="24"/>
-        <text class="small" x="560" y="782">Per ACL connection × N</text>
+        <rect class="ll-frame" x="455" y="765" width="300" height="24"/>
+        <text class="small" x="605" y="782">ConnectionManager · LL handles · ACL × N</text>
         <g id="connection-lifetime">
           <rect class="layer context" x="460" y="795" width="520" height="90" rx="10"/>
           <text class="name" x="720" y="824">Connection</text>
@@ -138,13 +138,13 @@
         <g id="llcp-coordinator">
           <rect class="layer procedure" x="460" y="925" width="520" height="285" rx="10"/>
           <text class="name" x="720" y="954">LlcpCoordinator</text>
-          <text class="small" x="720" y="978">llcp.py · admission, outstanding replies, TX/RX gates, ACK routing</text>
-          <text class="small" x="720" y="1002">ProcedureResponseTimer · shared T_PRT with explicit owner</text>
+          <text class="small" x="720" y="978">llcp.py / procedure.py · contexts, replies, packet control</text>
+          <text class="small" x="720" y="1002">Local / remote identity · expected response · timer owner</text>
           <g id="control-procedures">
             <rect class="layer context" x="475" y="1024" width="270" height="170" rx="8"/>
             <text class="small-name" x="610" y="1052">ControlProcedures</text>
-            <text class="file" x="610" y="1073">control.py</text>
-            <text class="small" x="610" y="1098">parameters · PHY · channel map</text>
+            <text class="file" x="610" y="1073" textLength="250" lengthAdjust="spacingAndGlyphs">control.py · phy.py · connection_parameters.py</text>
+            <text class="small" x="610" y="1098">parameters / PHY contexts · channel map</text>
             <text class="small" x="610" y="1120">features · version · Instants · collisions</text>
             <rect class="layer white" x="488" y="1136" width="244" height="45" rx="6" stroke="#9673a6"/>
             <text class="small-name" x="610" y="1154">DataLengthProcedure</text>
@@ -156,16 +156,16 @@
             <text class="file" x="865" y="1073">encryption.py</text>
             <text class="small" x="865" y="1098">Start / Pause · LE Ping</text>
             <text class="small" x="865" y="1120">key and cipher transitions</text>
-            <text class="small-name" x="865" y="1152">PacketCipher</text>
-            <text class="small" x="865" y="1175">AES-CCM · MIC · counters</text>
+            <text class="small" x="865" y="1152">Update packet-security modes</text>
+            <text class="small" x="865" y="1175">at sent / ACK boundaries</text>
           </g>
         </g>
         <g id="connection-event-executor">
           <rect class="layer executor" x="460" y="1270" width="520" height="140" rx="10"/>
-          <text class="name" x="720" y="1300">ConnectionEvent</text>
-          <text class="file" x="720" y="1323">connection_event.py</text>
+          <text class="name" x="720" y="1300">ConnectionEvent / PacketSecurity</text>
+          <text class="file" x="720" y="1323">connection_event.py · data_path.py</text>
           <text class="detail" x="720" y="1349">TX queue · SN/NESN · LL fragmentation · retry snapshot</text>
-          <text class="small" x="720" y="1373">channel selection · T_IFS exchanges · cipher data path</text>
+          <text class="small" x="720" y="1373">PHY / T_IFS · effective limits · AES-CCM / MIC / counters</text>
           <text class="small" x="720" y="1395">RX: authenticate → admissibility → commit ACK → dispatch</text>
         </g>
         <path class="call" d="M 720 885 V 925"/>
@@ -182,12 +182,13 @@
         <text class="detail" x="247" y="1276">ExtendedProcedures · extended.py</text>
         <text class="small" x="247" y="1299">auxiliary / chained PDU exchanges</text>
         <text class="detail" x="247" y="1333">periodic.py</text>
-        <text class="small" x="247" y="1356">periodic TX / synchronized RX</text>
+        <text class="small" x="247" y="1356">periodic TX / RX · results.py outcomes</text>
         <text class="file" x="247" y="1391">PDU codecs: pdu.py · advertising.py</text>
       </g>
       <path class="call" d="M 247 1070 V 1150"/>
+      <path class="notify" d="M 405 1205 H 414 V 1038 H 405"/>
       <rect class="ll-frame" x="152" y="1093" width="190" height="23"/>
-      <text class="small" x="247" y="1110">role state / next event</text>
+      <text class="small" x="247" y="1110">activity / validated outcome</text>
       <g id="shared-radio-resource">
         <rect class="layer resource" x="1035" y="785" width="210" height="625" rx="10"/>
         <text class="small-name" x="1140" y="816">RadioResourceManager</text>
@@ -196,8 +197,8 @@
         <text class="detail" x="1140" y="889">reservations()</text>
         <text class="detail" x="1140" y="918">select(PendingOperation)</text>
         <text class="small" x="1140" y="945">due time → priority → fairness</text>
-        <text class="detail" x="1140" y="986">claim() / execute()</text>
-        <text class="small" x="1140" y="1011">radio deadline ownership</text>
+        <text class="detail" x="1140" y="986">admit() / execute()</text>
+        <text class="small" x="1140" y="1011">providers / radio deadline</text>
         <rect class="layer white" x="1048" y="1044" width="184" height="186" rx="8" stroke="#d6b656"/>
         <text class="small-name" x="1140" y="1072">Scheduling helpers</text>
         <text class="file" x="1140" y="1096">scheduler.py</text>

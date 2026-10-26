@@ -1,11 +1,12 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Link Layer notifications to the Controller's upper layer, one interface per
-procedure.
+"""Internal Link Layer notifications, one interface per procedure.
 
-The Link Layer never imports HCI. Each procedure module depends only on the
-narrow interface it calls; RadioLink requires their union, Listener.
+The Link Layer never imports HCI. Procedures pass their committed contexts to
+this internal listener. NotificationAdapter copies them into the frozen values
+accepted by the upper-layer NotificationSink; RadioLink also supports internal
+listeners for qualification and unit tests.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ if TYPE_CHECKING:
 class ConnectionListener(Protocol):
     """ACL lifetime and data flow (Core 6.3, Vol 6, Part B, 4.5)."""
 
-    def allocate_connection_handle(self) -> int: ...
     def trace(self, message: str) -> None: ...
     def on_connected(self, connection: Connection) -> None: ...
     def on_disconnected(self, connection: Connection, reason: int) -> None: ...
@@ -121,4 +121,4 @@ class Listener(
     SynchronizationListener,
     Protocol,
 ):
-    """Everything a RadioLink reports; implemented by hci.events.LeControllerEvents."""
+    """Internal procedure callbacks, adapted before entering an upper layer."""

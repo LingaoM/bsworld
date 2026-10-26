@@ -10,7 +10,6 @@ import pytest
 from bscontroller import hci
 from bscontroller.hci.backend import RadioBackend
 from bscontroller.hci.controller import Controller
-from bscontroller.hci.records import ConnectionRecord
 from bscontroller.linklayer.connection import Connection as RadioConnection
 from tests.unit.helpers import PARAMETERS
 
@@ -33,12 +32,16 @@ async def test_radio_connections_use_shared_handles_and_hci_acl_lookup():
     controller.send_hci_packet = packets.append
     controller.event_mask = controller.le_event_mask = (1 << 64) - 1
     occupied_peer = hci.Address('F0:F1:F2:F3:F4:03', 0)
-    controller.le_connections[occupied_peer] = ConnectionRecord(
-        controller,
-        SimpleNamespace(
-            handle=1, role=hci.Role.CENTRAL, self_address=ADDRESS, peer=occupied_peer
-        ),
+    occupied = RadioConnection(
+        backend.link,
+        PARAMETERS,
+        occupied_peer,
+        hci.Role.CENTRAL,
+        0,
+        self_address=ADDRESS,
     )
+    backend.link.connections[occupied.handle] = occupied
+    occupied.report_created()
     connection = RadioConnection(
         backend.link,
         PARAMETERS,
@@ -65,7 +68,7 @@ async def test_radio_connections_use_shared_handles_and_hci_acl_lookup():
             )
         )
     )
-    assert connection.queue[-1].payload == b'abc'
+    assert connection.event.queue[-1].payload == b'abc'
     connection.complete(ErrorCode.REMOTE_USER_TERMINATED_CONNECTION_ERROR)
     assert controller.find_connection_by_handle(2) is None
     assert controller.find_connection_by_handle(1) is not None
@@ -74,7 +77,7 @@ async def test_radio_connections_use_shared_handles_and_hci_acl_lookup():
 
 def test_public_connection_record_tracks_the_live_identity(connection):
     connection.report_created()
-    controller = connection.link.listener.controller
+    controller = connection.link.listener.sink.controller
     record = controller.find_connection_by_handle(connection.handle)
     assert record is not None
     updated = hci.Address('C0:12:34:56:78:9A')
@@ -83,6 +86,36 @@ def test_public_connection_record_tracks_the_live_identity(connection):
     with pytest.raises(AttributeError):
         record.self_address = controller.public_address
     assert connection.self_address == updated
+
+
+@pytest.mark.parametrize('same_peer', [False, True])
+def test_retained_connection_record_does_not_follow_a_reused_handle(
+    connection, same_peer
+):
+    connection.report_created()
+    controller = connection.link.listener.sink.controller
+    old_record = controller.find_connection_by_handle(connection.handle)
+    old_peer, old_role = connection.peer, connection.role
+    final_address = hci.Address('C0:12:34:56:78:9A')
+    connection.self_address = final_address
+    connection.complete(ErrorCode.REMOTE_USER_TERMINATED_CONNECTION_ERROR)
+
+    new_peer = old_peer if same_peer else hci.Address('F0:F1:F2:F3:F4:99')
+    replacement = RadioConnection(
+        connection.link,
+        PARAMETERS,
+        new_peer,
+        hci.Role.CENTRAL,
+        0,
+        self_address=ADDRESS,
+    )
+    connection.link.connections[replacement.handle] = replacement
+    replacement.report_created()
+    assert replacement.handle == connection.handle
+    assert controller.find_connection_by_handle(replacement.handle) is not old_record
+    assert old_record.peer_address == old_peer
+    assert old_record.role == old_role
+    assert old_record.self_address == final_address
 
 
 def test_public_advertising_data_is_an_immutable_view(controller):

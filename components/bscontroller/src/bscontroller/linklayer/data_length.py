@@ -31,7 +31,7 @@ from bscontroller.linklayer import (
     ControlOpcode,
 )
 from bscontroller.linklayer.features import LeFeatureMask
-from bscontroller.linklayer.state import Role
+from bscontroller.linklayer.procedure import ProcedureContext
 from bscontroller.radio.base import PHY_CODED_S8_FACTOR, Phy
 
 if TYPE_CHECKING:
@@ -91,9 +91,16 @@ class DataLengthProcedure:
             PDU_DATA_PAYLOAD_SIZE_MIN,
             initial_time,
         )
-        self.pending = False
-        self.deadline_us = 0
+        self.context: ProcedureContext | None = None
         self.reported = self.effective()
+
+    @property
+    def pending(self) -> bool:
+        return self.context is not None and self.context.active
+
+    @property
+    def deadline_us(self) -> int:
+        return self.context.deadline_us if self.pending else 0
 
     @property
     def listener(self) -> ControlListener:
@@ -164,42 +171,14 @@ class DataLengthProcedure:
         """Payload limit during pending PHY or interval changes (Core Vol 6, Part B,
         5.1.7.4, 5.1.10.1).
         """
-        connection, controls = self.connection, self.connection.controls
-        tx_phys = {connection.tx_phy}
-        rx_phy = connection.rx_phy
-        interval = connection.parameters.interval
-        if controls.requested_interval_min:
-            interval = min(interval, controls.requested_interval_min)
-        if controls.pending:
-            update = controls.pending
-            if update.parameters:
-                interval = min(interval, update.parameters.interval)
-            tx, rx = (
-                (update.central_tx_phy, update.peripheral_tx_phy)
-                if connection.role == Role.CENTRAL
-                else (update.peripheral_tx_phy, update.central_tx_phy)
-            )
-            # PHY packet-time restrictions start at the local control transmission.
-            if update.local and not controls.transmitted:
-                tx = rx = 0
-            if tx:
-                tx_phys.add(Phy(tx))
-            if rx:
-                rx_phy = Phy(rx)
-        elif (
-            controls.phy_request
-            and controls.transmitted
-            and connection.role == Role.PERIPHERAL
-        ):
-            # Until the Central selects a PHY, a Peripheral must be safe on every
-            # PHY it offered, including one with a slower packet airtime.
-            tx_phys.update(phy for phy in Phy if controls.tx_phys & (1 << (phy - 1)))
+        connection = self.connection
+        constraints = connection.controls.transmission_constraints()
         limits = []
-        for phy in tx_phys:
+        for phy in constraints.tx_phys:
             effective = self.effective(
                 tx_phy=phy,
-                rx_phy=rx_phy,
-                interval_us=interval * LL_CONN_INTERVAL_UNIT_US,
+                rx_phy=constraints.rx_phy,
+                interval_us=constraints.interval_us,
             )
             limits.append(
                 self.packet_limit(
@@ -207,7 +186,7 @@ class DataLengthProcedure:
                     effective.tx_time,
                     effective.tx_octets,
                     connection.tx_coding,
-                    encrypted=connection.encryption.tx_enabled,
+                    encrypted=connection.packet_security.tx_enabled,
                 )
             )
         # Choose the tightest limit across the current and candidate PHYs, since
@@ -240,8 +219,12 @@ class DataLengthProcedure:
             octets,
             time_us,
         )
-        self.pending = True
-        self.deadline_us = self.connection.radio.now_us + LL_RESPONSE_TIMEOUT_US
+        self.context = ProcedureContext(
+            Opcode.LL_LENGTH_REQ,
+            frozenset((Opcode.LL_LENGTH_RSP,)),
+            self,
+            deadline_us=self.connection.radio.now_us + LL_RESPONSE_TIMEOUT_US,
+        )
         self.enqueue(Opcode.LL_LENGTH_REQ)
 
     def start_if_needed(self) -> None:
@@ -283,8 +266,7 @@ class DataLengthProcedure:
                 )
                 self.enqueue(Opcode.LL_LENGTH_RSP)
             else:
-                self.pending = False
-                self.deadline_us = 0
+                self.context.finish()
             self.refresh()
             return True
         if (
@@ -297,8 +279,7 @@ class DataLengthProcedure:
             and payload[1] == Opcode.LL_LENGTH_REQ
         ):
             if self.pending:
-                self.pending = False
-                self.deadline_us = 0
+                self.context.finish()
                 # Fall back to the initial limits after rejection, so subsequent packets
                 # do not assume that the peer accepted the larger data length.
                 initial_time = initial_time_us(self.connection.tx_phy)

@@ -17,6 +17,7 @@ from bscontroller.linklayer import (
     AdvertisingPduType,
 )
 from bscontroller.linklayer.discovery import Advertising
+from bscontroller.linklayer.primary import advertising_request
 from bscontroller.linklayer.scheduler import RadioReservation
 from bscontroller.linklayer.timing import LL_RESPONSE_START_TOLERANCE_US
 from bscontroller.radio.base import RADIO_SWITCH_TIME_US, Phy, Received
@@ -30,9 +31,10 @@ async def test_legacy_advertising_without_requests_leaves_short_detection_gap(
     link = connection.link
     link.connections.clear()
     item = Advertising(
-        link.listener.controller.public_address, pdu_type=AdvertisingPduType.ADV_IND
+        link.listener.sink.controller.public_address,
+        pdu_type=AdvertisingPduType.ADV_IND,
     )
-    await link._advertise(item)
+    await link.roles.advertising.run(item)
     assert [channel for _, channel, _, _ in link.radio.sent] == [37, 38, 39]
     for previous, current in pairwise(link.radio.sent):
         end_us = previous[0] + Phy.LE_1M.airtime_us(len(previous[2]))
@@ -55,12 +57,14 @@ async def test_legacy_reservation_covers_complete_scan_exchanges(
     link = connection.link
     link.connections.clear()
     item = Advertising(
-        link.listener.controller.public_address,
+        link.listener.sink.controller.public_address,
         pdu_type=pdu_type,
         scan_response=bytes(PDU_ADV_LEGACY_DATA_SIZE_MAX),
     )
     monkeypatch.setattr(
-        link, 'reservations', lambda: [RadioReservation(1_000_000, 1000, 2_000_000)]
+        link.resource,
+        'reservations',
+        lambda: [RadioReservation(1_000_000, 1000, 2_000_000)],
     )
     durations = []
 
@@ -68,7 +72,7 @@ async def test_legacy_reservation_covers_complete_scan_exchanges(
         durations.append(duration)
         return start
 
-    monkeypatch.setattr('bscontroller.linklayer.link.first_radio_gap', reserve)
+    monkeypatch.setattr('bscontroller.linklayer.roles.first_radio_gap', reserve)
     request = (
         bytes(
             [
@@ -100,7 +104,7 @@ async def test_legacy_reservation_covers_complete_scan_exchanges(
             )
             + RADIO_SWITCH_TIME_US
         )
-    await link._advertise(item)
+    await link.roles.advertising.run(item)
     assert len(link.radio.sent) == 6
     assert durations == [
         link.radio.now_us + 1 - link.radio.sent[0][0] + RADIO_SWITCH_TIME_US
@@ -113,7 +117,7 @@ async def test_duplicate_connect_request_cannot_replace_the_reserved_acl(
     connection, extended
 ):
     link = connection.link
-    address = link.listener.controller.public_address
+    address = link.listener.sink.controller.public_address
     item = Advertising(
         address,
         enabled=True,
@@ -139,8 +143,8 @@ async def test_duplicate_connect_request_cannot_replace_the_reserved_acl(
     accepted = await (
         link.extended.request(item, 0, packet)
         if extended
-        else link._advertising_request(item, 37, packet)
+        else advertising_request(link, item, 37, packet)
     )
     assert not accepted
     assert link.connections == {connection.handle: connection} and item.enabled
-    assert not link.listener.controller.events and not link.radio.sent
+    assert not link.listener.sink.controller.events and not link.radio.sent

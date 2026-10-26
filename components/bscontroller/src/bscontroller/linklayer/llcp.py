@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from bscontroller.errors import ErrorCode
 from bscontroller.linklayer import (
-    LL_RESPONSE_TIMEOUT_US,
+    PDU_CONTROL_PAYLOAD_SIZE_INITIAL_MAX,
     PDU_CONTROL_TERMINATE_SIZE,
     PDU_CONTROL_UNKNOWN_RSP_SIZE,
     PDU_DATA_AUTHENTICATED_HEADER_MASK,
@@ -26,9 +26,15 @@ from bscontroller.linklayer import (
 )
 from bscontroller.linklayer.control import ControlProcedures
 from bscontroller.linklayer.data_length import valid_data_length
+from bscontroller.linklayer.data_path import PacketLimits, ReceiveContext
 from bscontroller.linklayer.encryption import KEY_MISSING_REJECTIONS, Encryption, State
 from bscontroller.linklayer.features import LeFeatureMask
 from bscontroller.linklayer.parameters import valid_timing
+from bscontroller.linklayer.procedure import (
+    ProcedureContext,
+    ProcedureOrigin,
+    ProcedureResponseTimer,
+)
 from bscontroller.linklayer.state import Role
 
 if TYPE_CHECKING:
@@ -75,64 +81,13 @@ LL_CONTROL_PDU_SENDER_ROLES: dict[int, Role] = {
 }
 
 
-@dataclass
-class ProcedureResponseTimer:
-    """The serialized Instant-related procedure slot's T_PRT, with explicit ownership.
-
-    A collision can hand this slot from a local PHY request to remote connection
-    parameters. Completing the rejected PHY must not stop the new owner's timer.
-    Queueing a PDU restarts an active timer (Core Vol 6, Part B, 5.2).
-    """
-
-    deadline_us: int = 0
-    owner: int | None = None
-
-    def start(self, owner: int, now_us: int) -> None:
-        self.owner = owner
-        self.deadline_us = now_us + LL_RESPONSE_TIMEOUT_US
-
-    def restart(self, now_us: int) -> None:
-        if self.deadline_us:
-            self.deadline_us = now_us + LL_RESPONSE_TIMEOUT_US
-
-    def stop(self, owner: int | None = None) -> None:
-        if owner is None or self.owner is None or self.owner == owner:
-            self.deadline_us = 0
-            self.owner = None
-
-
-@dataclass(frozen=True)
-class LocalExchange:
-    """A transmitted request awaiting a response, retained while encryption pauses
-    LLCP.
-    """
-
-    request: int
-    responses: frozenset[int]
-    owner: ControlProcedures | Encryption
-
-
-CONTROL_RESPONSES = {
-    Opcode.LL_FEATURE_REQ: frozenset((Opcode.LL_FEATURE_RSP,)),
-    Opcode.LL_PERIPHERAL_FEATURE_REQ: frozenset((Opcode.LL_FEATURE_RSP,)),
-    Opcode.LL_VERSION_IND: frozenset((Opcode.LL_VERSION_IND,)),
-    Opcode.LL_CONNECTION_PARAM_REQ: frozenset(
-        (Opcode.LL_CONNECTION_PARAM_RSP, Opcode.LL_CONNECTION_UPDATE_IND)
-    ),
-    Opcode.LL_PHY_REQ: frozenset((Opcode.LL_PHY_RSP, Opcode.LL_PHY_UPDATE_IND)),
-    Opcode.LL_LENGTH_REQ: frozenset((Opcode.LL_LENGTH_RSP,)),
-    Opcode.LL_PING_REQ: frozenset((Opcode.LL_PING_RSP,)),
-}
-
-
 class LlcpCoordinator:
     def __init__(self, connection: Connection):
         self.connection = connection
         self.response_timer = ProcedureResponseTimer()
         self.controls = ControlProcedures(connection, self.response_timer)
         self.encryption = Encryption(connection)
-        self.local_exchanges: dict[int, LocalExchange] = {}
-        self.enc_rsp_sent = False
+        self.local_exchanges: dict[int, ProcedureContext] = {}
 
     @property
     def next_deadline_us(self) -> int:
@@ -145,6 +100,26 @@ class LlcpCoordinator:
             if value
         ]
         return min(deadlines, default=0)
+
+    def packet_limits(self) -> PacketLimits:
+        """Publish packet limits without exposing the negotiation machinery."""
+        lengths = self.controls.data_length
+        effective = lengths.effective()
+        rx_payload = max(
+            PDU_CONTROL_PAYLOAD_SIZE_INITIAL_MAX,
+            lengths.packet_limit(
+                self.connection.rx_phy,
+                effective.rx_time,
+                effective.rx_octets,
+                encrypted=self.encryption.security.rx_enabled,
+            ),
+        )
+        return PacketLimits(
+            lengths.local.rx_octets,
+            lengths.local.rx_time,
+            lengths.tx_payload_limit(),
+            rx_payload,
+        )
 
     def can_send(self, llid: int, payload: bytes) -> bool:
         """PDUs allowed while an encryption procedure is in progress (Core Vol 6, Part
@@ -173,41 +148,47 @@ class LlcpCoordinator:
         return self.controls.prepare(payload)
 
     def sent(self, payload: bytes, *, first: bool) -> None:
-        if first and payload[0] in CONTROL_RESPONSES:
-            owner = (
-                self.encryption if payload[0] == Opcode.LL_PING_REQ else self.controls
-            )
-            self.local_exchanges[payload[0]] = LocalExchange(
-                payload[0], CONTROL_RESPONSES[payload[0]], owner
-            )
-        if payload[0] == Opcode.LL_ENC_RSP and self.connection.role == Role.PERIPHERAL:
-            self.enc_rsp_sent = True
+        if first:
+            contexts = (*self.controls.local_contexts(), self.encryption.ping_context)
+            for context in contexts:
+                if (
+                    context is not None
+                    and context.active
+                    and context.origin == ProcedureOrigin.LOCAL
+                    and context.responses
+                    and context.request == payload[0]
+                ):
+                    context.transmitted = True
+                    self.local_exchanges[context.request] = context
+                    break
         if first:
             self.controls.sent(payload)
         self.encryption.sent(payload)
         self._prune_exchanges()
 
-    def acknowledged(self, payload: bytes) -> None:
+    def acknowledged(self, payload: bytes) -> int | None:
         self.controls.acknowledge(payload)
         self.encryption.acknowledged(payload)
+        if payload[0] == Opcode.LL_TERMINATE_IND:
+            return self.connection.termination_status
+        return None
 
-    def receive(self, header: int, payload: bytes, *, duplicate: bool) -> bytes | None:
+    def receive(self, context: ReceiveContext) -> bytes | None:
         """Authenticate, check cross-procedure admissibility, then permit ACK
         commitment.
         """
+        header, payload, duplicate = context.header, context.payload, context.duplicate
         if not payload:
             return payload
         authenticated_header = header & PDU_DATA_AUTHENTICATED_HEADER_MASK
-        wire, authenticated = payload, self.encryption.rx_enabled
+        wire, authenticated = payload, self.encryption.security.rx_enabled
         payload = self.encryption.decrypt(header, payload, duplicate=duplicate)
         if payload is None:
             return None
         rejection_ack = (
             self.encryption.state == State.REJECT
             and not self.encryption.refresh
-            and self.connection.event.acknowledges_control(
-                header, KEY_MISSING_REJECTIONS
-            )
+            and context.acknowledged_control in KEY_MISSING_REJECTIONS
         )
         # Vol 6, Part B, 5.1.3.1 permits a delayed UNKNOWN_RSP after ENC_RSP for a
         # previously sent Peripheral control PDU. Authenticate first, then let the
@@ -248,7 +229,7 @@ class LlcpCoordinator:
                     ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
                 )
                 return None
-        self.encryption.last_received = (
+        self.encryption.security.last_received = (
             authenticated_header,
             wire,
             payload,
@@ -262,7 +243,7 @@ class LlcpCoordinator:
         """
         return (
             self.connection.role == Role.PERIPHERAL
-            and self.enc_rsp_sent
+            and self.encryption.enc_rsp_sent
             and self.encryption.state in (State.KEY, State.START_RSP, State.REJECT)
             and header & PDU_DATA_LLID_MASK == LlId.CONTROL
             and len(payload) == PDU_CONTROL_UNKNOWN_RSP_SIZE
@@ -271,21 +252,10 @@ class LlcpCoordinator:
         )
 
     def _prune_exchanges(self) -> None:
-        # Legacy rejects carry no request opcode. Let the procedure interpret the
-        # rejection, then remove every exchange whose owner has completed it.
-        active = {
-            Opcode.LL_FEATURE_REQ: self.controls.feature_request,
-            Opcode.LL_PERIPHERAL_FEATURE_REQ: self.controls.feature_request,
-            Opcode.LL_VERSION_IND: self.controls.version_request,
-            Opcode.LL_CONNECTION_PARAM_REQ: self.controls.parameter_request,
-            Opcode.LL_PHY_REQ: self.controls.phy_request,
-            Opcode.LL_LENGTH_REQ: self.controls.data_length.pending,
-            Opcode.LL_PING_REQ: self.encryption.ping_pending,
-        }
         self.local_exchanges = {
-            opcode: entry
-            for opcode, entry in self.local_exchanges.items()
-            if active[opcode]
+            opcode: context
+            for opcode, context in self.local_exchanges.items()
+            if context.active
         }
 
     def event_prepare(self) -> None:
@@ -381,7 +351,7 @@ class LlcpCoordinator:
 
         def start():
             self.connection.tx_coding = coding
-            self.controls.request_phy(tx, rx)
+            self.controls.phy.request_phy(tx, rx)
 
         return PreparedProcedure(SUCCESS, start)
 
@@ -400,7 +370,7 @@ class LlcpCoordinator:
             return PreparedProcedure(INVALID)
         if (
             self.connection.role == Role.PERIPHERAL
-            and not self.controls.supports_parameter_request
+            and not self.controls.connection_parameters.supports_parameter_request
         ):
             return PreparedProcedure(ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR)
 
@@ -408,11 +378,15 @@ class LlcpCoordinator:
             # Only the Central can fall back to UPDATE_IND (Vol 6, Part B, 5.1.1).
             if (
                 self.connection.role == Role.CENTRAL
-                and not self.controls.supports_parameter_request
+                and not self.controls.connection_parameters.supports_parameter_request
             ):
-                self.controls.request_update(minimum, latency, timeout)
+                self.controls.connection_parameters.request_update(
+                    minimum, latency, timeout
+                )
             else:
-                self.controls.request_parameters(minimum, maximum, latency, timeout)
+                self.controls.connection_parameters.request_parameters(
+                    minimum, maximum, latency, timeout
+                )
 
         return PreparedProcedure(SUCCESS, start)
 
@@ -428,17 +402,19 @@ class LlcpCoordinator:
     def reply_parameters(
         self, minimum: int, maximum: int, latency: int, timeout: int
     ) -> int:
-        if self.controls.remote_parameters is None:
+        if self.controls.connection_parameters.remote_parameters is None:
             return DISALLOWED
         if not valid_timing(minimum, maximum, latency, timeout):
             return INVALID
-        self.controls.reply_parameters(minimum, maximum, latency, timeout)
+        self.controls.connection_parameters.reply_parameters(
+            minimum, maximum, latency, timeout
+        )
         return SUCCESS
 
     def reject_parameters(self, reason: int) -> int:
-        if self.controls.remote_parameters is None:
+        if self.controls.connection_parameters.remote_parameters is None:
             return DISALLOWED
-        self.controls.reject_remote_parameters(reason)
+        self.controls.connection_parameters.reject_remote_parameters(reason)
         return SUCCESS
 
     def set_data_length(self, octets: int, time_us: int) -> int:

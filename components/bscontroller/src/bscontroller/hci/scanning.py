@@ -34,10 +34,7 @@ from bscontroller.hci.context import (
     LeControllerContext,
 )
 from bscontroller.linklayer import PDU_ADV_ADDRESS_SIZE, PDU_ADV_ADI_SID_MAX
-from bscontroller.linklayer.discovery import (
-    PeriodicSync,
-    ScanWindow,
-)
+from bscontroller.linklayer.api import PeriodicSyncConfig, ScanWindowConfig
 from bscontroller.radio.base import Phy
 
 SyncOptions = hci.HCI_LE_Periodic_Advertising_Create_Sync_Command.Options
@@ -57,7 +54,7 @@ class LeScanningCommands(LeControllerContext):
 
         See Bluetooth Core 6.3, Vol 4, Part E, 7.8.10 and 7.8.64.
         """
-        if self.link.scan:
+        if self.ll.scanning_enabled:
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if scan_type not in (0, 1):
             return hci.HCI_StatusReturnParameters(INVALID)
@@ -145,7 +142,7 @@ class LeScanningCommands(LeControllerContext):
             self.extended_scan = True
             self.ll.configure_scan_windows(
                 tuple(
-                    ScanWindow(
+                    ScanWindowConfig(
                         phy,
                         interval * HCI_LE_SCAN_INTERVAL_UNIT_US,
                         window * HCI_LE_SCAN_INTERVAL_UNIT_US,
@@ -208,16 +205,6 @@ class LeScanningCommands(LeControllerContext):
             )
         return result
 
-    def _filter_in_use(self):
-        return (
-            any(
-                item.enabled and item.filter_policy
-                for item in self.link.advertisers.values()
-            )
-            or bool(self.link.scan and self.link.scan.filter_policy)
-            or bool(self.link.initiating and self.link.initiating.filter_policy)
-        )
-
     def on_hci_le_read_filter_accept_list_size_command(self, command):
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.14 LE Read Filter Accept List Size
@@ -236,7 +223,7 @@ class LeScanningCommands(LeControllerContext):
         """Filter Accept List edits, disallowed while the list is in use (Vol 4, Part E,
         7.8.16, 7.8.17).
         """
-        if self._filter_in_use():
+        if self.ll.filter_in_use():
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if command.address_type not in (
             hci.AddressType.PUBLIC_DEVICE,
@@ -318,11 +305,10 @@ class LeScanningCommands(LeControllerContext):
         # Reserve a free handle for acquisition; publish it as an established
         # sync only after receiving the periodic train.
         status = self.ll.start_synchronizing(
-            PeriodicSync(
+            PeriodicSyncConfig(
                 command.advertiser_address,
                 command.advertising_sid,
                 command.sync_timeout * hci.HCI_LE_PERIODIC_SYNC_TIMEOUT_UNIT_US,
-                0,
                 command.skip,
                 not command.options & HCI_LE_PERIODIC_SYNC_REPORTS_DISABLED_MASK,
                 use_list=use_list,
@@ -341,7 +327,7 @@ class LeScanningCommands(LeControllerContext):
 
     def _edit_periodic_list(self, command, add):
         """Periodic Advertiser List edits (Vol 4, Part E, 7.8.70, 7.8.71)."""
-        if self.link.sync is not None:
+        if self.ll.synchronizing:
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if (
             command.advertiser_address_type
@@ -407,8 +393,7 @@ class LeScanningCommands(LeControllerContext):
         See Bluetooth spec Vol 4, Part E - 7.8.88 LE Set Periodic Advertising Receive
         Enable Command
         '''
-        sync = self.link.syncs.get(command.sync_handle)
-        if sync is None:
+        if not self.ll.has_synchronization(command.sync_handle):
             return hci.HCI_StatusReturnParameters(
                 hci.HCI_ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
             )

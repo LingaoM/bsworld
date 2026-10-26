@@ -48,7 +48,7 @@ bscontroller --help
 
 ### 内部框架
 
-下图展开一个 Controller 实例。每个 ACL 连接独立持有连接上下文、LLCP 和事件执行状态；连接与非连接角色共用一个 RadioResourceManager。
+下图展开一个 Controller 实例。LL 角色管理者持有活动上下文并管理其生命周期。每个 ACL 连接独立持有 LLCP、包安全状态和事件执行器；所有角色共用一个 RadioResourceManager。
 
 <div align="center"><img src="docs/images/radio_controller_internal_arch.svg" alt="单个 Controller 的内部模块、状态归属与主要交互路径" width="80%"><br><em>图 2：Controller 内部框架</em></div>
 
@@ -57,14 +57,22 @@ bscontroller --help
 | 模块 | 职责与状态归属 |
 | --- | --- |
 | `hci/` | H4 分帧、命令解码与参数转换、命令族选择、未完成的 HCI 数据分片，以及事件掩码、重复过滤和报告编码 |
-| `linklayer/service.py` | `LinkLayerService` / `AdvertisingService` 提交活动角色状态，管理扫描 backoff 初始化、广播数据发布与 DID、角色启停、同步取消和默认配置 |
+| `linklayer/api.py`、`service.py` | 承接解码后的配置、只读查询和角色命令；HCI 提交的 `AdvertisingConfig` 不包含射频截止时间或事件计数 |
+| `linklayer/notifications.py`、`listener.py` | 将已提交的 LL 状态转换为冻结通知快照后交给 HCI，活动上下文保留在 LL 内部 |
+| `linklayer/roles.py`、`results.py` | 持有连接 handle、广播/扫描/发起连接/同步上下文，管理生命周期、下一活动和经校验的射频结果 |
 | `linklayer/connection.py` | `Connection` 管理连接生命周期、当前参数、锚点和监督超时 |
-| `linklayer/llcp.py` | `LlcpCoordinator` 管理控制请求准入、已发送待回复请求、加密阶段收发门禁、RX/ACK 路由和截止时间聚合；共享 `ProcedureResponseTimer` 记录当前过程归属 |
-| `linklayer/control.py`、`encryption.py`、`data_length.py` | 执行各控制过程的状态转换、碰撞规则、Instant 更新、密钥/加密切换和数据长度协商，由协调器连接到事件执行器 |
-| `linklayer/connection_event.py` | `ConnectionEvent` 持有 TX 队列、SN/NESN、LL 分片和重传快照，执行单次连接事件的信道选择与收发时序 |
-| `linklayer/primary.py`、`extended.py`、`periodic.py` | 执行传统/扩展广播、扫描、发起连接以及周期广播收发；角色上下文位于 `discovery.py` |
+| `linklayer/llcp.py`、`procedure.py` | `LlcpCoordinator` 管理控制请求准入、过程上下文与响应关联、逐包收发门禁、ACK 路由和响应定时器归属 |
+| `linklayer/control.py`、`phy.py`、`connection_parameters.py`、`encryption.py`、`data_length.py` | 各过程管理状态转换、碰撞规则、Instant 更新、密钥/模式切换和数据长度协商；PHY 与连接参数分别拥有独立处理器 |
+| `linklayer/connection_event.py`、`data_path.py` | `ConnectionEvent` 持有 TX 队列、SN/NESN、LL 分片和重传快照；通过包安全状态、生效限制和 RX 事实与 LLCP 交换信息 |
+| `linklayer/primary.py`、`extended.py`、`periodic.py` | 执行各角色的包校验和即时收发，将连接/同步结果交给角色管理者；活动上下文位于 `discovery.py` |
 | `linklayer/resource.py`、`scheduler.py` | `RadioResourceManager` 统一预约、优先级、冲突仲裁和活动窗口释放；调度辅助函数计算完整、非抢占的可用时隙 |
 | `radio/`、`runtime/` | Radio 提供收发、物理时间与 BabbleSim FIFO 适配；Runtime 组合线程、事件循环、会话与 PHY 进程生命周期 |
+
+控制请求通过 LL service 进入 LLCP 准入；异步过程返回 `PreparedProcedure`，HCI 发送 Command Status 后才调用 `start()`，因此命中缓存的立即完成也保持相同顺序。HCI 查询与通知返回分离的值，不返回活动的 Connection、Advertising 或 PeriodicSync。配置提交保留 LL 管理的事件时序和计数；读取广播发射功率不会创建或重新配置角色。
+
+角色管理者准备活动与预约，提交经校验的连接/同步结果，并在更新资源表后发布通知。RadioLink 驱动各管理者与共享调度器。包校验和 T_IFS 即时响应留在事件执行器中；跨角色生命周期变更交给相应管理者。
+
+Host ACL 数据通过 LL service 进入事件队列。RX 事实携带尚未提交的控制包 ACK；LLCP 完成认证和准入校验后，执行器才提交 ARQ 状态。生效数据长度限制与包安全模式独立于过程状态；发送和 ACK 回调仍可在同一个连接事件内切换加密模式。
 
 
 ## 运行示例

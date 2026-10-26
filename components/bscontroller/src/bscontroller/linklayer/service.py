@@ -4,13 +4,14 @@
 """Controller-side LL service boundary, independent of HCI packets and transport.
 
 HCI supplies decoded configuration and converts returned Controller error codes
-into responses. This service owns commits to live role state, while RadioLink
-executes the roles. See Core Vol 1, Part A, 2.1.2.1-2.1.2.3.
+into responses. This boundary validates configuration and delegates lifetime
+changes to LL role owners; RadioLink drives their prepared activities. Queries
+return detached values. See Core Vol 1, Part A, 2.1.2.1-2.1.2.3.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from typing import TYPE_CHECKING
 
 from bscontroller.capabilities import (
@@ -28,6 +29,21 @@ from bscontroller.linklayer import (
     PDU_ADV_ADI_DID_MASK,
     PDU_ADV_LEGACY_DATA_SIZE_MAX,
     AdvertisingMode,
+)
+from bscontroller.linklayer.api import (
+    AddressSnapshot,
+    AdvertisingConfig,
+    AdvertisingSnapshot,
+    ConnectionSnapshot,
+    InitiatingConfig,
+    PeriodicSyncConfig,
+    PeriodicSyncSnapshot,
+    ScanBackoffSnapshot,
+    ScanningSnapshot,
+    ScanWindowConfig,
+    advertising_snapshot,
+    connection_snapshot,
+    synchronization_snapshot,
 )
 from bscontroller.linklayer.discovery import (
     Advertising,
@@ -64,25 +80,45 @@ class AdvertisingService:
     def __init__(self, link: RadioLink):
         self.link = link
 
-    def configure_legacy(self, configuration: Advertising) -> Advertising:
-        item = self.link.advertisers.get(-1)
-        if item is None:
-            item = configuration
-            self.link.advertisers[-1] = item
+    def snapshot(self, handle: int) -> AdvertisingSnapshot | None:
+        item = self.link.advertisers.get(handle)
+        return advertising_snapshot(handle, item) if item is not None else None
+
+    def any_enabled(self) -> bool:
+        return any(item.enabled for item in self.link.advertisers.values())
+
+    def has_extended_sets(self) -> bool:
+        return any(handle != -1 for handle in self.link.advertisers)
+
+    def _candidate(self, handle: int, config: AdvertisingConfig) -> Advertising:
+        if not isinstance(config, AdvertisingConfig):
+            raise TypeError('advertising configuration must not contain live state')
+        original = self.link.advertisers.get(handle)
+        values = {field.name: getattr(config, field.name) for field in fields(config)}
+        if original is None:
+            return Advertising(**values)
+        if original.random_address is not None and config.address.is_random:
+            values['address'] = original.random_address
+        # Keep counters, deadlines, periodic identity and payloads in LL. Upper
+        # layers replace only configuration, never a running context.
+        return replace(
+            original,
+            **values,
+            data=bytes(original.data),
+            scan_response=bytes(original.scan_response),
+            periodic_data=bytes(original.periodic_data),
+        )
+
+    def configure_legacy(self, config: AdvertisingConfig) -> None:
+        candidate = self._candidate(-1, config)
+        current = self.link.advertisers.get(-1)
+        if current is None:
+            self.link.roles.advertising.publish(-1, candidate)
         else:
-            # Configuration is detached. Keep the live queue, payloads and event
-            # counters.
-            for field in (
-                'address',
-                'interval_us',
-                'channel_map',
-                'pdu_type',
-                'target',
-                'high_duty',
-                'filter_policy',
-            ):
-                setattr(item, field, getattr(configuration, field))
-        return item
+            # Data commands may run during a radio await. Keep the context held
+            # by that event executor; only LL applies the decoded configuration.
+            for field in fields(config):
+                setattr(current, field.name, getattr(candidate, field.name))
 
     def configuration_status(self, handle: int, incompatible_periodic: bool) -> int:
         item = self.link.advertisers.get(handle)
@@ -97,14 +133,15 @@ class AdvertisingService:
             return ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
         return SUCCESS
 
-    def configure(self, handle: int, item: Advertising) -> int:
+    def configure(self, handle: int, config: AdvertisingConfig) -> int:
+        item = self._candidate(handle, config)
         status = self.configuration_status(
             handle, not item.extended or bool(item.mode) or item.anonymous
         )
         if status == SUCCESS:
             status = self.data_status(item)
         if status == SUCCESS:
-            self.link.advertisers[handle] = item
+            self.link.roles.advertising.publish(handle, item)
         return status
 
     @staticmethod
@@ -143,6 +180,7 @@ class AdvertisingService:
             return UNKNOWN_ADV
         if item.enabled:
             return DISALLOWED
+        address = AddressSnapshot(address)
         item.random_address = address
         if item.address.is_random:
             item.address = address
@@ -202,7 +240,8 @@ class AdvertisingService:
             return DISALLOWED
         return SUCCESS
 
-    def enable_legacy(self, item: Advertising, enable: bool) -> int:
+    def enable_legacy(self, enable: bool) -> int:
+        item = self.link.advertisers[-1]
         item.enabled = enable
         item.next_us = self.link.now_us + 1
         item.events = 0
@@ -267,7 +306,7 @@ class AdvertisingService:
             return UNKNOWN_ADV
         if item.enabled or item.periodic_enabled:
             return DISALLOWED
-        del self.link.advertisers[handle]
+        self.link.roles.advertising.remove(handle)
         return SUCCESS
 
     def clear(self) -> int:
@@ -276,7 +315,7 @@ class AdvertisingService:
             for item in self.link.advertisers.values()
         ):
             return DISALLOWED
-        self.link.advertisers.clear()
+        self.link.roles.advertising.clear()
         return SUCCESS
 
     def set_periodic_interval(self, handle: int, minimum: int, maximum: int) -> int:
@@ -316,7 +355,7 @@ class AdvertisingService:
             >= item.periodic_interval * LL_PERIODIC_INTERVAL_UNIT_US
         ):
             return DISALLOWED
-        self.link.set_periodic_enabled(item, enable)
+        self.link.roles.advertising.set_periodic_enabled(item, enable)
         return SUCCESS
 
 
@@ -338,11 +377,38 @@ class LinkLayerService:
         self.reset_configuration(address)
 
     def reset_configuration(self, address: Address) -> None:
-        self.scan_parameters = Scanning(address, *self._default_scan)
+        self._scan_parameters = Scanning(AddressSnapshot(address), *self._default_scan)
         self.host_channel_map = LL_DATA_CHANNEL_MAP_ALL
-        self.default_tx_phys = self.default_rx_phys = CONTROLLER_SUPPORTED_PHY_MASK
-        self.link.default_tx_phys = self.default_tx_phys
-        self.link.default_rx_phys = self.default_rx_phys
+        self.link.default_tx_phys = self.link.default_rx_phys = (
+            CONTROLLER_SUPPORTED_PHY_MASK
+        )
+
+    @property
+    def scan_parameters(self) -> ScanningSnapshot:
+        scan = self._scan_parameters
+        return ScanningSnapshot(
+            AddressSnapshot(scan.address),
+            scan.interval_us,
+            scan.window_us,
+            scan.active,
+            scan.start_us,
+            tuple(
+                ScanWindowConfig(
+                    window.phy, window.interval_us, window.window_us, window.active
+                )
+                for window in scan.windows
+            ),
+            scan.duration_us,
+            scan.period_us,
+            scan.deadline_us,
+            scan.filter_policy,
+            ScanBackoffSnapshot(
+                scan.backoff.count,
+                scan.backoff.upper_limit,
+                scan.backoff.successes,
+                scan.backoff.failures,
+            ),
+        )
 
     def configure_scanning(
         self,
@@ -354,22 +420,29 @@ class LinkLayerService:
     ) -> int:
         if self.link.scan is not None:
             return DISALLOWED
-        self.scan_parameters = Scanning(
-            address, interval_us, window_us, active, filter_policy=policy
+        self._scan_parameters = Scanning(
+            AddressSnapshot(address),
+            interval_us,
+            window_us,
+            active,
+            filter_policy=policy,
         )
         return SUCCESS
 
-    def configure_scan_windows(self, windows: tuple[ScanWindow, ...]) -> None:
-        self.scan_parameters.windows = windows
+    def configure_scan_windows(self, windows: tuple[ScanWindowConfig, ...]) -> None:
+        self._scan_parameters.windows = tuple(
+            ScanWindow(item.phy, item.interval_us, item.window_us, item.active)
+            for item in windows
+        )
 
     def enable_scanning(self, enable: bool) -> None:
-        scan = self.scan_parameters
+        scan = self._scan_parameters
         scan.start_us = self.link.now_us
         scan.backoff = ScanBackoff()
-        self.link.scan = scan if enable else None
+        self.link.roles.scanning.enable(scan if enable else None)
 
     def set_scan_period(self, duration_us: int, period_us: int) -> None:
-        scan = self.scan_parameters
+        scan = self._scan_parameters
         scan.duration_us, scan.period_us = duration_us, period_us
         scan.deadline_us = self.link.now_us + duration_us if duration_us else 0
 
@@ -384,17 +457,32 @@ class LinkLayerService:
             return ErrorCode.CONNECTION_LIMIT_EXCEEDED_ERROR
         return SUCCESS
 
-    def start_initiating(self, configuration: Initiating) -> int:
-        status = self.initiating_status(
-            configuration.peer, bool(configuration.filter_policy)
-        )
+    def start_initiating(self, config: InitiatingConfig) -> int:
+        status = self.initiating_status(config.peer, bool(config.filter_policy))
         if status == SUCCESS:
-            self.link.initiating = configuration
+            windows = tuple(
+                ScanWindow(item.phy, item.interval_us, item.window_us, item.active)
+                for item in config.windows
+            )
+            parameters = dict(config.phy_parameters)
+            first = windows[0]
+            item = Initiating(
+                config.address,
+                config.peer,
+                first.interval_us,
+                first.window_us,
+                next(iter(parameters.values())),
+                self.link.now_us,
+                windows=windows,
+                phy_parameters=parameters,
+                filter_policy=config.filter_policy,
+            )
+            self.link.roles.scanning.start_initiating(item)
         return status
 
-    def cancel_initiating(self) -> Initiating | None:
-        item, self.link.initiating = self.link.initiating, None
-        return item
+    def cancel_initiating(self) -> Address | None:
+        item = self.link.roles.scanning.cancel_initiating()
+        return AddressSnapshot(item.peer) if item is not None else None
 
     def synchronization_status(self, address: Address, sid: int, use_list: bool) -> int:
         if self.link.sync is not None:
@@ -408,43 +496,81 @@ class LinkLayerService:
             return ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
         return SUCCESS
 
-    def start_synchronizing(self, sync: PeriodicSync) -> int:
-        status = self.synchronization_status(sync.address, sync.sid, sync.use_list)
+    def start_synchronizing(self, config: PeriodicSyncConfig) -> int:
+        status = self.synchronization_status(
+            config.address, config.sid, config.use_list
+        )
         if status != SUCCESS:
             return status
-        sync.handle = next(
-            handle
-            for handle in range(1, CONTROLLER_PERIODIC_SYNC_COUNT + 1)
-            if handle not in self.link.syncs
+        sync = PeriodicSync(
+            config.address,
+            config.sid,
+            config.timeout_us,
+            0,
+            config.skip,
+            config.reports_enabled,
+            use_list=config.use_list,
         )
-        self.link.sync = sync
+        self.link.roles.synchronization.start(sync)
         return SUCCESS
 
-    def cancel_synchronizing(self) -> PeriodicSync | None:
+    def cancel_synchronizing(self) -> PeriodicSyncSnapshot | None:
         sync = self.link.sync
         if sync is None or sync.established:
             return None
-        self.link.sync = None
-        return sync
+        self.link.roles.synchronization.cancel()
+        return synchronization_snapshot(sync)
 
     def terminate_synchronization(self, handle: int) -> int:
         if handle not in self.link.syncs:
             return ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
-        del self.link.syncs[handle]
+        self.link.roles.synchronization.terminate(handle)
         return SUCCESS
 
-    def enable_periodic_reports(self, handle: int, enabled: bool) -> None:
-        self.link.syncs[handle].reports_enabled = enabled
+    def has_synchronization(self, handle: int) -> bool:
+        return handle in self.link.syncs
 
-    def edit_filter(self, address: Address | None, add: bool, capacity: int) -> int:
-        if (
+    def enable_periodic_reports(self, handle: int, enabled: bool) -> None:
+        self.link.roles.synchronization.enable_reports(handle, enabled)
+
+    @property
+    def scanning_enabled(self) -> bool:
+        return self.link.scan is not None
+
+    @property
+    def initiating_enabled(self) -> bool:
+        return self.link.initiating is not None
+
+    @property
+    def synchronizing(self) -> bool:
+        return self.link.sync is not None
+
+    def filter_in_use(self) -> bool:
+        return (
             any(
                 item.enabled and item.filter_policy
                 for item in self.link.advertisers.values()
             )
             or bool(self.link.scan and self.link.scan.filter_policy)
             or bool(self.link.initiating and self.link.initiating.filter_policy)
-        ):
+        )
+
+    @property
+    def now_us(self) -> int:
+        return self.link.now_us
+
+    def random_bytes(self, length: int) -> bytes:
+        return self.link.random.randbytes(length)
+
+    def default_data_length(self) -> tuple[int, int]:
+        return self.link.default_tx_octets, self.link.default_tx_time
+
+    def reset(self, address: Address) -> None:
+        self.link.reset()
+        self.reset_configuration(address)
+
+    def edit_filter(self, address: Address | None, add: bool, capacity: int) -> int:
+        if self.filter_in_use():
             return DISALLOWED
         items = self.link.accept_list
         if address is None:
@@ -452,7 +578,7 @@ class LinkLayerService:
         elif add:
             if address not in items and len(items) >= capacity:
                 return ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
-            items.add(address)
+            items.add(AddressSnapshot(address))
         else:
             items.discard(address)
         return SUCCESS
@@ -470,7 +596,7 @@ class LinkLayerService:
                 return INVALID
             if len(items) >= capacity:
                 return ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
-            items.add(key)
+            items.add((AddressSnapshot(key[0]), key[1]))
         else:
             if key not in items:
                 return UNKNOWN_ADV
@@ -478,7 +604,6 @@ class LinkLayerService:
         return SUCCESS
 
     def set_default_phys(self, tx: int, rx: int) -> None:
-        self.default_tx_phys, self.default_rx_phys = tx, rx
         self.link.default_tx_phys, self.link.default_rx_phys = tx, rx
 
     def classify_channels(self, value: int) -> int:
@@ -497,14 +622,18 @@ class LinkLayerService:
     def set_default_data_length(self, octets: int, time_us: int) -> None:
         self.link.default_tx_octets, self.link.default_tx_time = octets, time_us
 
-    def connection(self, handle: int):
+    def _connection(self, handle: int):
         connection = self.link.connections.get(handle)
         return connection if connection and connection.reported else None
+
+    def connection_snapshot(self, handle: int) -> ConnectionSnapshot | None:
+        connection = self._connection(handle)
+        return connection_snapshot(connection) if connection is not None else None
 
     def prepare_encryption(
         self, handle: int, rand: bytes, ediv: int, key: bytes
     ) -> PreparedProcedure:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.prepare_encryption(rand, ediv, key)
             if connection
@@ -512,7 +641,7 @@ class LinkLayerService:
         )
 
     def prepare_features(self, handle: int) -> PreparedProcedure:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.prepare_features()
             if connection
@@ -520,7 +649,7 @@ class LinkLayerService:
         )
 
     def prepare_version(self, handle: int) -> PreparedProcedure:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.prepare_version()
             if connection
@@ -530,7 +659,7 @@ class LinkLayerService:
     def prepare_phy(
         self, handle: int, tx: int, rx: int, coding: int, parameter_status: int
     ) -> PreparedProcedure:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.prepare_phy(tx, rx, coding, parameter_status)
             if connection
@@ -547,7 +676,7 @@ class LinkLayerService:
         *,
         valid_ce_lengths: bool,
     ) -> PreparedProcedure:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.prepare_parameters(
                 minimum, maximum, latency, timeout, valid_ce_lengths=valid_ce_lengths
@@ -557,7 +686,7 @@ class LinkLayerService:
         )
 
     def supply_key(self, handle: int, key: bytes | None) -> int:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.supply_key(key)
             if connection
@@ -567,7 +696,7 @@ class LinkLayerService:
     def reply_parameters(
         self, handle: int, minimum: int, maximum: int, latency: int, timeout: int
     ) -> int:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.reply_parameters(minimum, maximum, latency, timeout)
             if connection
@@ -575,7 +704,7 @@ class LinkLayerService:
         )
 
     def reject_parameters(self, handle: int, reason: int) -> int:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.reject_parameters(reason)
             if connection
@@ -583,7 +712,7 @@ class LinkLayerService:
         )
 
     def set_data_length(self, handle: int, octets: int, time_us: int) -> int:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         return (
             connection.llcp.set_data_length(octets, time_us)
             if connection
@@ -591,7 +720,7 @@ class LinkLayerService:
         )
 
     def set_authenticated_timeout(self, handle: int, timeout_us: int) -> int:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         if connection is None:
             return ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
         if not timeout_us:
@@ -600,13 +729,13 @@ class LinkLayerService:
         return SUCCESS
 
     def disconnect(self, handle: int, reason: int) -> int:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         if connection is None:
             return ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
         connection.terminate(reason)
         return SUCCESS
 
     def send_acl(self, handle: int, continuation: bool, data: bytes) -> None:
-        connection = self.connection(handle)
+        connection = self._connection(handle)
         if connection is not None:
             connection.enqueue_acl(continuation, data)

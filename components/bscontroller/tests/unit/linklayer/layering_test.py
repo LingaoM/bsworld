@@ -7,6 +7,7 @@ scheduling.
 
 import subprocess
 import sys
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import pytest
@@ -16,8 +17,9 @@ from bscontroller.address import Address
 from bscontroller.errors import ErrorCode
 from bscontroller.linklayer import PDU_DATA_NESN_MASK, PDU_DATA_SN_MASK, LlId
 from bscontroller.linklayer import ControlOpcode as Opcode
+from bscontroller.linklayer.api import AdvertisingConfig, PeriodicSyncConfig
 from bscontroller.linklayer.connection import Connection
-from bscontroller.linklayer.discovery import Advertising, PeriodicSync
+from bscontroller.linklayer.discovery import Advertising
 from bscontroller.linklayer.encryption import ENC_REQUEST
 from bscontroller.linklayer.link import RadioLink
 from bscontroller.linklayer.service import LinkLayerService
@@ -25,7 +27,22 @@ from bscontroller.linklayer.state import Role
 from tests.unit.helpers import PARAMETERS, FakeRadio
 
 
-@pytest.mark.parametrize('module', ['service', 'connection_event', 'resource', 'link'])
+@pytest.mark.parametrize(
+    'module',
+    [
+        'api',
+        'service',
+        'notifications',
+        'connection_event',
+        'data_path',
+        'procedure',
+        'phy',
+        'connection_parameters',
+        'resource',
+        'roles',
+        'link',
+    ],
+)
 def test_ll_modules_do_not_load_hci_or_runtime(module):
     # Run in a fresh interpreter: the fixture's Host codec must not conceal a
     # dependency.
@@ -46,10 +63,9 @@ def test_ll_modules_do_not_load_hci_or_runtime(module):
 def test_ll_creates_connection_with_defaults_before_notifying_upper_layer():
     observed = []
     listener = SimpleNamespace(
-        allocate_connection_handle=lambda: 1,
         trace=lambda message: None,
         on_connected=lambda connection: observed.append(
-            (connection.controls.tx_phys, connection.controls.rx_phys)
+            (connection.controls.phy.tx_phys, connection.controls.phy.rx_phys)
         ),
     )
     link = RadioLink(FakeRadio(), listener)
@@ -60,12 +76,30 @@ def test_ll_creates_connection_with_defaults_before_notifying_upper_layer():
     assert observed == [(2, 4)]
 
 
+def test_ll_allocates_distinct_handles_before_hci_publication(connection, controller):
+    # Handle ownership must follow the LL resource table, even before an upper
+    # layer has received Connection Complete or installed its own lookup record.
+    assert not connection.reported and not controller.le_connections
+    other = Connection(
+        connection.link,
+        PARAMETERS,
+        Address('F0:F1:F2:F3:F4:03'),
+        Role.PERIPHERAL,
+        0,
+    )
+    assert other.handle != connection.handle
+    assert connection.link.connections[connection.handle] is connection
+    assert not controller.le_connections
+
+
 def test_hci_scan_configuration_is_a_detached_view(controller):
     commands = controller.le_procedures
     commands.ll.enable_scanning(True)
     view = commands.scan_parameters
-    view.start_us = 123456
-    view.backoff.count = 42
+    with pytest.raises(FrozenInstanceError):
+        view.start_us = 123456
+    with pytest.raises(FrozenInstanceError):
+        view.backoff.count = 42
     assert commands.ll.scan_parameters.start_us == 0
     assert commands.ll.scan_parameters.backoff.count == 1
 
@@ -84,20 +118,23 @@ def test_ll_rejects_reconfiguration_of_an_active_advertiser(controller):
     service = controller.le_procedures.ll.advertising
     original = Advertising(Address.ANY, enabled=True, data=b'original')
     service.link.advertisers[0] = original
-    candidate = Advertising(Address.ANY, data=b'replacement')
+    candidate = AdvertisingConfig(Address.ANY)
     assert service.configure(0, candidate) == ErrorCode.COMMAND_DISALLOWED_ERROR
     assert service.link.advertisers[0] is original and original.data == b'original'
 
 
 def test_sync_cancellation_releases_ll_state_before_notification(controller):
     service = controller.le_procedures.ll
-    sync = PeriodicSync(Address.ANY, 1, 100_000, 0)
-    service.start_synchronizing(sync)
-    assert service.cancel_synchronizing() is sync
+    configuration = PeriodicSyncConfig(Address.ANY, 1, 100_000)
+    service.start_synchronizing(configuration)
+    sync = service.link.sync
+    cancelled = service.cancel_synchronizing()
+    assert cancelled.handle == sync.handle and cancelled.sid == sync.sid
+    assert cancelled is not sync
     assert service.link.sync is None
-    replacement = PeriodicSync(Address.ANY, 2, 100_000, 0)
+    replacement = PeriodicSyncConfig(Address.ANY, 2, 100_000)
     service.start_synchronizing(replacement)
-    assert service.link.sync is replacement
+    assert service.link.sync.sid == replacement.sid
 
 
 def test_radio_claim_restores_previous_deadline_after_failure(connection, monkeypatch):
@@ -112,9 +149,10 @@ def test_radio_claim_restores_previous_deadline_after_failure(connection, monkey
 
 
 @pytest.mark.parametrize('operation', ['features', 'version'])
-def test_cached_procedure_completion_follows_command_status(connection, operation):
+def test_cached_procedure_completion_follows_command_status(
+    connection, controller, operation
+):
     connection.report_created()
-    controller = connection.link.listener.controller
     if operation == 'features':
         connection.peer_features = 0
         command = hci.HCI_LE_Read_Remote_Features_Command(connection.handle)
@@ -132,17 +170,17 @@ def test_cached_procedure_completion_follows_command_status(connection, operatio
 
 @pytest.mark.asyncio
 async def test_completed_control_exchange_cannot_authorize_a_later_unknown_response(
-    connection,
+    connection, controller
 ):
     connection.established = True
     connection.report_created()
-    connection.controls.request_phy(1, 1)
+    connection.controls.phy.request_phy(1, 1)
     await connection.send(0, 100)
     response = bytes([Opcode.LL_PHY_UPDATE_IND, 0, 0, 0, 0])
     connection.accept(
         bytes([LlId.CONTROL | PDU_DATA_NESN_MASK, len(response)]) + response, True
     )
-    assert not connection.controls.phy_request
+    assert not connection.controls.phy.phy_request
     assert not connection.llcp.local_exchanges
     connection.control(
         bytes([Opcode.LL_ENC_REQ]) + ENC_REQUEST.pack(bytes(8), 0, bytes(8), bytes(4))
@@ -154,7 +192,7 @@ async def test_completed_control_exchange_cannot_authorize_a_later_unknown_respo
     )
     assert connection.closed
     assert (
-        connection.link.listener.controller.events[-1].reason
+        controller.events[-1].reason
         == ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
     )
 
@@ -162,7 +200,7 @@ async def test_completed_control_exchange_cannot_authorize_a_later_unknown_respo
 @pytest.mark.asyncio
 async def test_legacy_rejection_releases_its_tracked_exchange(connection):
     connection.report_created()
-    connection.controls.request_parameters(24, 24, 0, 100)
+    connection.controls.connection_parameters.request_parameters(24, 24, 0, 100)
     await connection.send(0, 100)
     assert Opcode.LL_CONNECTION_PARAM_REQ in connection.llcp.local_exchanges
     rejection = bytes(
@@ -172,18 +210,19 @@ async def test_legacy_rejection_releases_its_tracked_exchange(connection):
         bytes([LlId.CONTROL | PDU_DATA_NESN_MASK, len(rejection)]) + rejection, True
     )
     assert not connection.llcp.local_exchanges
-    assert not connection.controls.parameter_request
+    assert not connection.controls.connection_parameters.parameter_request
 
 
 def test_ll_does_not_replace_an_existing_sync_acquisition(controller):
     service = controller.le_procedures.ll
-    first = PeriodicSync(Address.ANY, 1, 100_000, 0)
-    replacement = PeriodicSync(Address.ANY, 2, 100_000, 0)
+    first = PeriodicSyncConfig(Address.ANY, 1, 100_000)
+    replacement = PeriodicSyncConfig(Address.ANY, 2, 100_000)
     assert service.start_synchronizing(first) == ErrorCode.SUCCESS
+    active = service.link.sync
     assert (
         service.start_synchronizing(replacement) == ErrorCode.COMMAND_DISALLOWED_ERROR
     )
-    assert service.link.sync is first
+    assert service.link.sync is active
 
 
 @pytest.mark.asyncio
@@ -197,10 +236,10 @@ async def test_reply_to_peer_version_is_not_tracked_as_a_local_request(connectio
 def test_phy_rejection_cannot_stop_an_automatically_accepted_parameter_timer(
     connection,
 ):
-    from bscontroller.linklayer.control import PARAM_REQUEST
+    from bscontroller.linklayer.connection_parameters import PARAM_REQUEST
 
     controls = connection.controls
-    controls.request_phy(1, 1)
+    controls.phy.request_phy(1, 1)
     # Identical parameters are accepted without a Host round trip. The Peripheral
     # still owes the Central a response and must await UPDATE_IND afterwards.
     request = bytes([Opcode.LL_CONNECTION_PARAM_REQ]) + PARAM_REQUEST.pack(
@@ -208,7 +247,10 @@ def test_phy_rejection_cannot_stop_an_automatically_accepted_parameter_timer(
     )
     controls.control(request)
     deadline = controls.deadline_us
-    assert not controls.remote_parameters and not controls.requested_interval_min
+    assert (
+        not controls.connection_parameters.remote_parameters
+        and not controls.connection_parameters.requested_interval_min
+    )
     controls.control(bytes([Opcode.LL_UNKNOWN_RSP, Opcode.LL_PHY_REQ]))
     assert controls.deadline_us == deadline
     connection.radio.now_us = deadline

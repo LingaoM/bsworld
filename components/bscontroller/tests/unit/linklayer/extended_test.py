@@ -134,7 +134,7 @@ async def test_primary_switching_gap_and_auxptr_budget(
 ):
     link = connection.link
     item = Advertising(
-        link.listener.controller.public_address,
+        link.listener.sink.controller.public_address,
         extended=True,
         primary_phy=primary_phy,
         secondary_phy=Phy.LE_2M,
@@ -195,7 +195,9 @@ async def test_auxiliary_address_preserves_event_identity(
     following = received_packet(auxiliary, 3100)
     connection.radio.now_us = packet.end_us - 1
     connection.radio.incoming.append(following)
-    link.scan = Scanning(link.listener.controller.public_address, 10_000, 10_000)
+    link.roles.scanning.enable(
+        Scanning(link.listener.sink.controller.public_address, 10_000, 10_000)
+    )
     reports = []
     monkeypatch.setattr(
         link.listener, 'on_advertisement', lambda *args, **kwargs: reports.append(args)
@@ -216,7 +218,7 @@ async def test_auxiliary_target_cannot_override_superior_target(
 ):
     link = connection.link
     target = hci.Address(
-        bytes(link.listener.controller.public_address),
+        bytes(link.listener.sink.controller.public_address),
         (
             hci.AddressType.RANDOM_DEVICE
             if random_target
@@ -239,7 +241,7 @@ async def test_auxiliary_target_cannot_override_superior_target(
     packet = received_packet(primary, 100)
     connection.radio.now_us = packet.end_us - 1
     connection.radio.incoming.append(received_packet(auxiliary, 3100))
-    link.scan = Scanning(target, 10_000, 10_000)
+    link.roles.scanning.enable(Scanning(target, 10_000, 10_000))
     reports = []
     monkeypatch.setattr(
         link.listener,
@@ -268,7 +270,7 @@ async def test_reserved_primary_addresses_do_not_replace_auxiliary_identity(
     connection, monkeypatch, mode, phy
 ):
     link = connection.link
-    target = link.listener.controller.public_address
+    target = link.listener.sink.controller.public_address
     primary = ExtendedPdu(
         mode=mode,
         address=bytes(hci.Address('12:34:56:78:9A:BC')),
@@ -286,7 +288,7 @@ async def test_reserved_primary_addresses_do_not_replace_auxiliary_identity(
     packet = received_packet(primary, 100, phy)
     connection.radio.now_us = packet.end_us - 1
     connection.radio.incoming.append(received_packet(auxiliary, 3100, phy))
-    link.scan = Scanning(target, 10_000, 10_000)
+    link.roles.scanning.enable(Scanning(target, 10_000, 10_000))
     reports = []
     monkeypatch.setattr(
         link.listener,
