@@ -1,6 +1,24 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+"""BabbleSim session lifecycle and the standalone simulation clock.
+
+Covers ``BabbleSimSession`` and ``BabbleSimClock``:
+
+- a session reuses an existing Host loop (no own clock) or, when a clock device
+  is configured, binds a ``RadioEventLoop`` only after the startup barrier and
+  unbinds it before stopping workers;
+- startup and shutdown order: all workers are started and, on failure or exit,
+  every worker is closed before the Host grant is released;
+- duplicate controller or clock device identities are rejected, and an empty
+  topology is rejected;
+- ``BabbleSimClock.advance_to_us`` advances only after the PHY acknowledges and
+  rejects non-monotonic targets.
+
+Fake workers use ``SimpleNamespace`` with ``AsyncMock``; the ``endpoints``
+fixture supplies a FIFO-backed clock/PHY pair.
+"""
+
 import asyncio
 import os
 from types import SimpleNamespace
@@ -28,6 +46,24 @@ requires_pipe2 = pytest.mark.skipif(
 
 @pytest.mark.asyncio
 async def test_session_can_use_existing_host_loop_without_its_own_clock():
+    """Without a clock device the session runs on the caller's Host loop.
+
+    Purpose: Verify a ``BabbleSimSession`` created with no clock device does not
+    install its own loop or clock, starts and closes its workers, and leaves the
+    caller's running loop in place.
+
+    Steps:
+        1. Enter the session on the existing running loop with one fake worker.
+        2. Inside the context, check the running loop and that the session has
+           no clock or loop of its own.
+        3. Exit the context.
+
+    Expected:
+        - The running loop is unchanged; ``session.clock`` and ``session.loop``
+          are ``None``.
+        - The worker's ``start`` is awaited once with the sim name and id, and
+          ``close`` is awaited once on exit.
+    """
     worker = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
     loop = asyncio.get_running_loop()
     async with BabbleSimSession('test', [(0, worker)]) as session:
@@ -39,6 +75,24 @@ async def test_session_can_use_existing_host_loop_without_its_own_clock():
 
 @pytest.mark.asyncio
 async def test_standalone_session_binds_clock_after_startup_barrier(monkeypatch):
+    """A standalone session binds its clock only after the startup barrier.
+
+    Purpose: Verify a session with a clock device performs startup in order:
+    start workers, connect the clock, synchronize at the barrier, then bind the
+    loop's clock; and shutdown in reverse: unbind, stop workers, disconnect.
+
+    Steps:
+        1. Build a session with one worker and a clock device, recording each
+           step the worker and clock connection perform.
+        2. Monkeypatch the loop's ``bind_clock``/``unbind_clock`` to record.
+        3. Enter and exit the session context.
+
+    Expected:
+        - On entry the order is start, connect, barrier, bind, and
+          ``session.loop`` is the running loop.
+        - On exit the full order is start, connect, barrier, bind, unbind, stop,
+          disconnect.
+    """
     events = []
     worker = SimpleNamespace(
         start=AsyncMock(side_effect=lambda *args: events.append('start')),
@@ -73,6 +127,21 @@ async def test_standalone_session_binds_clock_after_startup_barrier(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_session_start_failure_closes_started_and_unstarted_workers():
+    """A failed worker start closes every worker before propagating.
+
+    Purpose: Verify that when one worker's ``start`` raises during session
+    entry, the session closes both the already-started worker and the failing
+    one before re-raising the error.
+
+    Steps:
+        1. Build a session with a first worker that starts cleanly and a second
+           whose ``start`` raises RuntimeError('broken worker').
+        2. Call ``__aenter__`` and expect the error.
+
+    Expected:
+        - RuntimeError('broken worker') propagates.
+        - Both workers' ``close`` are awaited once.
+    """
     first = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
     second = SimpleNamespace(
         start=AsyncMock(side_effect=RuntimeError('broken worker')), close=AsyncMock()
@@ -85,12 +154,40 @@ async def test_session_start_failure_closes_started_and_unstarted_workers():
 
 
 def test_session_requires_at_least_one_controller():
+    """A session rejects an empty controller topology.
+
+    Purpose: Verify ``BabbleSimSession`` refuses to construct with no
+    controllers, since a simulation needs at least one participant.
+
+    Steps:
+        1. Construct a session with an empty worker list.
+
+    Expected:
+        - ``ValueError`` mentioning 'at least one' is raised.
+    """
     with pytest.raises(ValueError, match='at least one'):
         BabbleSimSession('test', [])
 
 
 @pytest.mark.asyncio
 async def test_session_stops_all_workers_before_releasing_host_grant():
+    """Shutdown stops every worker before releasing the Host grant.
+
+    Purpose: Verify that on exit the session unbinds the clock, closes all
+    workers even when one close raises, and only then releases the clock
+    connection, re-raising the first close failure.
+
+    Steps:
+        1. Build a session with a clock device and two workers whose ``close``
+           record their name; the first also raises.
+        2. Stub the loop's ``unbind_clock`` and the clock connection's
+           ``close`` to record.
+        3. Call ``__aexit__`` and expect the error.
+
+    Expected:
+        - RuntimeError('broken worker') propagates.
+        - The recorded order is unbind, first, second, release.
+    """
     events = []
 
     async def close(name, fail=False):
@@ -112,6 +209,25 @@ async def test_session_stops_all_workers_before_releasing_host_grant():
 
 @pytest.mark.asyncio
 async def test_host_clock_changes_only_after_its_own_ack(endpoints):
+    """The clock advances only after the PHY acknowledges, and stays monotonic.
+
+    Purpose: Verify ``BabbleSimClock.advance_to_us`` sends a WAIT for the target
+    time, holds ``now_us`` until the PHY sends WAIT_END, then reports the target,
+    and rejects any non-monotonic target afterwards.
+
+    Steps:
+        1. Create a clock on the device endpoint and advance it to 1234 us in a
+           thread.
+        2. From the PHY side, receive the WAIT request, assert the clock has not
+           advanced, then send WAIT_END.
+        3. After the ack, request targets 1233, NEVER and -1.
+
+    Expected:
+        - The advance returns 1234 and ``now_us`` becomes 1234 only after the
+          ack.
+        - Each decreasing or invalid target raises ``ValueError`` mentioning
+          'nondecreasing'.
+    """
     device, phy = endpoints
     clock = BabbleSimClock(device)
 
@@ -130,6 +246,20 @@ async def test_host_clock_changes_only_after_its_own_ack(endpoints):
 
 
 def test_session_rejects_duplicate_controller_or_clock_identity():
+    """A session rejects duplicate controller ids or a clock clashing with one.
+
+    Purpose: Verify ``BabbleSimSession`` requires distinct device identities:
+    two controllers may not share a device id, and the clock device id may not
+    equal a controller's.
+
+    Steps:
+        1. Construct a session with two controllers both at device id 0.
+        2. Construct a session with one controller at id 0 and the clock also at
+           id 0.
+
+    Expected:
+        - Both constructions raise ``ValueError`` mentioning 'distinct'.
+    """
     with pytest.raises(ValueError, match='distinct'):
         BabbleSimSession('test', [(0, None), (0, None)], clock_dev_id=2)
     with pytest.raises(ValueError, match='distinct'):

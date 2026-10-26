@@ -10,8 +10,6 @@ from itertools import pairwise
 from bscontroller import hci
 from bscontroller.hci import HCI_LE_ADV_INTERVAL_MIN, HCI_LE_PERIODIC_SYNC_TIMEOUT_MIN
 from bscontroller.linklayer import (
-    LL_DATA_CHANNEL_MAP_ALL,
-    LL_EVENT_COUNTER_MASK,
     PDU_ACCESS_ADDRESS_CODED_LSB_BITS,
     PDU_ACCESS_ADDRESS_CODED_LSB_ONES_MIN,
     PDU_ACCESS_ADDRESS_CODED_TRANSITION_BITS,
@@ -19,16 +17,13 @@ from bscontroller.linklayer import (
     PDU_ACCESS_ADDRESS_SIZE,
     PDU_ADV_ACCESS_ADDRESS,
 )
-from bscontroller.linklayer.advertising import AuxPtr, ExtendedPdu, SyncInfo
 from bscontroller.linklayer.connection import Connection
-from bscontroller.linklayer.discovery import PeriodicSync
 from bscontroller.linklayer.parameters import Parameters
 from bscontroller.radio.base import (
     PHY_CODED_S8_FACTOR,
     PHY_OCTET_BITS,
     Phy,
     RadioSwitch,
-    Received,
 )
 
 PEER_ADDRESS = hci.Address('C0:11:22:33:44:55', hci.AddressType.RANDOM_DEVICE)
@@ -201,43 +196,3 @@ def add_connection(first, index, role=hci.Role.CENTRAL):
     link.connections[result.handle] = result
     result.report_created()
     return result
-
-
-def received_packet(pdu, start_us, phy=Phy.LE_1M):
-    wire = pdu.encode() if isinstance(pdu, ExtendedPdu) else pdu
-    return Received(
-        wire, -40, start_us, start_us + phy.airtime_us(len(wire)), True, phy
-    )
-
-
-async def bind_candidate(connection, *, skip=0, timeout_us=100_000):
-    link = connection.link
-    link.connections.clear()
-    sync = PeriodicSync(connection.peer, 3, timeout_us, 0, skip=skip)
-    link.roles.synchronization.pending = sync
-    # Searching may outlive the Host's established-synchronization timeout.
-    link.radio.now_us = 3 * timeout_us
-    start = link.radio.now_us + 1000
-    info = SyncInfo(
-        9000,
-        80,
-        LL_DATA_CHANNEL_MAP_ALL,
-        PARAMETERS.access_address,
-        PARAMETERS.crc_init,
-        LL_EVENT_COUNTER_MASK - 1,
-    )
-    primary = received_packet(ExtendedPdu(adi=0x3001, aux_ptr=AuxPtr(12, 600)), start)
-    auxiliary = received_packet(
-        ExtendedPdu(
-            address=bytes(connection.peer),
-            random_address=connection.peer.is_random,
-            adi=0x3001,
-            sync_info=info,
-            data=b'announcement',
-        ),
-        start + 600,
-    )
-    link.radio.now_us = primary.end_us - 1
-    link.radio.incoming.append(auxiliary)
-    await link.extended.scan(primary)
-    return sync, info, auxiliary

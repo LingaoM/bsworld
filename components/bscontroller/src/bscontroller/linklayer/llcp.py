@@ -313,11 +313,10 @@ class LlcpCoordinator:
             and len(payload) == PDU_CONTROL_TERMINATE_SIZE
         ):
             connection.remote_termination = payload[1]
-        elif opcode not in (
-            Opcode.LL_UNKNOWN_RSP,
-            Opcode.LL_FEATURE_RSP,
-            Opcode.LL_VERSION_IND,
-        ):
+        elif opcode != Opcode.LL_UNKNOWN_RSP:
+            # Unsupported, reserved or wrong-length PDUs that no procedure continued
+            # are answered with LL_UNKNOWN_RSP (Vol 6, Part B, 2.4.2). Never answer an
+            # LL_UNKNOWN_RSP itself: two Link Layers would echo each other forever.
             connection.enqueue_control(
                 bytes([Opcode.LL_UNKNOWN_RSP, opcode]), priority=True
             )

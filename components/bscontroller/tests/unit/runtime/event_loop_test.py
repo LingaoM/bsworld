@@ -38,6 +38,22 @@ class Clock:
     'timeout,target', [(None, 1000), (0.002, 1000), (0.0000011, 1), (0.0000017, 2)]
 )
 def test_idle_selector_advances_bounded_simulation_time(timeout, target):
+    """An idle selector advances simulation time by the bounded step.
+
+    Purpose: Verify ``RadioSelector`` with no ready I/O advances the bound clock
+    by at most its max step, honoring a shorter requested timeout rounded up to
+    whole microseconds, so idle waits move simulation time deterministically.
+
+    Steps:
+        1. Build a selector over a delegate that reports no ready events, with a
+           1000-us max step, and attach a recording clock.
+        2. Call ``select`` with the parametrized timeout.
+
+    Expected:
+        - ``select`` returns no events and the clock advanced once to the
+          expected target (full step for None/large, rounded-up microseconds
+          otherwise).
+    """
     delegate = Mock(spec=selectors.BaseSelector)
     delegate.select.return_value = []
     selector = RadioSelector(delegate, 1000)
@@ -47,6 +63,20 @@ def test_idle_selector_advances_bounded_simulation_time(timeout, target):
 
 
 def test_ready_io_and_nonblocking_polls_never_advance_time():
+    """Ready I/O and zero-timeout polls leave simulation time unchanged.
+
+    Purpose: Verify ``RadioSelector`` does not advance the clock when the
+    delegate already has ready I/O, nor on a non-blocking (timeout 0) poll, so
+    pending work runs before time moves.
+
+    Steps:
+        1. With ready I/O reported, call ``select(1)``.
+        2. With no ready I/O, call ``select(0)``.
+
+    Expected:
+        - The first call returns the ready events; the second returns none.
+        - The clock recorded no advances.
+    """
     delegate = Mock(spec=selectors.BaseSelector)
     delegate.select.return_value = [('ready', selectors.EVENT_READ)]
     selector = RadioSelector(delegate, 1000)
@@ -58,12 +88,38 @@ def test_ready_io_and_nonblocking_polls_never_advance_time():
 
 
 def test_unbound_selector_keeps_wall_clock_wait():
+    """An unbound selector delegates the wait unchanged to wall time.
+
+    Purpose: Verify that without a bound clock, ``RadioSelector.select`` passes
+    the timeout straight through to the delegate, preserving normal wall-clock
+    waiting.
+
+    Steps:
+        1. Build a selector with no clock bound and call ``select(0.25)``.
+
+    Expected:
+        - The delegate's ``select`` was called once with 0.25.
+    """
     delegate = Mock(spec=selectors.BaseSelector)
     RadioSelector(delegate, 1000).select(0.25)
     delegate.select.assert_called_once_with(0.25)
 
 
 def test_invalid_step_and_clock_must_advance():
+    """The selector rejects a non-positive step and a clock that stalls.
+
+    Purpose: Verify ``RadioSelector`` requires a positive max step, and that an
+    idle select raises if the bound clock fails to advance when asked to.
+
+    Steps:
+        1. Construct a selector with max step 0.
+        2. Build a valid selector, bind a clock whose ``advance_to_us`` returns
+           the same time, and call ``select(1)``.
+
+    Expected:
+        - Construction raises ``ValueError`` mentioning 'positive'.
+        - The idle select raises ``RuntimeError`` mentioning 'did not advance'.
+    """
     delegate = Mock(spec=selectors.BaseSelector)
     delegate.select.return_value = []
     with pytest.raises(ValueError, match='positive'):
@@ -76,6 +132,21 @@ def test_invalid_step_and_clock_must_advance():
 
 @requires_runner
 def test_clock_failure_unbinds_loop_so_runner_can_finalize_tasks():
+    """A clock failure unbinds the loop so the runner can finalize cleanly.
+
+    Purpose: Verify that when the bound clock's ``advance_to_us`` raises inside
+    a running task, the error propagates out of the runner, the loop unbinds its
+    clock, and the task's ``finally`` still runs so cleanup is not lost.
+
+    Steps:
+        1. Run a ``RadioEventLoop`` with a clock; bind it, then make
+           ``advance_to_us`` raise RuntimeError('broken PHY').
+        2. Await a never-completing future in a task with a finalizer.
+
+    Expected:
+        - The RuntimeError propagates from the runner.
+        - The selector's clock is unbound (``None``) and the finalizer ran.
+    """
     clock = Clock()
     finalized = []
     with asyncio.Runner(loop_factory=RadioEventLoop) as runner:
@@ -98,6 +169,27 @@ def test_clock_failure_unbinds_loop_so_runner_can_finalize_tasks():
 @requires_runner
 @pytest.mark.parametrize('loop_factory', [RadioEventLoop, ControllerEventLoop])
 def test_event_loop_sleep_timeout_and_socket_use_standard_asyncio(loop_factory):
+    """Standard asyncio sleep, timeout and socket I/O run on simulation time.
+
+    Purpose: Verify that with a bound clock, ``asyncio.sleep`` advances in
+    bounded microsecond steps, ``wait_for`` times out on simulation time,
+    socket reads of ready data do not advance the clock, and unbinding restores
+    wall-clock time, for both loop implementations.
+
+    Steps:
+        1. Bind a clock to the loop; check ``time()`` is 0 and that re-binding
+           raises.
+        2. Sleep 25 ms and verify the step schedule and total.
+        3. Time out a never-set event after 5 ms.
+        4. Read ready bytes from a socket pair and confirm no clock advance.
+        5. Unbind and check ``time()`` tracks wall time.
+
+    Expected:
+        - Sleep advances in <=1000-us steps to 0.025 s; a second bind raises
+          'already bound'; ``wait_for`` raises TimeoutError; the socket read
+          returns the data with the clock unchanged; after unbind ``time()``
+          approximates ``time.monotonic()``.
+    """
     clock = Clock()
     with asyncio.Runner(loop_factory=loop_factory) as runner:
         loop = runner.get_loop()
@@ -135,6 +227,24 @@ def test_event_loop_sleep_timeout_and_socket_use_standard_asyncio(loop_factory):
 
 @requires_runner
 def test_worker_can_enqueue_hci_but_host_cannot_execute_during_wait():
+    """A worker may queue a Host callback during a wait, run after the wait.
+
+    Purpose: Verify that while the controller loop is waiting on the clock, a
+    cross-thread ``call_soon_threadsafe`` enqueues a Host callback but it does
+    not execute until the wait (clock advance) completes, so Host work never
+    races the PHY wait.
+
+    Steps:
+        1. Run a worker thread that, once the loop entered the wait, schedules a
+           'host' callback and appends 'controller', then releases the advance.
+        2. Make ``advance_to_us`` block until the worker signals, asserting only
+           'controller' has run at that point.
+        3. In the loop, bind the clock and drive one short timer, then unbind.
+
+    Expected:
+        - At advance time only 'controller' had executed.
+        - After the wait the recorded order is ['controller', 'host'].
+    """
     events = []
     entered, released = Event(), Event()
     clock = Clock()
@@ -176,6 +286,22 @@ def test_worker_can_enqueue_hci_but_host_cannot_execute_during_wait():
 
 @requires_runner
 def test_controller_gate_drains_nested_callbacks_tasks_and_ready_io():
+    """The controller gate drains all ready work before a PHY request.
+
+    Purpose: Verify ``before_phy_request`` flushes nested ``call_soon``
+    callbacks, created tasks and ready socket I/O (including work those produce)
+    before returning, and does so without advancing the clock.
+
+    Steps:
+        1. Register a reader that, on ready data, schedules a task which in turn
+           schedules a notification callback.
+        2. Queue a chain of 8 nested callbacks and send a byte to the socket.
+        3. Await ``before_phy_request``.
+
+    Expected:
+        - It returns ``None`` with all nested callbacks run in order, the
+          notification scheduled after its task, and no clock advance.
+    """
     clock = Clock()
     events = []
     reader, writer = socket.socketpair()
@@ -218,6 +344,20 @@ def test_controller_gate_drains_nested_callbacks_tasks_and_ready_io():
 
 @requires_runner
 def test_controller_gate_services_timer_before_future_radio_start():
+    """The gate runs a timer due before a future radio start, keeping RF time.
+
+    Purpose: Verify ``before_phy_request(start_us=...)`` lets a timer that is
+    due before the requested radio start fire (advancing the clock only to the
+    timer), returning no limit and leaving simulation time short of the start.
+
+    Steps:
+        1. Schedule a 2 ms timer that records the clock when it fires.
+        2. Call ``before_phy_request`` with a 3000-us start.
+
+    Expected:
+        - The timer fired at ~2000 us; the returned limit is ``None`` and the
+          clock is still below 3000 us.
+    """
     clock = Clock()
     events = []
     with asyncio.Runner(loop_factory=ControllerEventLoop) as runner:
@@ -237,6 +377,19 @@ def test_controller_gate_services_timer_before_future_radio_start():
 
 @requires_runner
 def test_controller_wait_deadline_uses_simulation_timer():
+    """With no radio start the gate returns the next timer's deadline.
+
+    Purpose: Verify ``before_phy_request`` with no ``start_us`` returns the
+    simulation-time deadline of the earliest pending timer without advancing the
+    clock, so the caller can bound its radio wait by that timer.
+
+    Steps:
+        1. Schedule a 0.5 ms timer.
+        2. Call ``before_phy_request`` and read the returned limit.
+
+    Expected:
+        - The returned limit approximates 500 us and the clock did not advance.
+    """
     clock = Clock()
     with asyncio.Runner(loop_factory=ControllerEventLoop) as runner:
         loop = runner.get_loop()
@@ -257,6 +410,23 @@ def test_controller_wait_deadline_uses_simulation_timer():
 
 @requires_runner
 def test_controller_rejects_overlapping_requests_and_clears_cancelled_gate():
+    """Only one PHY request is allowed, and a cancelled one clears the gate.
+
+    Purpose: Verify ``before_phy_request`` rejects a second concurrent request,
+    that cancelling the first clears the pending gate so a new request
+    succeeds, and that ``interrupt`` cancels a pending request.
+
+    Steps:
+        1. Start a first ``before_phy_request`` task and let it register.
+        2. Attempt a second request; cancel the first and await its
+           cancellation.
+        3. Issue a fresh request, then call ``interrupt`` and await another.
+
+    Expected:
+        - The second request raises RuntimeError 'one pending PHY request'.
+        - After cancel the pending gate is ``None`` and a new request returns
+          ``None``; after ``interrupt`` the next request raises CancelledError.
+    """
     with asyncio.Runner(loop_factory=ControllerEventLoop) as runner:
         loop = runner.get_loop()
 
@@ -279,6 +449,22 @@ def test_controller_rejects_overlapping_requests_and_clears_cancelled_gate():
 
 @requires_runner
 def test_controller_phy_io_watchdog_and_closed_loop_interrupt():
+    """The PHY I/O wait times out on its deadline and a closed loop interrupts.
+
+    Purpose: Verify ``wait_for_phy_io`` raises a descriptive TimeoutError when
+    its deadline has already passed with no I/O, and that ``interrupt`` is safe
+    to call after the loop is closed.
+
+    Steps:
+        1. Call ``wait_for_phy_io`` for a readable socket with a deadline in the
+           past.
+        2. After the runner exits (loop closed), call ``interrupt``.
+
+    Expected:
+        - ``wait_for_phy_io`` raises TimeoutError mentioning 'waiting for
+          BabbleSim'.
+        - ``interrupt`` on the closed loop does not raise.
+    """
     reader, writer = socket.socketpair()
     try:
         with asyncio.Runner(loop_factory=ControllerEventLoop) as runner:
@@ -320,6 +506,19 @@ def simulation_loop(request, monkeypatch):
 def test_sleep_uses_integer_microseconds_without_accumulating_error(
     simulation_loop, delay_us
 ):
+    """Repeated short sleeps advance by exact integer microseconds.
+
+    Purpose: Verify successive ``asyncio.sleep`` calls of a few microseconds
+    advance the bound clock by exact integer multiples with no accumulated
+    rounding drift.
+
+    Steps:
+        1. On a bound simulation loop, sleep ``delay_us`` microseconds five
+           times, recording the elapsed simulation time each round.
+
+    Expected:
+        - The observed offsets are ``delay_us * n`` for n in 1..5.
+    """
     loop, clock = simulation_loop
     start_us = clock.now_us
 
@@ -337,6 +536,23 @@ def test_sleep_uses_integer_microseconds_without_accumulating_error(
 def test_clock_binding_rejects_active_timers_without_changing_them(
     simulation_loop, delay
 ):
+    """Binding a clock is refused while wall timers are active, leaving them intact.
+
+    Purpose: Verify ``bind_clock`` refuses when a non-cancelled wall-clock timer
+    is still armed (so wall and simulation time cannot mix), does not disturb
+    that timer, and succeeds once the timer is cancelled.
+
+    Steps:
+        1. Unbind the clock, arm a cancelled timer and an active timer, and
+           record the active timer's deadline.
+        2. Attempt ``bind_clock``.
+        3. Cancel the active timer and bind again.
+
+    Expected:
+        - The first bind raises RuntimeError 'active timers'; the clock stays
+          unbound and the active timer's deadline and state are unchanged.
+        - After cancelling, binding succeeds and ``time()`` matches the clock.
+    """
     loop, clock = simulation_loop
     loop.unbind_clock()
     cancelled = loop.call_later(0, pytest.fail, 'cancelled wall timer fired')
@@ -356,6 +572,19 @@ def test_clock_binding_rejects_active_timers_without_changing_them(
 
 
 def test_timer_fires_at_deadline_with_large_simulation_time(simulation_loop):
+    """A microsecond timer still fires at a very large simulation time.
+
+    Purpose: Verify a 1-us timer scheduled when simulation time is large (where
+    asyncio's nanosecond due window would round to zero) still fires exactly one
+    microsecond later.
+
+    Steps:
+        1. Set the clock to a large microsecond value.
+        2. Schedule a 1-us timer that resolves a future and run until done.
+
+    Expected:
+        - The clock advanced by exactly one microsecond when the timer fired.
+    """
     loop, clock = simulation_loop
     # At this magnitude asyncio's default nanosecond due window rounds to zero.
     clock.now_us = 33_554_432_000_000
@@ -370,6 +599,21 @@ def test_timer_fires_at_deadline_with_large_simulation_time(simulation_loop):
 
 
 def test_ready_work_does_not_run_the_next_microsecond_timer_early(simulation_loop):
+    """Ready callbacks run at the current time, not the next timer's time.
+
+    Purpose: Verify a ready ``call_soon`` callback executes at the present
+    simulation time while a 1-us timer fires only after the clock advances, so
+    ready work never borrows a future timer's timestamp.
+
+    Steps:
+        1. Schedule a 1-us timer that records the clock, and a ``call_soon``
+           callback that records the clock.
+        2. Run until the timer completes.
+
+    Expected:
+        - The timer observed ``start_us + 1``; the ready callback observed the
+          original ``start_us``.
+    """
     loop, clock = simulation_loop
     observed = []
     start_us = clock.now_us
@@ -382,6 +626,21 @@ def test_ready_work_does_not_run_the_next_microsecond_timer_early(simulation_loo
 
 
 def test_timeout_and_cancellation_use_integer_microseconds(simulation_loop):
+    """Timeouts and sleeps round to integer microseconds; cancelled timers skip.
+
+    Purpose: Verify ``wait_for`` times out after exactly one microsecond, a
+    cancelled 1-us timer never fires, and a following 2-us sleep advances to the
+    expected integer-microsecond offset.
+
+    Steps:
+        1. Arm and immediately cancel a 1-us timer.
+        2. ``wait_for`` a never-set event with a 1-us timeout.
+        3. Sleep 2 us.
+
+    Expected:
+        - ``wait_for`` raises TimeoutError at ``start_us + 1``; the cancelled
+          timer does not fire; after the sleep the clock is ``start_us + 3``.
+    """
     loop, clock = simulation_loop
     start_us = clock.now_us
     cancelled = loop.call_later(0.000001, pytest.fail, 'cancelled timer fired')
@@ -404,6 +663,21 @@ def test_timeout_and_cancellation_use_integer_microseconds(simulation_loop):
 def test_controller_gate_uses_the_same_rounded_deadline_as_timers(
     delay_us, expected_events, expected_limit
 ):
+    """The PHY gate and timers share one rounded deadline comparison.
+
+    Purpose: Verify ``before_phy_request(start_us=501)`` fires a timer whose
+    rounded deadline is at or before the start (running it and returning no
+    limit), but returns the start as a limit when the timer is later, using the
+    same microsecond rounding as timers.
+
+    Steps:
+        1. Schedule a timer at ``delay_us`` microseconds that records the clock.
+        2. Call ``before_phy_request`` with ``start_us=501``.
+
+    Expected:
+        - For 500 us the timer runs and the limit is ``None``; for 501 us the
+          timer does not run and the returned limit is 501.
+    """
     clock = Clock()
     with asyncio.Runner(loop_factory=ControllerEventLoop) as runner:
         loop = runner.get_loop()
