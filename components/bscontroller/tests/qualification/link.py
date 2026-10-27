@@ -423,7 +423,8 @@ def _scanning_check_reports(
         assert report.secondary_phy == (secondary_phy if round_.auxiliary else 0)
         assert report.advertising_sid == (
             adi >> PDU_ADV_ADI_DID_BITS
-            if round_.kind == AdvertisingPduType.ADV_EXT_IND
+            # Core Table 2.4: ADI is reserved in primary-only ADV_EXT_IND.
+            if round_.kind == AdvertisingPduType.ADV_EXT_IND and round_.auxiliary
             else Report.NO_ADI_FIELD_PROVIDED
         )
         assert report.periodic_advertising_interval == 0

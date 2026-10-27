@@ -40,6 +40,10 @@ PEER_FEATURES = int(
 )
 
 
+# Core Vol 6, Part B, Table 4.9: locally reported bits forbidden on the ACL.
+HCI_ONLY_FEATURES = (1 << 27) | (1 << 42) | (1 << 48)
+
+
 def request_opcode(role):
     return (
         Opcode.LL_FEATURE_REQ if role == CENTRAL else Opcode.LL_PERIPHERAL_FEATURE_REQ
@@ -77,7 +81,7 @@ def test_feature_loc(iut, role):
     dut.host_start('prepare_features')
     dut.event_prepare()
     sent = dut.lt_rx(request_opcode(role))
-    assert int.from_bytes(sent[1:], 'little') == dut.link.features
+    assert int.from_bytes(sent[1:], 'little') == dut.link.features & ~HCI_ONLY_FEATURES
     dut.lt_tx(feature(Opcode.LL_FEATURE_RSP, PEER_FEATURES))
     dut.event_done()
     event = dut.ut_rx(FEATURES_DONE, status=0, connection_handle=dut.handle)
@@ -308,7 +312,7 @@ def test_feature_rem(iut, role):
     features = int.from_bytes(response[1:], 'little')
     # Octet 0 is the intersection; higher octets are local (5.1.4.1, 5.1.4.2).
     assert features & 0xFF == dut.link.features & peer & 0xFF
-    assert features & ~0xFF == dut.link.features & ~0xFF
+    assert features & ~0xFF == dut.link.features & ~(0xFF | HCI_ONLY_FEATURES)
     dut.tx_ack()
     dut.event_done()
     assert dut.connection.peer_features == peer
@@ -681,3 +685,40 @@ def test_unknown_handle(central, method):
     """
     prepared = getattr(central.controller.le_procedures.ll, method)(0x0EFF)
     assert prepared.status == ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR
+
+
+@pytest.mark.parametrize('role', ROLES)
+@pytest.mark.parametrize('local', [True, False])
+def test_hci_only_features_are_never_sent_in_acl_exchange(iut, role, local):
+    """Features marked Send to Peer = N never appear in Feature Exchange PDUs.
+
+    Purpose: Verify that feature bits 27, 42 and 48, which have Send to Peer
+    = N, stay zero in both the initiating request and the LL_FEATURE_RSP,
+    for both roles (Vol 6, Part B, Table 4.9).
+
+    Steps:
+        1. Set the three HCI-only bits in the IUT's local features.
+        2. Either Upper Tester starts a local Feature Exchange, or Lower Tester
+           sends the peer role's feature request with an empty feature set.
+        3. Lower Tester receives the IUT's request or LL_FEATURE_RSP.
+
+    Expected:
+        - None of bits 27, 42 or 48 is set in the sent FeatureSet.
+        - A request carries the remaining local features; a response also
+          clears the first octet, which reflects the peer's empty set.
+    """
+    dut = iut(role)
+    excluded = HCI_ONLY_FEATURES
+    baseline = dut.link.features & ~excluded
+    dut.link.features |= excluded
+    if local:
+        dut.host_start('prepare_features')
+    else:
+        dut.lt_tx(
+            feature(request_opcode(PERIPHERAL if role == CENTRAL else CENTRAL), 0)
+        )
+    dut.event_prepare()
+    sent = dut.lt_rx(request_opcode(role) if local else Opcode.LL_FEATURE_RSP)
+    actual = int.from_bytes(sent[1:], 'little')
+    assert not actual & excluded
+    assert actual == (baseline if local else baseline & ~0xFF)

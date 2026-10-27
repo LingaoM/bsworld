@@ -317,8 +317,9 @@ async def requesting_channel_map_update(tester, *, csa2):
 
     Source Correction:
         The final generic pass-verdict sentence mentions CSA #2 without limiting
-        it to alternative B. Apply that sentence to BV-02 only: Table 4.6-3 and
-        alternatives 1A/4A/6A explicitly select CSA #1 for BV-01. Amber supports
+        it to alternative B. Apply that sentence to BV-02 only: Table 4.6-3 marks
+        BV-01 as not using CSA #2, and Core Vol 6, Part B, 4.5 requires CSA #1
+        when either device's ChSel is 0. Amber supports
         this interpretation; this is a local correction, not adopted SIG errata.
 
     Reference:

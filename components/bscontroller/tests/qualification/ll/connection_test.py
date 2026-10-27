@@ -97,12 +97,14 @@ from bscontroller.radio.base import (
     PHY_TIME_UNITS_PER_SECOND,
     Phy,
 )
+from tests.qualification import privacy as privacy_peer
 from tests.qualification.cases import (
     ProcedureMap,
     collect_cases,
     procedure_cases,
     verify_case,
 )
+from tests.qualification.decision import flag_vectors
 from tests.qualification.link import (
     IV,
     LTK,
@@ -276,12 +278,19 @@ async def _connectable_advertisement(tester, link=None):
     )
 
 
-async def _initiate_auxiliary(tester, *, phy, retry):
+async def _initiate_auxiliary(tester, *, phy, retry, decision=False):
     peer = LOWER_PERIPHERAL_PUBLIC_ADDRESS
     primary_phy = Phy.LE_CODED if phy == Phy.LE_CODED else Phy.LE_1M
+    if decision:
+        await tester.command(
+            hci.HCI_LE_Set_Decision_Instructions_Command(
+                [15], [0], [random.Random(30).randbytes(16)]
+            )
+        )
     await tester.command(
         create_connection(
             extended=True,
+            initiator_filter_policy=2 if decision else 0,
             peer_address=peer,
             peer_address_type=peer.address_type,
             initiating_phys=1 << primary_phy - 1,
@@ -301,6 +310,10 @@ async def _initiate_auxiliary(tester, *, phy, retry):
             37,
             ext_pdu(
                 adi=adi,
+                kind=AdvertisingPduType.ADV_DECISION_IND
+                if decision
+                else AdvertisingPduType.ADV_EXT_IND,
+                data=b"\0" + generator.randbytes(6) if decision else b"",
                 mode=AdvertisingMode.CONNECTABLE,
                 aux=aux_pointer(AUXILIARY_CHANNEL, AUXILIARY_OFFSET_US, phy),
             ),
@@ -1639,6 +1652,8 @@ ADV_INTERVAL_US = 20000
 # Source Correction: LL.TS.p28 Sections 4.3.2.1/4.3.3.1
 # ChM=0x01 is a source error; the reviewed local correction enables channels 0/1.
 COMMON_ADVERTISER_CHANNEL_MAP = 0x03
+# LL/CON/ADV/BV-17..19-C Step 2: six random Decision_Data octets, flags 0x00.
+DECISION_ADVERTISING_DATA = random.Random(17).randbytes(6)
 
 
 def _advertiser_connection_parameters(**changes):
@@ -2125,8 +2140,9 @@ PARALLEL_ADVERTISING_DATA = b'\x0f\x0f'
 PEER_EXCHANGE_BUDGET_US = 5000
 
 
-async def _incoming_connection(tester, links, packet, *, parameters=None):
-    peer = LOWER_CENTRAL_PUBLIC_ADDRESS
+async def _incoming_connection(
+    tester, links, packet, *, parameters=None, peer=LOWER_CENTRAL_PUBLIC_ADDRESS
+):
     end = packet.end_us + LL_IFS_US + Phy.LE_1M.airtime_us(PDU_ADV_CONNECT_SIZE)
     parameters = parameters or _interleaved_parameters(end, links)
     actual_end = await tester.transmit(
@@ -3485,7 +3501,9 @@ async def _mandatory_coded_minimum(tester, *, central):
     await stream.event()
     stream.trigger = Opcode.LL_PHY_UPDATE_IND if central else Opcode.LL_PHY_REQ
     for target in (Phy.LE_CODED, Phy.LE_1M):
-        update = await _start_update(stream, target, local=True, fallback=True)
+        # Core Vol 6, Part B, 5.1.10: the peer Peripheral requests a change,
+        # but only the Central sends the indication that applies it.
+        update = await _start_update(stream, target, local=not central, fallback=True)
         await _complete_update(stream, update, target)
     await stream.finish()
     await link.disconnect(local=True)
@@ -4675,17 +4693,33 @@ async def _central_timing_events(
     )
 
 
-async def _extended_advertisement(tester, primary_phy, phy, directed, starts):
+async def _extended_advertisement(
+    tester, primary_phy, phy, directed, starts, *, decision=False
+):
     """Observe full primary cycles and follow the last primary's AuxPtr."""
     for _ in range(1 if starts else 2):
         primaries = []
         for primary_channel in LL_ADV_PRIMARY_CHANNELS:
             primary = await tester.expect_pdu(
-                primary_channel, kind=AdvertisingPduType.ADV_EXT_IND, phy=primary_phy
+                primary_channel,
+                kind=(
+                    AdvertisingPduType.ADV_DECISION_IND
+                    if decision
+                    else AdvertisingPduType.ADV_EXT_IND
+                ),
+                phy=primary_phy,
             )
             primary_fields = decode_extended(primary.pdu)
-            assert set(primary_fields) == {'adi', 'aux', 'data'}
-            assert not primary_fields['data']
+            # Step 4: ADV_DECISION_IND carries AuxPtr and optionally ADI (Core
+            # Vol 6, Part B, Table 2.10); ADV_EXT_IND requires ADI (Table 2.4).
+            assert (
+                {'aux', 'data'} <= set(primary_fields) <= {'adi', 'aux', 'data'}
+                if decision
+                else set(primary_fields) == {'adi', 'aux', 'data'}
+            )
+            assert primary_fields['data'] == (
+                b'\0' + DECISION_ADVERTISING_DATA if decision else b''
+            )
             assert (
                 primary.pdu[PDU_HEADER_SIZE] >> PDU_ADV_EXT_HEADER_LENGTH_BITS
                 == AdvertisingMode.CONNECTABLE
@@ -4716,7 +4750,8 @@ async def _extended_advertisement(tester, primary_phy, phy, directed, starts):
                 < parent.start_us + offset + unit
             )
             assert adv.start_us - parent.end_us >= LL_MAFS_US
-            assert header['adi'] == fields['adi']
+            if 'adi' in header:
+                assert header['adi'] == fields['adi']
         assert adv.phy == phy
         assert adv.pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_EXT_IND
         assert (
@@ -4725,7 +4760,8 @@ async def _extended_advertisement(tester, primary_phy, phy, directed, starts):
         )
         assert not adv.pdu[0] & (PDU_ADV_TXADD_MASK | PDU_ADV_RXADD_MASK)
         assert fields['address'] == bytes(DUT_ADDRESS)
-        assert fields['adi'] == primary_fields['adi']
+        if 'adi' in primary_fields:
+            assert fields['adi'] == primary_fields['adi']
         assert set(fields) == {'address', 'adi', 'data'} | (
             {'target'} if directed else set()
         )
@@ -4751,12 +4787,21 @@ def _no_connection_events(tester):
     ), 'unexpected connection, disconnection, or advertising-termination event'
 
 
-async def _extended_setup(tester, *, phy=Phy.LE_1M):
+async def _extended_setup(
+    tester,
+    *,
+    phy=Phy.LE_1M,
+    decision=False,
+    peer=LOWER_CENTRAL_PUBLIC_ADDRESS,
+    random_round=False,
+):
     """Check all extended connection address rounds and post-connection RF silence."""
     primary_phy = Phy.LE_CODED if phy == Phy.LE_CODED else Phy.LE_1M
-    for directed in (False, True):
-        for valid in (True, False):
-            properties = Properties.CONNECTABLE_ADVERTISING
+    for directed in (False,) if decision or random_round else (False, True):
+        for valid in (True,) if random_round else (True, False):
+            properties = Properties.CONNECTABLE_ADVERTISING | (
+                Properties.USE_DECISION_PDUS if decision else 0
+            )
             if directed:
                 properties |= Properties.DIRECTED_ADVERTISING
             await tester.command(
@@ -4765,22 +4810,28 @@ async def _extended_setup(tester, *, phy=Phy.LE_1M):
                     primary_advertising_channel_map=LL_ADV_PRIMARY_CHANNEL_MAP_ALL,
                     primary_advertising_phy=primary_phy,
                     secondary_advertising_phy=phy,
-                    peer_address=LOWER_CENTRAL_PUBLIC_ADDRESS,
-                    peer_address_type=LOWER_CENTRAL_PUBLIC_ADDRESS.address_type,
+                    peer_address=peer,
+                    peer_address_type=peer.address_type,
                 )
             )
+            if decision:
+                await tester.command(
+                    hci.HCI_LE_Set_Decision_Data_Command(
+                        0, 0, DECISION_ADVERTISING_DATA
+                    )
+                )
             await tester.command(extended_enable())
             starts = {}
             parameters = _advertiser_connection_parameters()
             attempts = AUXILIARY_SETUP_ATTEMPTS if valid else 1
             for _ in range(attempts):
                 channel, adv = await _extended_advertisement(
-                    tester, primary_phy, phy, directed, starts
+                    tester, primary_phy, phy, directed, starts, decision=decision
                 )
                 request = request_pdu(
                     AdvertisingPduType.CONNECT_IND,
                     advertiser=DUT_ADDRESS if valid else OTHER_PUBLIC,
-                    scanner=LOWER_CENTRAL_PUBLIC_ADDRESS,
+                    scanner=peer,
                     data=parameters.encode(),
                 )
                 await tester.transmit(
@@ -4800,7 +4851,8 @@ async def _extended_setup(tester, *, phy=Phy.LE_1M):
                 assert response.valid_crc and response.phy == phy
                 assert len(response.pdu) >= PDU_HEADER_SIZE
                 assert response.pdu[1] == len(response.pdu) - PDU_HEADER_SIZE
-                assert not response.pdu[0] & (PDU_ADV_TXADD_MASK | PDU_ADV_RXADD_MASK)
+                assert not response.pdu[0] & PDU_ADV_TXADD_MASK
+                assert bool(response.pdu[0] & PDU_ADV_RXADD_MASK) == peer.is_random
                 assert (
                     response.pdu[PDU_HEADER_SIZE] >> PDU_ADV_EXT_HEADER_LENGTH_BITS
                     == AdvertisingMode.NONCONNECTABLE_NONSCANNABLE
@@ -4812,7 +4864,7 @@ async def _extended_setup(tester, *, phy=Phy.LE_1M):
                 fields = decode_extended(response.pdu)
                 assert fields == {
                     'address': bytes(DUT_ADDRESS),
-                    'target': bytes(LOWER_CENTRAL_PUBLIC_ADDRESS),
+                    'target': bytes(peer),
                     'data': b'',
                 }
                 link = PeerLink(
@@ -4831,9 +4883,7 @@ async def _extended_setup(tester, *, phy=Phy.LE_1M):
                     )
                     + parameters.window_offset * LL_CONN_INTERVAL_UNIT_US
                 )
-                await _connection_complete(
-                    tester, link, LOWER_CENTRAL_PUBLIC_ADDRESS, extended=True
-                )
+                await _connection_complete(tester, link, peer, extended=True)
                 await _data_events(
                     tester,
                     link,
@@ -6866,7 +6916,7 @@ async def connection_supervision_timeout_during_fail_connection_setup(tester):
     assert not any(isinstance(event, hci.HCI_AclDataPacket) for event in tester.events)
 
 
-async def reject_existing_connection_request(tester):
+async def reject_existing_connection_request(tester, *, privacy=False):
     """Reject Existing Connection Request.
 
     Initial Condition:
@@ -6939,12 +6989,15 @@ async def reject_existing_connection_request(tester):
     """
     await tester.masks(le=LEGACY_CONNECTION_EVENT_MASK)
     peer = LOWER_CENTRAL_PUBLIC_ADDRESS
+    wire_peer = privacy_peer.private_address(privacy_peer.PEER_IRK) if privacy else peer
     await tester.command(hci.HCI_LE_Clear_Filter_Accept_List_Command())
     await tester.command(
         hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(peer.address_type, peer)
     )
     await tester.command(
-        legacy_parameters(advertising_filter_policy=ADV_FILTER_ACCEPT_LIST_ONLY)
+        legacy_parameters(
+            advertising_filter_policy=0 if privacy else ADV_FILTER_ACCEPT_LIST_ONLY
+        )
     )
     await tester.command(hci.HCI_LE_Set_Advertising_Data_Command(DEVICE_NAME))
     await tester.command(hci.HCI_LE_Set_Advertising_Enable_Command(1))
@@ -6961,8 +7014,16 @@ async def reject_existing_connection_request(tester):
         interval=DUPLICATE_CONN_INTERVAL,
         window_offset=DUPLICATE_CONN_INTERVAL - 1,
     )
-    link = await _incoming_connection(tester, [], packet, parameters=parameters)
+    link = await _incoming_connection(
+        tester, [], packet, parameters=parameters, peer=wire_peer
+    )
     await _service_peer([link])
+    if privacy:
+        await privacy_peer.add_peer(tester, identity=peer)
+        await tester.command(
+            legacy_parameters(advertising_filter_policy=ADV_FILTER_ACCEPT_LIST_ONLY)
+        )
+        wire_peer = privacy_peer.private_address(privacy_peer.PEER_IRK, 0x512345)
     await tester.command(hci.HCI_LE_Set_Advertising_Enable_Command(1))
     packet = await _observe_advertising(tester, [link], data=DEVICE_NAME)
     end = packet.end_us + LL_IFS_US + Phy.LE_1M.airtime_us(PDU_ADV_CONNECT_SIZE)
@@ -6978,7 +7039,7 @@ async def reject_existing_connection_request(tester):
     await tester.transmit(
         37,
         request_pdu(
-            AdvertisingPduType.CONNECT_IND, scanner=peer, data=parameters.encode()
+            AdvertisingPduType.CONNECT_IND, scanner=wire_peer, data=parameters.encode()
         ),
         start_us=packet.end_us + LL_IFS_US,
     )
@@ -7536,7 +7597,11 @@ async def initiation_device_filtering_undirected(tester, *, directed):
         Step 9's stopping reference is Step 13, which terminates an established
         connection; stop advertising when CONNECT_IND is received in Step 10.
         Step 13's handle is reported in Step 11, not Step 4. The verdict's
-        advertising-address wording refers to the advertiser, not the initiator.
+        "address ... of the initiator in the advertising packet" exists only as
+        the ADV_DIRECT_IND TargetA (BV-41-C, set to the IUT address); ADV_IND
+        (BV-40-C) carries no initiator address, so there it reduces to the
+        listed advertiser's AdvA and type. Both variants require InitA to be
+        the IUT address.
         These are local editorial corrections, not published SIG errata.
 
     Reference:
@@ -8109,7 +8174,7 @@ async def parallel_connection_requests_outgoing_connection_request_first(tester)
     await _parallel_connections(tester, incoming_first=False)
 
 
-async def duplicate_connection_request(tester):
+async def duplicate_connection_request(tester, *, privacy=False):
     """Duplicate Connection Request.
 
     Initial Condition:
@@ -8170,7 +8235,11 @@ async def duplicate_connection_request(tester):
         LL.TS.p28, Section 4.3.4.22, Table 4.3-36, Figure 4.3-44;
         LL/CON/INI/BI-05-C; PDF 582-585, printed 4.3-109 through 4.3-112.
     """
-    peer = LOWER_PERIPHERAL_PUBLIC_ADDRESS
+    peer = (
+        privacy_peer.private_address(privacy_peer.PEER_IRK)
+        if privacy
+        else LOWER_PERIPHERAL_PUBLIC_ADDRESS
+    )
     link = await _initiate(tester, peer, channel=None)
     complete_types = (
         hci.HCI_LE_Connection_Complete_Event,
@@ -8199,6 +8268,9 @@ async def duplicate_connection_request(tester):
             )
 
     await connection_event()
+    if privacy:
+        await privacy_peer.add_peer(tester, identity=LOWER_PERIPHERAL_PUBLIC_ADDRESS)
+        peer = privacy_peer.private_address(privacy_peer.PEER_IRK, 0x512345)
     await advertising_cycle()
     status = await tester.command(
         create_connection(peer_address=peer, peer_address_type=peer.address_type),
@@ -10183,8 +10255,8 @@ async def peripheral_receiving_data_le_coded_ci_change(tester):
         Step 3 names ALL_PHYS on LL_PHY_REQ; that field belongs to the HCI
         command, not this wire PDU. Use TX_PHYS/RX_PHYS for LE Coded.
         Step 8's pattern numbers 2/8 denote coding factors S=2/S=8, not literal
-        two-bit CI values: Core 6.3 Vol 6, Part B, Section 2.2 maps CI=01 to
-        S=2 and CI=00 to S=8.
+        two-bit CI values: Core 6.3 Vol 6, Part B, Section 2.2.3, Table 2.2 maps
+        CI=01 to S=2 and CI=00 to S=8.
 
     Coverage Note:
         Compare all eighteen pattern rows to PDF 676-677. Exchange the full
@@ -10317,7 +10389,7 @@ async def responding_to_phy_update_procedure_packet_time_restrictions_le_coded(t
     Source Correction:
         Step 6 says initial fragmentation is Fail, but this procedure's explicit
         Inconclusive list names that same condition. Use Inconclusive: Core
-        6.3 Vol 6, Part B, Section 5.1.9 constrains maximum DATA size, not a
+        6.3 Vol 6, Part B, Section 4.5.10 constrains maximum DATA size, not a
         mandatory full-size fragment. Already-fragmented DATA cannot exercise
         the intended 141-to-140 boundary. Amber supports this local interpretation;
         no adopted SIG erratum was found. Post-PHY_RSP oversize DATA still fails.
@@ -10404,14 +10476,14 @@ async def mandatory_minimum_pdu_length_le_coded(tester):
         The outcome references LL_PHY_RSP, which occurs only on fallback 8B;
         normal 8A uses PHY_REQ. Apply the 27-octet bound throughout both paths,
         including earlier DATA. Amber supports this local interpretation under
-        Core Vol 6, Part B, Sections 4.5.10, 5.1.9 and 5.1.10.1; it is not a
+        Core Vol 6, Part B, Sections 4.5.10 and 5.1.10.1; it is not a
         claimed adopted SIG erratum. Step 5's Host LLID=0b10 is HCI start PB=0x00.
 
     Reference:
         LL.TS.p28, independently titled LL/CON/PER/BV-57-C procedure in
         Section 4.3.5, Figures 4.3-97/98; PDF 685-689,
         printed 4.3-212 through 4.3-216. Steps 1-14 including 8A/8B;
-        referenced Core Vol 6, Part B, Section 5.1.9.
+        referenced Core Vol 6, Part B, Sections 4.5.10 and 5.1.10.1.
     """
     await _mandatory_coded_minimum(tester, central=False)
 
@@ -11515,7 +11587,7 @@ async def accepting_connection_parameter_request_illegal_parameters(tester):
     Source Correction:
         The source labels interval value 4 as 6 ms. At the specified 1.25-ms
         interval unit it means 5 ms; retain the encoded value 4 as the invalid
-        test stimulus. Core Vol 6, Part B, Section 2.4.2.1 and Amber support this
+        test stimulus. Core Vol 6, Part B, Section 2.4.2.16 and Amber support this
         local editorial correction; no adopted SIG erratum is claimed.
 
     Coverage Note:
@@ -11847,9 +11919,9 @@ async def listening_for_packet_with_window_widening_acl(tester):
            until the connection event counter reaches Instant.
         5. Require an empty IUT DATA reply for each packet received in Step 4.
         6. At the update, send no PDU for ten connection intervals.
-        7. Send empty DATA 0.5 us after the beginning edge of the window
-           identified by the round: before receiveWindowStart for round 1,
-           after receiveWindowEnd for round 2. Compute the source widening as
+        7. Send empty DATA inside the outer widened edge: round 1 at
+           receiveWindowStart - widening + 1 us, round 2 at
+           receiveWindowEnd + widening - 1 us. Compute the source widening as
            (500 / 1000000) * (receiveWindowEnd - last Step 4 DATA anchor) + 16 us.
         8. Require the IUT to receive that Step 7 packet during the widened
            interval and respond with empty DATA.
@@ -11860,26 +11932,20 @@ async def listening_for_packet_with_window_widening_acl(tester):
             packet and returns empty DATA within the widened-window scenario.
 
     Source Correction:
-        The outcome says the Step 8 response answers a packet from Step 8;
-        the stimulus is actually Step 7. Amber corroborates this local editorial
-        reference correction; no adopted SIG erratum is claimed.
-
-    Review Limitation:
-        The 0.5-us source guard is approximated with a 1-us inside-edge guard
-        once its independently unresolved late-edge interpretation is settled.
-        Timestamp resolution alone does not justify skipping this case.
-
-    Source Conflict:
-        The late round's beginning-edge wording does not identify whether the
-        stimulus follows receiveWindowEnd or precedes the outer trailing edge.
-        Figure 4.3-127 supplies no exact timestamp formula. This separate source
-        question permits the skip; it is not a timing-precision skip.
+        PDF 738's "after the beginning edge" is an early-edge description
+        copied into both rounds. Core Vol 6, Part B, 4.2.4 gives the complete
+        listening interval [receiveWindowStart - windowWidening,
+        receiveWindowEnd + windowWidening]. Table 4.3-50 selects its early and
+        late extensions, so place the stimulus just inside the corresponding
+        outer edge. A probe beyond the trailing edge would contradict Step 8.
+        The verdict's packet reference is Step 7, not Step 8. These are local
+        corrections, not adopted SIG errata.
 
     Timing Approximation:
-        Execute at 1-us timestamp resolution, retaining the limited precision
-        label. Fractional guards use the documented integer-us approximation.
-        Complete all executable checks without skipping for precision alone;
-        only an independent source_conflict label permits a protocol-path skip.
+        Replace the source's 0.5-us inside-edge guard with 1 us at integer-us
+        timestamp resolution. Retain the limited marker for this precision;
+        neither round is skipped. Compute widening from the source's 500-ppm
+        peer clock and 16-us allowance, without calling the DUT timing helper.
 
     Reference:
         LL.TS.p28, independently titled LL/CON/PER/BV-158-C procedure in
@@ -11887,11 +11953,76 @@ async def listening_for_packet_with_window_widening_acl(tester):
         printed 4.3-263 through 4.3-265. Steps 1-8 and Expected Outcome;
         referenced Core Vol 6, Part B, Section 4.2.4.
     """
-    pytest.skip(
-        'Source conflict: late-window edge wording needs clarification; '
-        '1-us approximation is allowed once that protocol question is resolved '
-        '(LL.TS.p28 PDF 738, Step 7/Table 4.3-50)'
-    )
+    for timeout, late in ((300, False), (200, True)):
+        parameters = LinkParameters(interval=24, timeout=timeout, hop_sca=5)
+        link = await establish(
+            tester,
+            peer_address=LOWER_CENTRAL_PUBLIC_ADDRESS,
+            connection_parameters=parameters,
+        )
+        await link.control(
+            Opcode.LL_FEATURE_RSP,
+            bytes([Opcode.LL_FEATURE_REQ])
+            + int(hci.LeFeatureMask.CONNECTION_PARAMETERS_REQUEST_PROCEDURE).to_bytes(
+                PDU_CONTROL_FEATURE_SET_SIZE, 'little'
+            ),
+        )
+        interval = 32
+        await tester.command(
+            hci.HCI_LE_Connection_Update_Command(
+                link.handle, interval, interval, 0, timeout, 0, 0
+            )
+        )
+        _check_parameter_pdu(await link.control(Opcode.LL_CONNECTION_PARAM_REQ))
+        instant = (link.counter + 50) & LL_EVENT_COUNTER_MASK
+        update = bytes([Opcode.LL_CONNECTION_UPDATE_IND]) + struct.pack(
+            '<BHHHHH', 1, 1, interval, 0, timeout, instant
+        )
+        await link.exchange(update, llid=LlId.CONTROL, check_ack=True)
+        last_anchor = None
+        while link.counter != instant:
+            last_anchor = link.anchor
+            packet = await link.exchange()
+            assert packet.pdu[0] & PDU_DATA_LLID_MASK == LlId.CONTINUATION
+            assert packet.pdu[1] == 0
+        assert last_anchor is not None
+        link.anchor += LL_CONN_INTERVAL_UNIT_US
+        link.parameters = replace(
+            link.parameters,
+            window_size=1,
+            window_offset=1,
+            interval=interval,
+            latency=0,
+            timeout=timeout,
+        )
+        # Omit the first ten events after the Instant, including the transmit
+        # window. Keep event/channel counters independent of the DUT scheduler.
+        link.anchor += 10 * interval * LL_CONN_INTERVAL_UNIT_US
+        link.counter = (link.counter + 10) & LL_EVENT_COUNTER_MASK
+        start = link.anchor
+        end = start + LL_CONN_INTERVAL_UNIT_US
+        widening = (
+            LL_SCA_PPM[LL_SCA_500_PPM] * (end - last_anchor)
+        ) // PHY_TIME_UNITS_PER_SECOND + 16
+        probe = end + widening - 1 if late else start - widening + 1
+        assert probe > end if late else probe < start
+        tester.output.write(
+            f'WINDOW late={late} nominal={start}:{end} last_sync={last_anchor} '
+            f'widening={widening} probe={probe}\n'
+        )
+        link.anchor = probe
+        packet = await link.exchange(check_ack=True)
+        assert packet.pdu[0] & PDU_DATA_LLID_MASK == LlId.CONTINUATION
+        assert packet.pdu[1] == 0
+        event = await tester.event(hci.HCI_LE_Connection_Update_Complete_Event)
+        assert (
+            event.status,
+            event.connection_handle,
+            event.connection_interval,
+            event.peripheral_latency,
+            event.supervision_timeout,
+        ) == (ErrorCode.SUCCESS, link.handle, interval, 0, timeout)
+        await link.disconnect(local=True)
 
 
 async def events_with_peripheral_latency(tester):
@@ -12549,10 +12680,10 @@ async def central_lost_negative_acknowledgement(tester):
            tester SN identified by the previous Central NESN.
         Repeat Steps 3-4 fifteen times.
         3. Receive the negative acknowledgement and respond with valid-CRC
-           DATA. The source text requires the same SN as the preceding tester
-           packet and positive acknowledgement using the next NESN.
+           DATA using the next tester SN, simulating failure to receive the NAK.
+           Retain tester NESN equal to Central SN, as Figure 4.3-146 shows.
         4. Require following Central packets to continue the negative
-           acknowledgement, with NESN matching the current tester SN.
+           acknowledgement, with NESN still naming the missing tester packet.
         5. Execute Central Connection Terminated for the established
            unencrypted handle and connection parameters.
 
@@ -12561,26 +12692,23 @@ async def central_lost_negative_acknowledgement(tester):
             The Central repeats its negative acknowledgement when the tester
             transmits its next payload.
 
-    Source Conflict:
-        Step 3's same-SN requirement contradicts Step 4 and the purpose:
-        after bad CRC, a valid packet with the still-expected SN is new DATA,
-        not an out-of-sequence packet. Figure 4.3-146 instead advances the
-        tester SN. The figure also retains tester NESN equal to Central SN
-        (a NAK), whereas Step 3 says to use next NESN (an ACK). Amber confirms
-        the sequencing contradiction but recommends the textual ACK; it does
-        not reconcile that recommendation with the figure. Do not silently
-        choose one stimulus or claim a resolved source correction. Skip this
-        procedure until these two conflicting requirements are clarified.
+    Source Correction:
+        Step 3's same-SN and positive-ACK wording conflicts with the purpose,
+        Expected Outcome and Figure 4.3-146. Follow the latter three instead:
+        after the bad-CRC packet, advance the tester SN as if its NAK were lost,
+        and retain tester NESN equal to Central SN. Core Vol 6, Part B, 4.5.9
+        requires the Central to retain its expected SN after bad CRC and ignore
+        the out-of-sequence payload; its unchanged NESN repeats the NAK.
+        The retained tester NESN also keeps the Central payload unacknowledged,
+        allowing all fifteen repetitions to check its unchanged SN and bytes.
+        This is a local correction, not an adopted SIG erratum.
 
     Reference:
         LL.TS.p28, independently titled LL/CON/CEN/BV-17-C procedure in
         Section 4.3.6, Figure 4.3-146; PDF 767-768, printed 4.3-294 through
         4.3-295. Steps 1-5 and Expected Outcome; Core Vol 6, Part B, 4.5.9.
     """
-    pytest.skip(
-        'LL.TS.p28 CEN/BV-17-C Step3 conflicts with Figure4.3-146: '
-        'same/advanced tester SN and positive/negative acknowledgement'
-    )
+    await _retransmissions(tester, central=True, mode='lost')
 
 
 async def central_latency_retransmission_request(tester):
@@ -14060,87 +14188,46 @@ async def mandatory_minimum_pdu_length_le_coded_ll_con_cen_bv_55_c(tester):
     """Mandatory Minimum PDU Length, LE Coded.
 
     Initial Condition:
-        Connected Central with a public Lower Tester peer address, supported own
-        address type, any scan interval/window and connection interval, common
-        Peripheral latency and supervision timeout. The source inherits the
-        PER/BV-57-C procedure except for its stated Step 6 replacement.
+        Connected Central, public Peripheral Lower Tester, 60-ms interval,
+        zero latency and minimum data-length octet/time values.
 
     Test Steps:
-        The following records every inherited step and the Central override.
-        It is not an executable Central adaptation: see Source Conflict.
-
-        1. Send HCI_LE_Set_PHY with ALL_PHYS=0x03, PHY_options=0x0000 and
-           receive HCI_Command_Status.
-        2. Inherited PER step: the IUT may send LL_PHY_REQ; the Lower Tester
-           answers with LL_PHY_UPDATE_IND having both directional fields zero.
-           That Lower Tester action is not valid for its stated Peripheral role.
-        3. Require HCI_LE_PHY_Update_Complete reporting LE 1M/LE 1M.
-        4. If the IUT initiates Data Length Update, answer with RxTime=328 us
-           and RxOctets=27.
-        5. Continuously queue 27-octet Host start packets for the remainder.
-        6. Central override: the Lower Tester receives LL_PHY_UPDATE_IND
-           selecting LE Coded in both directions; otherwise Inconclusive.
-           This replaces PER Step 6's HCI Set PHY trigger without defining
-           how that trigger or the later inherited request fits this step.
-        7. Inherited PER step: the IUT sends LL_PHY_REQ to the Lower Tester.
-        8. Inherited PER alternatives, neither resolved for a Peripheral tester:
-           8A. If the request permits Coded in both directions:
-               8A.1. The Lower Tester sends an UPDATE selecting Coded, with
-                     modular Instant distance greater than 6 and less than 32767.
-           8B. Otherwise:
-               8B.1. Send an UPDATE retaining the current PHYs.
-               8B.2. Send LL_PHY_REQ requesting Coded in both directions.
-               8B.3. Receive LL_PHY_RSP; if Coded cannot be selected in both
-                     directions, end with Inconclusive.
-               8B.4. Send a Coded UPDATE with the same Instant constraints.
-        9. Expect received DATA payloads of at most 27 octets.
-        10. Complete PHY Update while the Host continues queueing 27-octet
-            start packets and the Lower Tester receives DATA.
-        11. Maintain the connection on LE Coded at the indicated Instant.
-        12. Require PHY completion reporting Coded/Coded. If DLE is supported,
-            require Data Length Change with both octet limits 27 and both time
-            limits 2704 us; the two events may arrive in either order.
-        13. Continue DATA of at most 27 octets for at least 10 further events.
-        14. Repeat Steps 6-13 for LE 1M instead of Coded, changing the requested
-            PHY bit from 0x04 to 0x01 and the reported time limits to 328 us.
+        1-3. Set PHY with no preference and verify completion on LE 1M.
+             If the Central sends PHY_REQ, the Peripheral answers PHY_RSP
+             retaining LE 1M; the Central sends any required UPDATE.
+        4. If DLE occurs, answer with 27 octets and 328 us per direction.
+        5. Queue 27-octet Host start packets continuously from this point.
+        6-8. The Peripheral requests Coded in both directions. Receive the
+             Central's UPDATE with a valid future Instant and acknowledge it.
+        9-11. Keep DATA within the effective octet/time limits, maintain the
+              connection, and apply Coded at the indicated Instant.
+        12. Verify PHY completion and, when effective limits change, Data
+            Length Change: 27 octets and 2704 us in both directions.
+        13. Continue receiving DATA for at least ten further events.
+        14. Repeat the change to LE 1M, checking 27 octets and 328 us.
 
     Expected Outcome:
-        Pass verdict:
-            Inherited requirements: DATA stays within 27 octets and effective
-            receive-octet/time limits, the indicated PHY applies at each Instant,
-            and Data Length Change reports the expected values. For the first
-            two packets after DLE, including retransmissions, use the greater
-            of old/new octet and time limits.
-            No pass is claimed until the Central-role sequence is resolved.
-        Inconclusive verdict:
-            Inherited Step 8B.3 cannot select the required PHY, or an autonomous
-            LL_LENGTH_REQ follows the Instant; the Central override also
-            specifies Inconclusive if its Step 6 does not select Coded.
+        DATA continues through both PHY changes with valid acknowledgements,
+        no oversized payloads and correct effective-length notifications.
+        The first two transition packets use the greater of old/new limits.
 
-    Source Conflict:
-        PDF 837 replaces inherited Step 6, but does not consistently adapt
-        Steps 2, 7 or 8 to a Central IUT and Peripheral Lower Tester.
-        Figure 4.3-182 also shows the IUT sending PHY_RSP and the Lower Tester
-        sending UPDATE, which are Peripheral/Central actions respectively,
-        despite the stated opposite roles. Purpose and inherited HCI trigger
-        additionally disagree about which side initiates.
-        Core PHY Update assigns PHY_RSP to the Peripheral and UPDATE to the
-        Central. Amber could not resolve a unique intended Central sequence.
-        Do not silently retain the previous Host-initiated interpretation;
-        skip this case pending an authoritative clarification.
+    Source Correction:
+        PDF 837 inherits Peripheral-IUT steps without consistently swapping
+        roles. Follow the Central-IUT purpose and its explicit Step 6 override:
+        the Peripheral Lower Tester initiates with PHY_REQ; the Central IUT
+        sends UPDATE. Core Vol 6, Part B, 5.1.10 assigns these roles; the copied
+        diagram's Peripheral UPDATE and Central PHY_RSP are not legal here.
+        Preserve the inherited no-preference setup, minimum DLE, queued DATA,
+        two PHY changes, Instants and ten-event observations. Core 4.5.10
+        requires a minimum 2704-us Coded budget even when negotiated times are
+        328 us. This is a local correction, not an adopted SIG erratum.
 
     Reference:
-        LL.TS.p28.pdf, LL/CON/CEN/BV-55-C, Figures 4.3-181/182;
-        PDF pages 836-837, printed pages 4.3-363..364.
-        Inherited LL/CON/PER/BV-57-C, Figures 4.3-97/98, Steps 1-14 and verdicts;
-        PDF pages 685-689, printed pages 4.3-212..216.
-        Core v6.3, Vol 6, Part B, 5.1.10; Vol 6, Part D, 6.15.
+        LL.TS.p28, LL/CON/CEN/BV-55-C, PDF 836-837, Figures 4.3-181/182;
+        inherited PER/BV-57-C, PDF 685-689, Figures 4.3-97/98, Steps 1-14.
+        Core Vol 6, Part B, 4.5.10 and 5.1.10.
     """
-    pytest.skip(
-        'Source conflict: CEN BV-55 Central override, inherited PER steps and '
-        'Figure 4.3-182 do not define a consistent role/initiation sequence '
-        '(LL.TS.p28 PDF 836-837; inherited PDF 685-689)'
-    )
+    await _mandatory_coded_minimum(tester, central=True)
 
 
 async def central_data_length_update_responding_to_data_length_update_procedure(
@@ -14150,7 +14237,7 @@ async def central_data_length_update_responding_to_data_length_update_procedure(
 
     Initial Condition:
         Connected Central with declared supported TX/RX octet and time maxima
-        within Core Vol 6, Part B, Table 4.6. This implementation uses the IUT's
+        within Core Vol 6, Part B, Table 4.8. This implementation uses the IUT's
         HCI Read Maximum Data Length values as IXIT inputs and reads HCI buffer
         capacity for Host fragmentation and credits.
         The full-feature IUT supports Coded: specification minima are 27 octets
@@ -14230,7 +14317,7 @@ async def central_data_length_update_initiating_data_length_update_procedure(
 
     Initial Condition:
         Connected Central with declared supported TX/RX octet and time maxima
-        within Core Vol 6, Part B, Table 4.6. This implementation uses the IUT's
+        within Core Vol 6, Part B, Table 4.8. This implementation uses the IUT's
         HCI Read Maximum Data Length values as IXIT inputs and reads HCI buffer
         capacity for Host fragmentation and credits.
         The full-feature IUT supports Coded: specification minima are 27 octets
@@ -14306,7 +14393,8 @@ async def central_data_length_update_peripheral_does_not_support_le_1m_phy(teste
 
     Initial Condition:
         Connected Central on LE 1M, with public peer addresses and declared
-        supported TX/RX octet/time maxima within Core Table 4.6. Use the IUT's
+        supported TX/RX octet/time maxima within Core Vol 6, Part B,
+        Table 4.8. Use the IUT's
         HCI Read Maximum Data Length values as this implementation's IXIT inputs.
         Specification minima are 27 octets and 328 us; this Coded-capable IUT
         has specification maxima 251 octets and 17040 us.
@@ -15114,6 +15202,178 @@ async def data_length_update_retransmission_during_an_update(tester, *, central)
     await link.disconnect(local=True)
 
 
+async def data_length_update_invalid_parameters(tester, *, central, phy, report_change):
+    """Data Length Update - Handling Invalid Data Length Responses.
+
+    Initial Condition:
+        Connect in the selected Central/Peripheral role and 1M/2M/Coded PHY.
+        Read the IUT's supported lengths as IXIT. For ALT 5A negotiate minimum
+        peer limits (no effective change); for ALT 5B negotiate maximum peer
+        limits (an effective receive-length change and Host event).
+
+    Test Steps:
+        For all twelve Table 4.3-117 rows, exercise both request alternatives:
+        1-3. Send valid peer LENGTH_REQ, verify LENGTH_RSP and any corresponding
+             effective-length event. Preserve the last valid negotiated limits.
+        4A. Request random legal TX limits through HCI, receive LENGTH_REQ and
+            answer with the row's faulty LENGTH_RSP. Retry up to ten HCI
+            requests if necessary to cause an actual on-air request.
+        4B. On a fresh connection, send the same row as a faulty LENGTH_REQ.
+        5. Check every emitted length response, rejection and Host length event.
+           Use the valid effective limits, never the malformed peer values,
+           to select the subsequent DATA size and airtime.
+        6. Send DATA at the negotiated receive boundary, verify exact Host ACL
+           delivery and acknowledgements, and terminate the connection.
+
+    Expected Outcome:
+        Invalid fields do not produce out-of-range local or effective limits
+        and do not prevent subsequent valid DATA reception. Any rejection
+        identifies the received opcode. Valid values above the IUT's own IXIT
+        maximum remain legal peer capabilities if within the Core ranges.
+
+    Source Correction:
+        LL.TS.p28 PDF 981 names MinRxTime/MinTxTime; the wire fields are Max*Time.
+        Table 4.3-117 does not select 4A/4B, so execute both for every row.
+        Table 4.3-116 ALT 5 selects the initial effective-change setup; do not
+        infer a second length event merely from a malformed PDU. Core Vol 6,
+        Part B, 4.5.10 requires notification when effective limits change.
+        Step 4A's retry wording disagrees between ten and ten additional tries;
+        use ten total attempts, the explicit Inconclusive threshold.
+        The final verdict's valid IUT values refer to 4A.2 and 4B.2, not the
+        faulty Lower Tester 4B.1. Figure 4.3-244's 4B response is LENGTH_RSP,
+        not its copied LENGTH_REQ label. Core 2.4.2 permits an implementation
+        to interpret invalid fields or reject the PDU; therefore accept valid
+        bounded responses or correctly addressed rejections, rather than force
+        the unconditional LENGTH_RSP in 4B.2. Core 2.4.2.21/4.5.10 define
+        shared ranges, so supportedMax+1 is only faulty if outside those ranges.
+        These are local corrections, not adopted SIG errata.
+
+    Reference:
+        LL.TS.p28, 4.3.7.35, PDF 978-982, Tables 4.3-116/117,
+        Figure 4.3-244. Core Vol 6, Part B, 2.4.2, 2.4.2.21, 4.5.10 and 5.1.9.
+    """
+    supported = await _supported_lengths(tester)
+    generator = random.Random(35)
+    # Table order is TX first; LENGTH_FIELDS encodes RX first on the wire.
+    field_order = (2, 3, 0, 1)
+    rows = []
+    for bounds, delta in ((MINIMUM, -1), (supported, 1), (MAXIMUM, 1)):
+        for field in field_order:
+            values = list(MINIMUM)
+            values[field] = bounds[field] + delta
+            rows.append(tuple(values))
+    for number, faulty in enumerate(rows, 1):
+        for local in (True, False):
+            tester.output.write(
+                f'INVALID DLE row={number} local={local} values={faulty}\n'
+            )
+            link = await establish(
+                tester,
+                central=central,
+                peer_address=(
+                    LOWER_PERIPHERAL_PUBLIC_ADDRESS
+                    if central
+                    else LOWER_CENTRAL_PUBLIC_ADDRESS
+                ),
+                interval=48 if phy == Phy.LE_CODED else 24,
+            )
+            features = (
+                hci.LeFeatureMask.LE_DATA_PACKET_LENGTH_EXTENSION
+                | hci.LeFeatureMask.LE_2M_PHY
+                | hci.LeFeatureMask.LE_CODED_PHY
+            )
+            await link.control(
+                Opcode.LL_FEATURE_RSP,
+                bytes(
+                    [
+                        Opcode.LL_PERIPHERAL_FEATURE_REQ
+                        if central
+                        else Opcode.LL_FEATURE_REQ
+                    ]
+                )
+                + int(features).to_bytes(PDU_CONTROL_FEATURE_SET_SIZE, 'little'),
+            )
+            if phy != Phy.LE_1M:
+                await _change_phy(tester, link, phy, local=True)
+            initial = _effective_lengths(MINIMUM, MINIMUM, link)
+            _check_changed_events(tester, link.handle, MINIMUM, initial)
+            peer = MAXIMUM if report_change else MINIMUM
+            dut = _check_parameters(
+                await link.control(
+                    Opcode.LL_LENGTH_RSP,
+                    bytes([Opcode.LL_LENGTH_REQ]) + LENGTH_FIELDS.pack(*peer),
+                ),
+                Opcode.LL_LENGTH_RSP,
+                supported,
+            )
+            current = _effective_lengths(dut, peer, link)
+            _check_changed_events(tester, link.handle, initial, current)
+            assert (current != initial) == report_change
+            if local:
+                for _ in range(10):
+                    await tester.command(
+                        hci.HCI_LE_Set_Data_Length_Command(
+                            link.handle,
+                            generator.randint(MINIMUM[2], supported[2]),
+                            generator.randint(MINIMUM[3], supported[3]),
+                        )
+                    )
+                    request = await link.control(Opcode.LL_LENGTH_REQ, required=False)
+                    if request is not None:
+                        dut = _check_parameters(
+                            request, Opcode.LL_LENGTH_REQ, supported
+                        )
+                        break
+                else:
+                    pytest.skip(
+                        'Inconclusive: no LENGTH_REQ after ten legal HCI requests'
+                    )
+                # The Host change can remain pending until a valid peer reply.
+                # Check any notification below, without requiring an early one.
+            opcode = Opcode.LL_LENGTH_RSP if local else Opcode.LL_LENGTH_REQ
+            packets = [
+                await link.exchange(
+                    bytes([opcode]) + LENGTH_FIELDS.pack(*faulty), llid=LlId.CONTROL
+                )
+            ]
+            packets.extend([await link.exchange() for _ in range(3)])
+            for packet in packets:
+                if packet.pdu[0] & PDU_DATA_LLID_MASK != LlId.CONTROL:
+                    continue
+                payload = packet.pdu[PDU_HEADER_SIZE:]
+                if payload[0] in (Opcode.LL_LENGTH_REQ, Opcode.LL_LENGTH_RSP):
+                    _check_parameters(payload, Opcode(payload[0]), supported)
+                elif payload[0] == Opcode.LL_REJECT_EXT_IND:
+                    assert payload[1:] == bytes(
+                        [opcode, ErrorCode.INVALID_LMP_OR_LL_PARAMETERS_ERROR]
+                    )
+                elif payload[0] == Opcode.LL_UNKNOWN_RSP:
+                    assert payload[1:] == bytes([opcode])
+                else:
+                    raise AssertionError(
+                        f'unexpected control after faulty length: {payload.hex()}'
+                    )
+            while event := tester.take(
+                lambda event: isinstance(event, hci.HCI_LE_Data_Length_Change_Event)
+            ):
+                assert event.connection_handle == link.handle
+                values = (
+                    event.max_tx_octets,
+                    event.max_tx_time,
+                    event.max_rx_octets,
+                    event.max_rx_time,
+                )
+                assert all(
+                    low <= value <= high
+                    for value, low, high in zip(values, MINIMUM, MAXIMUM)
+                )
+                current = values
+            size = _payload_limit(link.tx_phy, current[2], current[3])
+            assert size >= PDU_DATA_PAYLOAD_SIZE_MIN
+            await peer_send(tester, link, generator.randbytes(size))
+            await link.disconnect(local=True)
+
+
 async def data_length_update_peer_does_not_support_le_coded_phy(tester, *, central):
     """Data Length Update – Peer Does Not Support LE Coded PHY.
 
@@ -15710,6 +15970,672 @@ async def reject_invalid_connection_parameter_request_parameters(tester, *, cent
             for event in tester.events
         )
     await link.disconnect()
+
+
+async def decision_advertising_accepting_connections(tester, *, phy):
+    """Decision-Based Advertising, Accepting Connections.
+
+    Initial Condition:
+        Public local/peer addresses, all primary channels, minimum interval;
+        Table 4.3-2 selects 1M/1M, 1M/2M or Coded/Coded PHYs.
+
+    Test Steps:
+        Execute Section 4.3.3.3 steps 1-16 for Table 4.3-3 rounds 5 and 6:
+        configure properties 0x0081 and six random decision-data octets with
+        flags 0x00, enable, check primary decision PDUs (AuxPtr, optional ADI)
+        and AuxPtr timing on every primary channel, follow the
+        connectable auxiliary PDU and send matching/wrong-AdvA AUX_CONNECT_REQ.
+        Wrong AdvA must receive no response or connection event. Matching AdvA
+        must receive AUX_CONNECT_RSP within two microseconds of T_IFS, connection
+        and advertising-termination events, CSA#2 and 100 valid data exchanges
+        on the selected PHY. Verify advertising stops, then disconnect.
+
+    Expected Outcome:
+        Only matching-AdvA requests establish a connection; decision data,
+        primary intervals, auxiliary timing, Host events and data-channel traffic
+        conform to the independently observed source procedure.
+
+    Source Correction:
+        Repeat data steps 12-14 for 100 events; Advertising Set Terminated in
+        step 11 is a one-shot event. This follows Core Vol 4, Part E, 7.7.65.18,
+        and is a local clarification rather than adopted SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.3.3.3, PDF pages 485-490, Tables 4.3-2/3;
+        Core Vol 6, Part B, 2.3.1.11, 4.4.2.3 and 4.4.4.2.
+    """
+    await _extended_setup(tester, phy=phy, decision=True)
+
+
+async def extended_advertising_random_initiator(tester, *, phy):
+    """Extended Advertising, Accepting Connections with Random address.
+
+    Initial Condition:
+        Public IUT advertiser, accept-all policy, all primary channels.
+
+    Test Steps:
+        Execute steps 1-11 for every Table 4.3-9 InitA class: random static,
+        non-resolvable private, and resolvable private address. Configure
+        connectable extended advertising, enable, observe primary cycles and
+        follow AuxPtr, send AUX_CONNECT_REQ at T_IFS, verify AUX_CONNECT_RSP
+        has random RxAdd and the exact InitA as TargetA, receive Host connection/
+        CSA#2/termination events, exchange valid data and disconnect.
+
+    Expected Outcome:
+        All three address classes establish and maintain a Peripheral connection
+        on the specified secondary PHY; request/response timing and types match.
+
+    Source Correction:
+        Step 1 specifies LE 2M as Primary PHY in the 2M case. Core Vol 4, Part E,
+        7.8.53 permits only LE 1M or Coded on primary channels; use 1M/2M as in
+        Table 4.3-2. Step 3 says only AuxPtr, but Core Vol 6, Part B, Table 2.4
+        makes ADI mandatory in a connectable ADV_EXT_IND, so require both
+        fields. These are local clarifications, not adopted SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.3.3.8, PDF pages 509-512, Tables 4.3-8/9,
+        Figures 4.3-15/16; Core Vol 6, Part B, 4.4.4.2 and 4.5.
+    """
+    for peer in (
+        PEER_ADDRESS,
+        privacy_peer.FALLBACK,
+        privacy_peer.private_address(privacy_peer.PEER_IRK),
+    ):
+        await _extended_setup(tester, phy=phy, peer=peer, random_round=True)
+
+
+async def _privacy_initiating_advertisement(
+    tester, address, identity, *, target=None, own_type=2, reject=False
+):
+    deadline = tester.radio.now_us + 400_000
+    attempt = 0
+    while tester.radio.now_us < deadline:
+        channel = 37 + attempt % 3
+        pdu = (
+            adv_pdu(address=address)
+            if target is None
+            else request_pdu(
+                AdvertisingPduType.ADV_DIRECT_IND,
+                advertiser=target,
+                scanner=address,
+            )
+        )
+        start = tester.radio.now_us + 100
+        end = await tester.transmit(channel, pdu, start_us=start)
+        request = await tester.receive(channel, duration_us=200)
+        if request is not None:
+            assert not reject, 'CONNECT_IND sent for a rejected privacy vector'
+            assert request.pdu[0] & 15 == AdvertisingPduType.CONNECT_IND
+            assert request.pdu[8:14] == bytes(address)
+            assert bool(request.pdu[0] & PDU_ADV_RXADD_MASK) == address.is_random
+            assert abs(request.start_us - end - LL_IFS_US) <= 2
+            local = hci.Address(
+                request.pdu[2:8], int(bool(request.pdu[0] & PDU_ADV_TXADD_MASK))
+            )
+            if own_type >= 2:
+                privacy_peer.check_private_address(local, privacy_peer.LOCAL_IRK)
+                if target is not None:
+                    assert local != target
+            else:
+                assert local == DUT_ADDRESS
+            parameters = LinkParameters.decode(request.pdu[14:])
+            check_access_address(parameters.access_address)
+            link = PeerLink(
+                tester, parameters, request.end_us, central=True, csa2=False
+            )
+            reported = (
+                hci.Address(bytes(identity), 2 + int(identity.is_random))
+                if address.is_resolvable
+                else identity
+            )
+            event = await _connection_complete(tester, link, reported)
+            assert event.local_resolvable_private_address == (
+                local if own_type >= 2 else hci.Address.ANY_RANDOM
+            )
+            assert event.peer_resolvable_private_address == (
+                address if address.is_resolvable else hci.Address.ANY_RANDOM
+            )
+            return link, local
+        attempt += 1
+        await tester.wait(max(0, start + 20_003 - tester.radio.now_us))
+    assert reject, 'no CONNECT_IND in the privacy observation interval'
+    _no_initiation_complete(tester)
+    return None
+
+
+async def _privacy_initiating_scenario(tester, *, scenario):
+    peer = LOWER_PERIPHERAL_PUBLIC_ADDRESS
+    own_type = 0 if scenario in ('directed_peer', 'device_directed') else 2
+    device = scenario in ('device', 'device_directed')
+    zero_peer = scenario in ('local_only', 'resolution_disabled')
+    disabled = scenario in ('resolution_disabled', 'ignore_disabled')
+    await tester.command(hci.HCI_LE_Set_Resolvable_Private_Address_Timeout_Command(1))
+    await privacy_peer.add_peer(
+        tester,
+        identity=peer,
+        peer_irk=bytes(16) if zero_peer else privacy_peer.PEER_IRK,
+        device=device,
+        enabled=not disabled,
+    )
+    if scenario == 'resolution_disabled':
+        for index in (1, 2):
+            other = hci.Address(bytes([index]) + bytes(peer)[1:], 0)
+            await privacy_peer.add_peer(
+                tester,
+                identity=other,
+                peer_irk=bytes(16),
+                local_irk=bytes([index]) * 16,
+                enabled=False,
+            )
+            await tester.command(
+                hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(0, other)
+            )
+        await tester.command(
+            hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(0, peer)
+        )
+
+    async def initiate():
+        await tester.command(
+            create_connection(
+                own_address_type=own_type,
+                peer_address_type=0,
+                peer_address=peer,
+                initiator_filter_policy=int(scenario == 'resolution_disabled'),
+                le_scan_interval=INITIATING_SCAN_INTERVAL,
+                le_scan_window=INITIATING_SCAN_INTERVAL,
+                connection_interval_min=CONNECTION_INTERVAL,
+                connection_interval_max=CONNECTION_INTERVAL,
+                supervision_timeout=SUPERVISION_TIMEOUT,
+            )
+        )
+
+    await initiate()
+    directed = scenario in (
+        'directed_peer',
+        'wrong_target',
+        'identity_target',
+        'ignore_directed',
+        'device_directed',
+    )
+    address = (
+        peer
+        if zero_peer or device or scenario.startswith('ignore')
+        else privacy_peer.private_address(privacy_peer.PEER_IRK)
+    )
+    target = (
+        (
+            DUT_ADDRESS
+            if own_type == 0
+            else privacy_peer.private_address(privacy_peer.LOCAL_IRK)
+        )
+        if directed
+        else None
+    )
+    if scenario.startswith('ignore'):
+        await _privacy_initiating_advertisement(
+            tester, address, peer, target=target, own_type=own_type, reject=True
+        )
+        await tester.command(hci.HCI_LE_Create_Connection_Cancel_Command())
+        return
+    if scenario in ('peer', 'directed_peer'):
+        await _privacy_initiating_advertisement(
+            tester,
+            privacy_peer.private_address(bytes(range(16))),
+            peer,
+            target=target,
+            own_type=own_type,
+            reject=True,
+        )
+    if scenario in ('wrong_target', 'identity_target'):
+        bad = (
+            DUT_ADDRESS
+            if scenario == 'identity_target'
+            else privacy_peer.private_address(bytes(range(16)))
+        )
+        await _privacy_initiating_advertisement(
+            tester, address, peer, target=bad, own_type=own_type, reject=True
+        )
+    previous = None
+    for iteration in range(2 if scenario in ('wrong_target', 'identity_target') else 1):
+        if iteration:
+            await initiate()
+        link, local = await _privacy_initiating_advertisement(
+            tester, address, peer, target=target, own_type=own_type
+        )
+        if previous is not None:
+            assert local != previous
+        previous = local
+        await _data_events(tester, link, 1 if scenario == 'local_only' else 100)
+        await link.disconnect(local=True)
+
+
+async def privacy_initiation_local_irk(tester):
+    """Privacy initiation local irk.
+
+    Initial Condition:
+        Standby; shared IRKs and public peer identity as configured by the source.
+
+    Test Steps:
+        Configure identity advertising, add a zero Peer IRK and nonzero Local
+        IRK, enable initiation, receive CONNECT_IND with local RPA, check
+        Enhanced Connection Complete and CSA event zero, then exchange the first
+        data packet.
+
+    Expected Outcome:
+        Every negative phase remains silent; positive phases complete the specified
+        RPA/address checks, Host events and independently timed data exchanges.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.6, PDF pages 535-537, Table 4.3-17;
+        Core Vol 6, Part B, 4.7 and 6.4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_initiating_scenario(tester, scenario='local_only')
+
+
+async def privacy_initiation_peer_resolution(tester):
+    """Privacy initiation peer resolution.
+
+    Initial Condition:
+        Standby; shared IRKs and public peer identity as configured by the source.
+
+    Test Steps:
+        Steps 1-7: advertise an RPA generated with the wrong IRK for at least
+        four scan intervals plus three scan windows and verify no CONNECT_IND.
+        Steps 8-16: switch to a valid peer RPA, receive CONNECT_IND, verify
+        Enhanced Connection Complete with peer identity and RPA, CSA event zero,
+        100 data events and local disconnection.
+
+    Expected Outcome:
+        Every negative phase remains silent; positive phases complete the specified
+        RPA/address checks, Host events and independently timed data exchanges.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.7, PDF pages 537-539, Table 4.3-18;
+        Core Vol 6, Part B, 4.7 and 6.4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_initiating_scenario(tester, scenario='peer')
+
+
+async def privacy_initiation_directed_peer(tester):
+    """Privacy initiation directed peer.
+
+    Initial Condition:
+        Standby; shared IRKs and public peer identity as configured by the source.
+
+    Test Steps:
+        Steps 1-7: advertise directed events to the local public identity with
+        an unresolved peer RPA for twenty advertising intervals. Steps 8-16:
+        switch to a resolvable peer RPA, check unchanged wire AdvA and public
+        InitA in CONNECT_IND, Enhanced Connection Complete, CSA event zero, 100
+        data events and local disconnection.
+
+    Expected Outcome:
+        Every negative phase remains silent; positive phases complete the specified
+        RPA/address checks, Host events and independently timed data exchanges.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.8, PDF pages 540-542, Table 4.3-19;
+        Core Vol 6, Part B, 4.7 and 6.4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_initiating_scenario(tester, scenario='directed_peer')
+
+
+async def privacy_initiation_wrong_target(tester):
+    """Privacy initiation wrong target.
+
+    Initial Condition:
+        Standby; shared IRKs and public peer identity as configured by the source.
+
+    Test Steps:
+        Steps 1-7: install mutual IRKs and advertise valid peer RPAs with a
+        wrong-IRK TargetA for twenty intervals; require no CONNECT_IND. Steps
+        8-15: use a correct TargetA, verify generated local RPA differs from
+        TargetA, Enhanced Connection Complete, CSA zero and 100 data events.
+        Steps 16-18: retain the connection beyond the one-second RPA timeout,
+        disconnect, repeat initiation and require a new InitA.
+
+    Expected Outcome:
+        Every negative phase remains silent; positive phases complete the specified
+        RPA/address checks, Host events and independently timed data exchanges.
+
+    Source Correction:
+        The source calls the directed advertisement's target InitA. Core Vol 6,
+        Part B, 2.3.1.2 names that field TargetA; InitA belongs to CONNECT_IND.
+        Use the Core field name. This is a local correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.9, PDF pages 543-545, Table 4.3-20;
+        Core Vol 6, Part B, 4.7 and 6.4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_initiating_scenario(tester, scenario='wrong_target')
+
+
+async def privacy_initiation_identity_target(tester):
+    """Privacy initiation identity target.
+
+    Initial Condition:
+        Standby; shared IRKs and public peer identity as configured by the source.
+
+    Test Steps:
+        Steps 1-6: initiate with own type 2 and advertise valid peer RPAs
+        directed to the local public identity for twenty intervals; require no
+        CONNECT_IND. Steps 7-14: replace TargetA with an RPA resolving with
+        Local IRK, verify local RPA in CONNECT_IND, Enhanced Connection
+        Complete, CSA zero and 100 data events. Steps 15-17: disconnect after
+        timeout, reconnect and verify renewed InitA.
+
+    Expected Outcome:
+        Every negative phase remains silent; positive phases complete the specified
+        RPA/address checks, Host events and independently timed data exchanges.
+
+    Source Correction:
+        The source calls the directed advertisement's target InitA. Core Vol 6,
+        Part B, 2.3.1.2 names that field TargetA; InitA belongs to CONNECT_IND.
+        Use the Core field name. This is a local correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.10, PDF pages 546-548, Table 4.3-21;
+        Core Vol 6, Part B, 4.7 and 6.4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_initiating_scenario(tester, scenario='identity_target')
+
+
+async def privacy_initiation_device_identity(tester):
+    """Privacy initiation device identity.
+
+    Initial Condition:
+        Standby; shared IRKs and public peer identity as configured by the source.
+
+    Test Steps:
+        Steps 1-5: install the peer IRK in device privacy mode, enable
+        initiation and advertise the peer identity until CONNECT_IND. Steps
+        6-12: verify the identity in Enhanced Connection Complete, CSA zero, 100
+        data exchanges and local termination.
+
+    Expected Outcome:
+        Every negative phase remains silent; positive phases complete the specified
+        RPA/address checks, Host events and independently timed data exchanges.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.15, PDF pages 562-564, Table 4.3-29;
+        Core Vol 6, Part B, 4.7 and 6.4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_initiating_scenario(tester, scenario='device')
+
+
+async def privacy_initiation_device_directed(tester):
+    """Privacy initiation device directed.
+
+    Initial Condition:
+        Standby; shared IRKs and public peer identity as configured by the source.
+
+    Test Steps:
+        Steps 1-5: install device privacy mode, enable initiation with a public
+        local identity and advertise the peer identity directed to it. Steps
+        6-12: verify identity addresses in CONNECT_IND and Enhanced Connection
+        Complete, CSA zero, 100 data exchanges and local termination.
+
+    Expected Outcome:
+        Every negative phase remains silent; positive phases complete the specified
+        RPA/address checks, Host events and independently timed data exchanges.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.16, PDF pages 564-566, Table 4.3-30;
+        Core Vol 6, Part B, 4.7 and 6.4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_initiating_scenario(tester, scenario='device_directed')
+
+
+async def privacy_initiation_resolution_disabled(tester):
+    """Privacy initiation resolution disabled.
+
+    Initial Condition:
+        Standby; shared IRKs and public peer identity as configured by the source.
+
+    Test Steps:
+        Steps 1-4: add the peer with zero Peer IRK and valid Local IRK, plus two
+        other records with distinct Local IRKs and three accept-list entries;
+        keep resolution disabled. Steps 5-11: initiate with own type 2 and
+        policy 1, advertise the peer identity and verify InitA resolves with
+        that peer record's Local IRK, Enhanced Connection Complete and CSA zero.
+        Steps 12-14: exchange data and terminate.
+
+    Expected Outcome:
+        Every negative phase remains silent; positive phases complete the specified
+        RPA/address checks, Host events and independently timed data exchanges.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.18, PDF pages 573-575, Table 4.3-32;
+        Core Vol 6, Part B, 4.7 and 6.4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_initiating_scenario(tester, scenario='resolution_disabled')
+
+
+async def privacy_initiation_reject_identity(tester, *, directed=False, enabled=True):
+    """Network Privacy: Connection Establishment, Ignore Identity Address.
+
+    Initial Condition:
+        A nonzero Peer IRK is associated with the public peer identity in network
+        privacy mode. Address resolution is enabled or disabled per Table 4.3-28.
+
+    Test Steps:
+        1-3. Configure identity advertising, populate the resolving list and
+             start initiation using the peer identity and local private address.
+        4-6. Send ADV_IND or directed ADV_DIRECT_IND for twenty advertising
+             intervals; verify no CONNECT_IND or connection event is produced.
+        7. Stop advertising and cancel the pending initiation as postamble.
+
+    Expected Outcome:
+        Network mode rejects peer identity advertising even with resolution off.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.14, PDF pages 560-562, Table 4.3-28,
+        Figure 4.3-34; Core Vol 6, Part B, 4.7 and 6.4.
+    """
+    scenario = (
+        'ignore_directed' if directed else 'ignore' if enabled else 'ignore_disabled'
+    )
+    await _privacy_initiating_scenario(tester, scenario=scenario)
+
+
+async def decision_initiation_phys(tester, *, phy):
+    """Extended Scanning, Connection Initiation, Decision-Based Advertising.
+
+    Initial Condition:
+        Public local and peer addresses; Table 4.3-22 selects the primary and
+        secondary PHYs and continuous scanning interval/window 0x10.
+
+    Test Steps:
+        1-3. Install one all-outcomes decision instruction, initiate with policy 2,
+             and advertise connectable decisions with six arbitrary data octets.
+        4-6. Verify AUX_CONNECT_REQ at T_IFS, send AUX_CONNECT_RSP, and check
+             Enhanced Connection Complete immediately followed by CSA#2 event.
+        7-11. Verify the first transmit window, 100 data events with per-event and
+              accumulated drift checks, then terminate the Central connection.
+        12. Repeat, withholding the first response and requiring a second request.
+
+    Expected Outcome:
+        Both attempts establish on the selected PHY, with a valid Access Address,
+        proper T_IFS/window timing and all 100 data exchanges; the missing first
+        response leaves initiation pending for the retry.
+
+    Reference:
+        LL.TS.p28, Section 4.3.4.11, PDF pages 549-552, Tables 4.3-22/23,
+        Figure 4.3-31; Core Vol 6, Part B, 4.4.4.2, 4.4.3.6 and 4.5.3.
+    """
+    for retry in (False, True):
+        link = await _initiate_auxiliary(tester, phy=phy, retry=retry, decision=True)
+        await _central_timing_events(
+            tester,
+            link,
+            TIMING_EVENTS,
+            window_delay_us=LL_CONN_AUX_WINDOW_DELAY_CODED_US
+            if phy == Phy.LE_CODED
+            else LL_CONN_AUX_WINDOW_DELAY_UNCODED_US,
+        )
+        await link.disconnect(local=True)
+
+
+async def _decision_initiating_observation(
+    tester, *, decision=True, data=b'\0ABCD', expected
+):
+    deadline = tester.radio.now_us + 200_030
+    attempt = 0
+    found = False
+    while tester.radio.now_us < deadline:
+        start = tester.radio.now_us + 100
+        await tester.transmit(
+            37 + attempt % 3,
+            ext_pdu(
+                kind=AdvertisingPduType.ADV_DECISION_IND
+                if decision
+                else AdvertisingPduType.ADV_EXT_IND,
+                mode=1,
+                adi=0x3000,
+                aux=aux_pointer(0, 900),
+                data=data if decision else b'',
+            ),
+            start_us=start,
+        )
+        await tester.transmit(
+            0,
+            ext_pdu(address=LOWER_PERIPHERAL_PUBLIC_ADDRESS, mode=1, adi=0x3000),
+            start_us=start + 900,
+        )
+        request = await tester.receive(0, duration_us=500)
+        if request is not None:
+            assert expected, 'AUX_CONNECT_REQ sent for a failed decision/policy'
+            assert request.pdu[0] & 15 == AdvertisingPduType.CONNECT_IND
+            assert request.pdu[2:14] == bytes(DUT_ADDRESS) + bytes(
+                LOWER_PERIPHERAL_PUBLIC_ADDRESS
+            )
+            found = True
+            break
+        attempt += 1
+        await tester.wait(max(0, start + 20_003 - tester.radio.now_us))
+    assert found == expected
+    await tester.command(hci.HCI_LE_Create_Connection_Cancel_Command())
+    event = await tester.event(hci.HCI_LE_Enhanced_Connection_Complete_Event)
+    assert event.status != 0
+
+
+async def decision_initiation_field_checks(tester):
+    """Extended Scanning, Connection Initiation, Decision-Based Advertising checks.
+
+    Initial Condition:
+        Public addresses; explicit decision-only initiation on LE 1M.
+
+    Test Steps:
+        Repeat steps 1-5 for every Table 4.3-37 round: install the field and
+        parameters with Test_Flags 3, initiate with policy 2 and interval/window
+        0x10, advertise the specified connectable decision payload, and require
+        AUX_CONNECT_REQ only for passing rounds. Withhold its response; rejected
+        rounds are observed for ten advertising intervals. Cancel and verify
+        successful Command Complete followed by failed Enhanced Connection Complete.
+
+    Expected Outcome:
+        Rounds 1, 5, 7, 9 and 10 attempt connections; the others remain silent.
+
+    Source Correction:
+        The source mentions General_Flags, absent from Core Vol 4, Part E,
+        7.8.145; omit it. Several row labels say fields 19/35/51 while their
+        numeric columns specify 20/36/52; use the numeric columns, which match
+        four-octet presence and the listed outcomes. These are local corrections,
+        not adopted SIG errata.
+
+    Reference:
+        LL.TS.p28, CON/INI/BV-33-C, PDF pages 585-588, Table 4.3-37;
+        Core Vol 4, Part E, 7.8.145/66; Vol 6, Part B, 4.4.3.6.
+    """
+    vectors = flag_vectors()
+    selected = [vectors[index - 1] for index in (1, 2, 3, 6, 7, 12, 13, 18, 19)]
+    for field, parameters, data, expected in [
+        *(
+            (vector.field, vector.parameters, vector.data, vector.result == 'P')
+            for vector in selected
+        ),
+        (6, b'\2' + bytes(15), b'\0', True),
+    ]:
+        await tester.command(
+            hci.HCI_LE_Set_Decision_Instructions_Command([3], [field], [parameters])
+        )
+        await tester.command(
+            create_connection(
+                extended=True,
+                initiator_filter_policy=2,
+                peer_address_type=0,
+                peer_address=LOWER_PERIPHERAL_PUBLIC_ADDRESS,
+                scan_intervals=[16],
+                scan_windows=[16],
+            )
+        )
+        await _decision_initiating_observation(tester, data=data, expected=expected)
+
+
+async def decision_initiation_filter_policy(tester):
+    """Extended Scanning, Connection Initiation, Decision-Based Advertising policy.
+
+    Initial Condition:
+        Public advertiser identity; a separate random address is used as the
+        nonmatching accept-list entry.
+
+    Test Steps:
+        Repeat steps 1-7 for all nine Table 4.3-38 rounds: clear/add the specified
+        accept-list entry, install field 20 masked ABCD comparison, initiate with
+        policy 2/3/4 and interval/window 0x10, send ordinary or decision primary
+        PDUs pointing to connectable AUX_ADV_IND. For passing rounds observe a
+        request without replying; for failing rounds observe ten advertising
+        intervals without a request. Cancel and check the failed completion event.
+
+    Expected Outcome:
+        Requests occur in rounds 2, 4, 5, 7, 8 and 9 only.
+
+    Source Correction:
+        Omit General_Flags, absent from Core Vol 4, Part E, 7.8.145. Interpret
+        the displayed mask/value in octet order as FF FF FF FF 00 00 00 00 and
+        41 42 43 44 00 00 00 00, consistent with the ABCD payload and that
+        section's field comparison. These are local clarifications, not SIG errata.
+
+    Reference:
+        LL.TS.p28, CON/INI/BV-34-C, PDF pages 589-591, Table 4.3-38;
+        Core Vol 4, Part E, 7.8.66/145; Vol 6, Part B, 4.3.4.
+    """
+    for listed, policy, decision, expected in [
+        (False, 2, False, False),
+        (False, 2, True, True),
+        (False, 3, True, False),
+        (True, 3, False, True),
+        (True, 3, True, True),
+        (False, 4, False, False),
+        (True, 4, False, True),
+        (False, 4, True, True),
+        (True, 4, True, True),
+    ]:
+        peer = LOWER_PERIPHERAL_PUBLIC_ADDRESS if listed else PEER_ADDRESS
+        await tester.command(hci.HCI_LE_Clear_Filter_Accept_List_Command())
+        await tester.command(
+            hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(peer.address_type, peer)
+        )
+        await tester.command(
+            hci.HCI_LE_Set_Decision_Instructions_Command(
+                [3],
+                [20],
+                [bytes.fromhex('ffffffff000000004142434400000000')],
+            )
+        )
+        await tester.command(
+            create_connection(
+                extended=True,
+                initiator_filter_policy=policy,
+                peer_address_type=0,
+                peer_address=LOWER_PERIPHERAL_PUBLIC_ADDRESS,
+                scan_intervals=[16],
+                scan_windows=[16],
+            )
+        )
+        await _decision_initiating_observation(
+            tester, decision=decision, expected=expected
+        )
 
 
 PROCEDURES: ProcedureMap = {}
@@ -17028,7 +17954,6 @@ PROCEDURES |= procedure_cases(
             {},
             marks=[
                 pytest.mark.limited,
-                pytest.mark.source_conflict,
             ],
         ),
     },
@@ -17184,13 +18109,7 @@ PROCEDURES |= procedure_cases(
 PROCEDURES |= procedure_cases(
     central_lost_negative_acknowledgement,
     {
-        'LL/CON/CEN/BV-17-C': pytest.param(
-            'Central Lost Negative Acknowledgement',
-            {},
-            marks=[
-                pytest.mark.source_conflict,
-            ],
-        ),
+        'LL/CON/CEN/BV-17-C': ('Central Lost Negative Acknowledgement', {}),
     },
 )
 
@@ -17555,13 +18474,7 @@ PROCEDURES |= procedure_cases(
 PROCEDURES |= procedure_cases(
     mandatory_minimum_pdu_length_le_coded_ll_con_cen_bv_55_c,
     {
-        'LL/CON/CEN/BV-55-C': pytest.param(
-            'Mandatory Minimum PDU Length, LE Coded',
-            {},
-            marks=[
-                pytest.mark.source_conflict,
-            ],
-        ),
+        'LL/CON/CEN/BV-55-C': ('Mandatory Minimum PDU Length, LE Coded', {}),
     },
 )
 
@@ -17968,235 +18881,242 @@ PROCEDURES |= procedure_cases(
 # Verify that the IUT rejects LL_LENGTH_RSP with invalid values in its selected role/PHY
 # and continues receiving Lower Tester data.
 PROCEDURES |= procedure_cases(
-    None,
+    data_length_update_invalid_parameters,
     {
-        'LL/CON/CEN/BI-07-C': pytest.param(
-            ('Data Length Update – Handling Invalid Data Length Responses – LE 1M PHY'),
+        f'LL/CON/{role}/BI-{number:02}-C': (
+            f'Data Length Update – Handling Invalid Data Length Responses – {name} PHY',
+            {'central': role == 'CEN', 'phy': phy, 'report_change': changed},
+        )
+        for role, base, changed in (
+            ('CEN', 7, False),
+            ('CEN', 24, True),
+            ('PER', 10, False),
+            ('PER', 31, True),
+        )
+        for offset, phy, name in (
+            (0, Phy.LE_1M, 'LE 1M'),
+            (1, Phy.LE_2M, 'LE 2M'),
+            (2, Phy.LE_CODED, 'LE Coded'),
+        )
+        for number in (base + offset,)
+    },
+)
+
+
+# Verify connection acceptance from decision advertising on each selected PHY. The
+# Lower Tester checks auxiliary requests, advertising termination, CSA#2 and Peripheral
+# data exchanges.
+PROCEDURES |= procedure_cases(
+    decision_advertising_accepting_connections,
+    {
+        f'LL/CON/ADV/BV-{number}-C': (
+            f'Decision-Based Advertising, Accepting Connections – {name} PHY',
+            {'phy': phy},
+        )
+        for number, phy, name in [
+            (17, Phy.LE_1M, 'LE 1M'),
+            (18, Phy.LE_2M, 'LE 2M'),
+            (19, Phy.LE_CODED, 'LE Coded'),
+        ]
+    },
+)
+
+# Verify that extended advertising accepts random static, non-resolvable private and
+# resolvable private initiator addresses, then maintains a Peripheral connection on
+# each selected PHY.
+PROCEDURES |= procedure_cases(
+    extended_advertising_random_initiator,
+    {
+        f'LL/CON/ADV/BV-{number}-C': (
+            'Extended Advertising, Accepting Connections with '
+            f'Random address – {name} PHY',
+            {'phy': phy},
+        )
+        for number, phy, name in [
+            (14, Phy.LE_1M, 'LE 1M'),
+            (15, Phy.LE_2M, 'LE 2M'),
+            (16, Phy.LE_CODED, 'LE Coded'),
+        ]
+    },
+)
+
+# Verify that an initiator with only a Local IRK preserves the received AdvA and
+# generates a resolvable private InitA in CONNECT_IND.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_local_irk,
+    {
+        'LL/CON/INI/BV-42-C': (
+            'Network Privacy – Connection Establishment responding to '
+            'connectable undirected advertising, Initiator, HCI LE Channel '
+            'Selection Algorithm supported',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/CEN/BI-08-C': pytest.param(
-            ('Data Length Update – Handling Invalid Data Length Responses – LE 2M PHY'),
+    },
+)
+
+# Verify that initiation ignores an unresolved peer RPA and connects after the Lower
+# Tester switches to an RPA matching the resolving list.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_peer_resolution,
+    {
+        'LL/CON/INI/BV-43-C': (
+            'Network Privacy – Connection Establishment using resolving list, '
+            'Initiator, HCI LE Channel Selection Algorithm supported',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/CEN/BI-09-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE Coded PHY'
-            ),
+    },
+)
+
+# Verify that initiation accepts directed advertising only after the peer RPA resolves,
+# while using the local public address as InitA.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_directed_peer,
+    {
+        'LL/CON/INI/BV-44-C': (
+            'Network Privacy – Connection Establishment using directed '
+            'advertising and resolving list, Initiator, HCI LE Channel '
+            'Selection Algorithm supported',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/CEN/BI-24-C': pytest.param(
-            ('Data Length Update – Handling Invalid Data Length Responses – LE 1M PHY'),
+    },
+)
+
+# Verify rejection of directed advertising with an unresolvable TargetA, connection
+# with a valid target, and local RPA renewal after timeout.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_wrong_target,
+    {
+        'LL/CON/INI/BV-45-C': (
+            'Network Privacy – Connection Establishment using directed '
+            'advertising with wrong address and resolving list, Initiator, HCI '
+            'LE Channel Selection Algorithm supported',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/CEN/BI-25-C': pytest.param(
-            ('Data Length Update – Handling Invalid Data Length Responses – LE 2M PHY'),
+    },
+)
+
+# Verify that private initiation rejects directed advertising targeting the local
+# identity, accepts a resolvable TargetA, and renews InitA after timeout.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_identity_target,
+    {
+        'LL/CON/INI/BV-46-C': (
+            'Network Privacy – Connection Establishment using directed '
+            'advertising with identity address and resolving list, Initiator, '
+            'HCI LE Channel Selection Algorithm supported',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/CEN/BI-26-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE Coded PHY'
-            ),
+    },
+)
+
+# Verify that device privacy permits connection to a peer advertising its identity
+# address despite an associated Peer IRK in the resolving list.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_device_identity,
+    {
+        'LL/CON/INI/BV-47-C': (
+            'Device Privacy – Connection Establishment using resolving list, '
+            'Initiator, Accept Identity Address, HCI LE Channel Selection '
+            'Algorithm supported',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/PER/BI-10-C': pytest.param(
-            ('Data Length Update – Handling Invalid Data Length Responses – LE 1M PHY'),
+    },
+)
+
+# Verify that device privacy permits connection to directed advertising from a peer
+# using its identity address despite an associated Peer IRK.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_device_directed,
+    {
+        'LL/CON/INI/BV-48-C': (
+            'Device Privacy – Connection Establishment using directed '
+            'advertising and resolving list, Initiator, Accept Identity '
+            'Address, HCI LE Channel Selection Algorithm supported',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/PER/BI-11-C': pytest.param(
-            ('Data Length Update – Handling Invalid Data Length Responses – LE 2M PHY'),
+    },
+)
+
+# Verify that initiation with address resolution disabled still matches a peer identity
+# in the Filter Accept List despite a stored Local IRK.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_resolution_disabled,
+    {
+        'LL/CON/INI/BV-49-C': (
+            'Network Privacy – Connection Establishment using Filter Accept '
+            'List and resolving list with address resolution disabled, HCI LE '
+            'Channel Selection Algorithm supported',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/PER/BI-12-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE Coded PHY'
-            ),
+    },
+)
+
+# Verify that network privacy rejects peer identity advertising with an associated Peer
+# IRK, for directed or undirected events and with resolution enabled or disabled.
+PROCEDURES |= procedure_cases(
+    privacy_initiation_reject_identity,
+    {
+        'LL/CON/INI/BV-18-C': (
+            'Network Privacy – Connection Establishment using resolving list, '
+            'Initiator, Ignore Identity Address',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
         ),
-        'LL/CON/PER/BI-31-C': pytest.param(
-            ('Data Length Update – Handling Invalid Data Length Responses – LE 1M PHY'),
-            {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
+        'LL/CON/INI/BV-19-C': (
+            'Network Privacy – Connection Establishment using directed '
+            'advertising and resolving list, Initiator, Ignore Identity '
+            'Address',
+            {'directed': True},
         ),
-        'LL/CON/PER/BI-32-C': pytest.param(
-            ('Data Length Update – Handling Invalid Data Length Responses – LE 2M PHY'),
-            {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
+        'LL/CON/INI/BV-24-C': (
+            'Network Privacy – Connection Establishment using resolving list, '
+            'Initiator, Ignore Identity Address, with address resolution '
+            'disabled',
+            {'enabled': False},
         ),
-        'LL/CON/PER/BI-33-C': pytest.param(
-            (
-                'Data Length Update – Handling Invalid Data Length '
-                'Responses – LE Coded PHY'
-            ),
+    },
+)
+
+
+# Verify that an initiator follows decision advertising and establishes a Central
+# connection on each selected PHY. The Lower Tester checks CSA#2 and subsequent data-
+# channel traffic.
+PROCEDURES |= procedure_cases(
+    decision_initiation_phys,
+    {
+        f'LL/CON/INI/BV-{number}-C': (
+            f'Extended Scanning, Connection Initiation – {name} PHY, '
+            'Decision-Based Advertising',
+            {'phy': phy},
+        )
+        for number, phy, name in [
+            (30, Phy.LE_1M, 'LE 1M'),
+            (31, Phy.LE_2M, 'LE 2M'),
+            (32, Phy.LE_CODED, 'LE Coded'),
+        ]
+    },
+)
+
+# Verify that an initiator sends no connection request when the relevant decision-data
+# field fails its configured check.
+PROCEDURES |= procedure_cases(
+    decision_initiation_field_checks,
+    {
+        'LL/CON/INI/BV-33-C': (
+            'Extended Scanning, Connection Initiation, Decision-Based Advertising',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-                pytest.mark.skip(
-                    reason=(
-                        'Source ambiguity: LL.TS.p28 4.3.7.35, PDF 978-982. '
-                        'Table 4.3-117 does not select Step 4A/4B; Table '
-                        '4.3-116 ALT 5 conflicts with the event-dependent Step'
-                        ' 5. The retry count and final valid-values reference '
-                        'also conflict. Core and Amber do not uniquely resolve'
-                        ' these branches; no source-faithful verdict is '
-                        'claimed.'
-                    ),
-                ),
-            ],
+        ),
+    },
+)
+
+# Verify that extended initiation applies each selected Initiator Filter Policy to
+# decision and non-decision advertising and Filter Accept List membership.
+PROCEDURES |= procedure_cases(
+    decision_initiation_filter_policy,
+    {
+        'LL/CON/INI/BV-34-C': (
+            'Extended Scanning, Connection Initiation, Decision-Based Advertising, '
+            'Initiator Filter Policy',
+            {},
         ),
     },
 )

@@ -567,11 +567,11 @@ def test_active_scan_respects_filter_policy(iut):
         (dict(le_scan_interval=0x4001), ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR),
         (dict(le_scan_window=WINDOW + 1), ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR),
         (
-            dict(own_address_type=2),
+            dict(own_address_type=4),
             ErrorCode.UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE_ERROR,
         ),
         (
-            dict(scanning_filter_policy=2),
+            dict(scanning_filter_policy=4),
             ErrorCode.UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE_ERROR,
         ),
     ],

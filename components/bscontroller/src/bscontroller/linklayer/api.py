@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from bscontroller.address import Address, AddressType
+from bscontroller.address import Address, AddressType, OwnAddressType
 from bscontroller.linklayer import (
     LL_ADV_PRIMARY_CHANNEL_MAP_ALL,
     AdvertisingMode,
@@ -66,10 +66,16 @@ class AdvertisingConfig:
     anonymous: bool = False
     tx_power_dbm: int = 0
     include_tx_power: bool = False
+    own_address_type: int = OwnAddressType.PUBLIC
+    privacy_peer: Address | None = None
+    decision: bool = False
+    decision_address: bool = False
+    decision_adi: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'address', AddressSnapshot(self.address))
         object.__setattr__(self, 'target', address_snapshot(self.target))
+        object.__setattr__(self, 'privacy_peer', address_snapshot(self.privacy_peer))
 
 
 @dataclass(frozen=True)
@@ -129,6 +135,8 @@ class ConnectionSnapshot:
     advertising_handle: int | None
     advertising_events: int
     csa2: bool
+    peer_rpa: AddressSnapshot | None = None
+    local_rpa: AddressSnapshot | None = None
 
 
 def connection_snapshot(connection: Connection) -> ConnectionSnapshot:
@@ -149,6 +157,8 @@ def connection_snapshot(connection: Connection) -> ConnectionSnapshot:
         connection.advertising_handle,
         connection.advertising_events,
         connection.csa2,
+        address_snapshot(connection.peer_rpa),
+        address_snapshot(connection.local_rpa),
     )
 
 
@@ -191,6 +201,8 @@ class ScanningSnapshot:
     deadline_us: int
     filter_policy: int
     backoff: ScanBackoffSnapshot
+    own_address_type: int = OwnAddressType.PUBLIC
+    extended: bool = False
 
 
 @dataclass(frozen=True)
@@ -200,6 +212,7 @@ class InitiatingConfig:
     windows: tuple[ScanWindowConfig, ...]
     phy_parameters: tuple[tuple[Phy, Parameters], ...]
     filter_policy: int = 0
+    own_address_type: int = OwnAddressType.PUBLIC
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'address', AddressSnapshot(self.address))

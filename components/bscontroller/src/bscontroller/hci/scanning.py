@@ -34,12 +34,29 @@ from bscontroller.hci.context import (
 )
 from bscontroller.linklayer import PDU_ADV_ADDRESS_SIZE, PDU_ADV_ADI_SID_MAX
 from bscontroller.linklayer.api import PeriodicSyncConfig, ScanWindowConfig
+from bscontroller.linklayer.filtering import (
+    EXTENDED_SCANNING_FILTER_POLICIES,
+    LEGACY_SCANNING_FILTER_POLICIES,
+)
 from bscontroller.radio.base import Phy
 
 SyncOptions = hci.HCI_LE_Periodic_Advertising_Create_Sync_Command.Options
 
 
 class LeScanningCommands(LeControllerContext):
+    def on_hci_le_set_decision_instructions_command(self, command):
+        """Set reception decision tests (Core Vol 4, Part E, 7.8.145).
+
+        Scanning and initiating share the LL decision program. Configure it
+        synchronously before returning Command Complete: LL validates all tests
+        before replacing the immutable tuple, so each PDU uses one whole program.
+        """
+        return hci.HCI_StatusReturnParameters(
+            self.ll.decision.configure(
+                command.test_flags, command.test_fields, command.test_parameters
+            )
+        )
+
     def _scan_parameters(
         self,
         own,
@@ -48,6 +65,7 @@ class LeScanningCommands(LeControllerContext):
         interval,
         window,
         maximum_interval=HCI_LE_SCAN_INTERVAL_MAX,
+        extended=False,
     ):
         """Validate and replace the saved scan configuration in scheduler units.
 
@@ -57,10 +75,11 @@ class LeScanningCommands(LeControllerContext):
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if scan_type not in (0, 1):
             return hci.HCI_StatusReturnParameters(INVALID)
-        if own not in (
-            hci.OwnAddressType.PUBLIC,
-            hci.OwnAddressType.RANDOM,
-        ) or policy not in (0, 1):
+        if own not in tuple(hci.OwnAddressType) or policy not in (
+            EXTENDED_SCANNING_FILTER_POLICIES
+            if extended
+            else LEGACY_SCANNING_FILTER_POLICIES
+        ):
             return hci.HCI_StatusReturnParameters(UNSUPPORTED)
         if not HCI_LE_SCAN_INTERVAL_MIN <= window <= interval <= maximum_interval:
             return hci.HCI_StatusReturnParameters(INVALID)
@@ -72,6 +91,8 @@ class LeScanningCommands(LeControllerContext):
             window * HCI_LE_SCAN_INTERVAL_UNIT_US,
             bool(scan_type),
             policy,
+            own_address_type=own,
+            extended=extended,
         )
         return hci.HCI_StatusReturnParameters(status)
 
@@ -136,6 +157,7 @@ class LeScanningCommands(LeControllerContext):
             command.scan_intervals[0],
             command.scan_windows[0],
             maximum_interval=HCI_LE_EXT_SCAN_INTERVAL_MAX,
+            extended=True,
         )
         if result.status == SUCCESS:
             self.extended_scan = True
@@ -171,8 +193,7 @@ class LeScanningCommands(LeControllerContext):
         # Start a new scan epoch with fresh duplicate-filter and backoff history.
         # The backoff follows the example in Vol 6, Part B, 4.4.3.2.
         self.seen.clear()
-        self.ll.enable_scanning(bool(enable))
-        return hci.HCI_StatusReturnParameters(SUCCESS)
+        return hci.HCI_StatusReturnParameters(self.ll.enable_scanning(bool(enable)))
 
     def on_hci_le_set_scan_enable_command(self, command):
         '''

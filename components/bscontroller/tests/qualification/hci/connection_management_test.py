@@ -6,19 +6,27 @@
 import pytest
 
 from bscontroller import hci
-from bscontroller.linklayer import LL_ADV_PRIMARY_CHANNELS
+from bscontroller.linklayer import (
+    LL_ADV_PRIMARY_CHANNELS,
+    LL_IFS_US,
+    AdvertisingPduType,
+)
 from bscontroller.radio.base import Phy
+from tests.qualification import privacy as privacy_peer
 from tests.qualification.cases import (
     ProcedureMap,
     collect_cases,
     procedure_cases,
     verify_case,
 )
-from tests.qualification.peer import establish
+from tests.qualification.peer import PeerLink, establish
 from tests.qualification.tester import (
     PEER_ADDRESS,
+    LinkParameters,
     adv_pdu,
+    aux_pointer,
     create_connection,
+    ext_pdu,
 )
 
 ErrorCode = hci.HCI_ErrorCode
@@ -233,6 +241,86 @@ async def reject_connected_peer(tester, *, extended=False):
     await link.disconnect(local=True)
 
 
+async def privacy_timeout_during_connection_response(tester):
+    """Extended Scanning with Device Privacy, RPA Timeout During Connection Initiation.
+
+    Initial Condition:
+        Mutual IRKs are configured; device privacy accepts identity advertising.
+        The Lower Tester uses its identity before rotating to a fresh peer RPA.
+
+    Test Steps:
+        1. Send Extended Create Connection with own type 2 and peer identity.
+        2. Advertise ADV_EXT_IND pointing to connectable AUX_ADV_IND on LE 1M.
+        3. Receive AUX_CONNECT_REQ and retain its actual InitA and AdvA.
+        4-5. Simulate peer RPA timeout between request and response by replacing
+             identity AdvA with a newly generated valid RPA in AUX_CONNECT_RSP.
+        6. Receive LE Enhanced Connection Complete.
+
+    Expected Outcome:
+        Connection establishment succeeds. Peer_Address is the peer identity,
+        Peer_Resolvable_Private_Address is the response's new RPA, and
+        Local_Resolvable_Private_Address is the InitA actually transmitted.
+
+    Reference:
+        HCI.TS.p39, HCI/CM/BV-04-C, pages 282-283, Figure 4.136;
+        Core Vol 4, Part E, 7.7.65.10; Vol 6, Part B, 4.4.4.2 and 6.4.
+    """
+    await privacy_peer.add_peer(tester, device=True)
+    await tester.command(create_connection(extended=True, own_address_type=2))
+    rotated = privacy_peer.private_address(privacy_peer.PEER_IRK, 0x512345)
+    for attempt in range(20):
+        start = tester.radio.now_us + 1000
+        channel = 37 + attempt % 3
+        await tester.transmit(
+            channel,
+            ext_pdu(
+                mode=1,
+                adi=0x3000,
+                aux=aux_pointer(0, 900),
+            ),
+            start_us=start,
+        )
+        end = await tester.transmit(
+            0,
+            ext_pdu(
+                mode=1,
+                adi=0x3000,
+                address=PEER_ADDRESS,
+            ),
+            start_us=start + 900,
+        )
+        request = await tester.receive(0, duration_us=500)
+        if request is None:
+            continue
+        assert request.pdu[0] & 15 == AdvertisingPduType.CONNECT_IND
+        assert abs(request.start_us - end - LL_IFS_US) <= 2
+        local = hci.Address(request.pdu[2:8])
+        privacy_peer.check_private_address(local, privacy_peer.LOCAL_IRK)
+        assert request.pdu[8:14] == bytes(PEER_ADDRESS)
+        await tester.transmit(
+            0,
+            ext_pdu(
+                kind=AdvertisingPduType.AUX_CONNECT_RSP,
+                address=rotated,
+                target=local,
+            ),
+            start_us=request.end_us + LL_IFS_US,
+        )
+        event = await tester.event(hci.HCI_LE_Enhanced_Connection_Complete_Event)
+        assert event.status == 0 and event.role == hci.Role.CENTRAL
+        assert event.peer_address == PEER_ADDRESS and event.peer_address_type == 3
+        assert event.peer_resolvable_private_address == rotated
+        assert event.local_resolvable_private_address == local
+        parameters = LinkParameters.decode(request.pdu[14:])
+        link = PeerLink(tester, parameters, request.end_us, central=True, csa2=True)
+        link.anchor = request.end_us + 2500 + parameters.window_offset * 1250
+        link.handle = event.connection_handle
+        await link.exchange()
+        await link.disconnect(local=True)
+        return
+    raise AssertionError('AUX_CONNECT_REQ absent after twenty advertising events')
+
+
 PROCEDURES: ProcedureMap = {}
 
 # Verify the connection handle and current transmit/receive PHY from Read PHY.
@@ -283,6 +371,19 @@ PROCEDURES |= procedure_cases(
         'HCI/CM/BI-05-C': (
             'Connection Attempt Rejected When Connected to the Peer',
             {'extended': True},
+        ),
+    },
+)
+
+# Verify that Enhanced Connection Complete reports the actual local and peer addresses
+# when the peer RPA changes between AUX_CONNECT_REQ and AUX_CONNECT_RSP.
+PROCEDURES |= procedure_cases(
+    privacy_timeout_during_connection_response,
+    {
+        'HCI/CM/BV-04-C': (
+            'Extended Scanning with Device Privacy, '
+            'RPA Timeout During Connection Initiation',
+            {},
         ),
     },
 )

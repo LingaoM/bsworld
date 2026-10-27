@@ -37,6 +37,7 @@ class ConnectionAccepted:
     window_delay_us: int = LL_CONN_INTERVAL_UNIT_US
     phy: Phy = Phy.LE_1M
     initiator: Initiating | None = None
+    local_rpa: Address | None = None
 
 
 @dataclass(frozen=True)

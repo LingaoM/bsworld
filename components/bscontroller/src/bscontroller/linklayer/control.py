@@ -44,7 +44,7 @@ from bscontroller.linklayer.connection_parameters import (
 )
 from bscontroller.linklayer.data_length import DataLengthProcedure
 from bscontroller.linklayer.data_path import TransmissionConstraints
-from bscontroller.linklayer.features import LeFeatureMask
+from bscontroller.linklayer.features import FEATURES_NOT_SENT_TO_PEER, LeFeatureMask
 from bscontroller.linklayer.instant import InstantUpdate
 from bscontroller.linklayer.parameters import valid_channel_map
 from bscontroller.linklayer.phy import PhyProcedure
@@ -384,7 +384,7 @@ class ControlProcedures:
                     )
                 ]
             )
-            + self.connection.link.features.to_bytes(
+            + (self.connection.link.features & ~FEATURES_NOT_SENT_TO_PEER).to_bytes(
                 PDU_CONTROL_FEATURE_SET_SIZE, 'little'
             )
         )
@@ -446,8 +446,9 @@ class ControlProcedures:
             connection.peer_features = int.from_bytes(payload[1:], 'little')
             # Use the first-octet feature intersection and retain local higher octets
             # for FEATURE_RSP (Vol 6, Part B, 5.1.4.1; 5.1.4.2).
-            features = (connection.link.features & ~PHY_OCTET_MASK) | (
-                connection.link.features & payload[1]
+            local_features = connection.link.features & ~FEATURES_NOT_SENT_TO_PEER
+            features = (local_features & ~PHY_OCTET_MASK) | (
+                local_features & payload[1]
             )
             connection.enqueue_control(
                 bytes([Opcode.LL_FEATURE_RSP])

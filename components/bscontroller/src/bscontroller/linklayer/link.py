@@ -24,6 +24,7 @@ from bscontroller.linklayer import (
 )
 from bscontroller.linklayer.bitstream import generate_access_address
 from bscontroller.linklayer.connection import Connection
+from bscontroller.linklayer.decision import DecisionProgram
 from bscontroller.linklayer.discovery import (
     Advertising,
     Initiating,
@@ -33,6 +34,7 @@ from bscontroller.linklayer.discovery import (
 from bscontroller.linklayer.extended import ExtendedProcedures
 from bscontroller.linklayer.listener import Listener
 from bscontroller.linklayer.parameters import Parameters
+from bscontroller.linklayer.privacy import Privacy
 from bscontroller.linklayer.resource import RadioResourceManager
 from bscontroller.linklayer.roles import LinkRoles
 from bscontroller.linklayer.scheduler import first_radio_gap
@@ -66,6 +68,8 @@ class RadioLink:
         self.default_tx_phys = self.default_rx_phys = CONTROLLER_SUPPORTED_PHY_MASK
         self.seed = seed
         self.random = random.Random(seed)
+        self.privacy = Privacy(self)
+        self.decision = DecisionProgram(self)
         self.roles = LinkRoles(self)
         self.extended = ExtendedProcedures(self)
         self.resource = RadioResourceManager(
@@ -108,6 +112,8 @@ class RadioLink:
         self.roles.reset()
         self.resource.deadline_us = None
         self.random.seed(self.seed)
+        self.privacy.reset()
+        self.decision.tests = ()
         self.accept_list.clear()
         self.periodic_advertiser_list.clear()
         self.default_tx_octets = PDU_DATA_PAYLOAD_SIZE_MIN

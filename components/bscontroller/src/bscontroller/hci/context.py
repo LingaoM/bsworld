@@ -63,7 +63,7 @@ class LeControllerContext(LeControllerEvents):
     def _address(self, own_address_type: int):
         return (
             self.controller.random_address
-            if own_address_type == hci.OwnAddressType.RANDOM
+            if hci.OwnAddressType(own_address_type).uses_random_fallback
             else self.controller.public_address
         )
 

@@ -944,7 +944,7 @@ def test_high_duty_duration_is_bounded(host):
     'changes,status',
     [
         (
-            dict(own_address_type=2),
+            dict(own_address_type=4),
             ErrorCode.UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE_ERROR,
         ),
         (
@@ -961,7 +961,7 @@ def test_high_duty_duration_is_bounded(host):
             ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR,
         ),
         (
-            dict(advertising_event_properties=1 << 7),
+            dict(advertising_event_properties=1 << 10),
             ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR,
         ),
         (

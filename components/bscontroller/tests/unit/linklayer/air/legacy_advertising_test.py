@@ -775,7 +775,7 @@ def test_low_duty_directed_has_no_timeout(iut):
             ErrorCode.UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE_ERROR,
         ),
         (
-            dict(own_address_type=2),
+            dict(own_address_type=4),
             ErrorCode.UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE_ERROR,
         ),
         (dict(peer_address_type=2), ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR),

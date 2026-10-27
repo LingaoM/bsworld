@@ -163,3 +163,12 @@ class LeFeatureMask(CompatibleIntFlag):
         1 << LeFeature.SHORTER_CONNECTION_INTERVALS_HOST_SUPPORT
     )
     LE_FLUSHABLE_ACL_DATA = 1 << LeFeature.LE_FLUSHABLE_ACL_DATA
+
+
+# Core Vol 6, Part B, 4.6, Table 4.9: "Send to Peer = N". HCI reports
+# these capabilities, but an ACL Feature Exchange must transmit their bits as zero.
+FEATURES_NOT_SENT_TO_PEER = int(
+    LeFeatureMask.REMOTE_PUBLIC_KEY_VALIDATION
+    | LeFeatureMask.DECISION_BASED_ADVERTISING_FILTERING
+    | LeFeatureMask.CHANNEL_SOUNDING_TONE_QUALITY_INDICATION
+)

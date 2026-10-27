@@ -13,6 +13,7 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING
 
+from bscontroller.address import AddressType
 from bscontroller.errors import ErrorCode
 from bscontroller.linklayer import (
     LL_ADV_DELAY_MAX_US,
@@ -141,8 +142,17 @@ class ConnectionManager:
         )
 
     def can_accept(self, peer: Address) -> bool:
+        peer = self.link.privacy.identity(peer)
+        if peer is None:
+            return False
         return len(self.contexts) < self.link.config.max_connections and not any(
-            connection.peer == peer for connection in self.contexts.values()
+            (
+                self.link.privacy.identity(connection.peer, remember=False)
+                if connection.peer.is_resolvable
+                else connection.peer
+            )
+            == peer
+            for connection in self.contexts.values()
         )
 
     def release(self, connection: Connection) -> bool:
@@ -180,7 +190,7 @@ class ConnectionManager:
         connection = Connection(
             link,
             result.parameters,
-            result.peer,
+            link.privacy.identity(result.peer) or result.peer,
             result.role,
             result.end_us,
             csa2=result.csa2,
@@ -192,6 +202,14 @@ class ConnectionManager:
             connection.advertising_handle = advertising_handle
             connection.advertising_events = item.events
         self.contexts[connection.handle] = connection
+        connection.local_rpa = result.local_rpa
+        connection.peer_rpa = (
+            result.peer
+            if result.peer.is_resolvable
+            and connection.peer.address_type
+            in (AddressType.PUBLIC_IDENTITY, AddressType.RANDOM_IDENTITY)
+            else None
+        )
         connection.report_created()
         return connection
 
@@ -293,6 +311,14 @@ class AdvertisingManager:
     async def run(self, item: Advertising) -> None:
         """Prepare a complete event and commit its next advertising anchor."""
         link = self.link
+        item.address, generated = link.privacy.select_local_address(
+            item.own_address_type,
+            item.identity_address or item.address,
+            item.privacy_peer,
+        )
+        item.local_rpa = item.address if generated else None
+        if item.identity_target is not None:
+            item.target = link.privacy.target_address(item.identity_target)
         channel = next(
             channel
             for bit, channel in enumerate(LL_ADV_PRIMARY_CHANNELS)

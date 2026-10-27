@@ -4,7 +4,6 @@
 """HCI.TS.p39, Section 4.7: Device Discovery."""
 
 import random
-import warnings
 
 import pytest
 
@@ -690,8 +689,8 @@ async def invalid_extended_advertising_enable(tester):
 
     Reference:
         HCI.TS.p39.pdf, Section 4.7, independently titled procedure
-        HCI/DDI/BI-12-C; PDF/printed pages 74-75, steps 1-4.
-        Source reference [9], Section 7.8.56; Figure 4.35.
+        HCI/DDI/BI-12-C; PDF/printed pages 74-75, steps 1-4, Figure 4.35.
+        Source reference [9], Section 7.8.56.
     """
     await tester.command(
         extended_parameters(
@@ -1435,8 +1434,8 @@ async def oversized_data(tester, *, response=False, phy=hci.Phy.LE_1M):
 
     Reference:
         HCI.TS.p39.pdf, Section 4.7.7, Table 4.22, steps 1-11;
-        HCI/DDI/BI-63-C through HCI/DDI/BI-66-C; PDF/printed pages 100-102.
-        Source reference [12], Sections 7.8.54 and 7.8.55; Figure 4.49.
+        HCI/DDI/BI-63-C through HCI/DDI/BI-66-C; PDF/printed pages 100-102,
+        Figure 4.49. Source reference [12], Sections 7.8.54 and 7.8.55.
     """
     capacity = (
         await tester.command(hci.HCI_LE_Read_Maximum_Advertising_Data_Length_Command())
@@ -1484,59 +1483,6 @@ async def oversized_data(tester, *, response=False, phy=hci.Phy.LE_1M):
             command(0, Operation.LAST_FRAGMENT, 0, generator.randbytes(1)),
             ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR,
         )
-
-
-async def invalid_decision_scan_parameters(tester):
-    """Reject LE Set Extended Scan Parameters with Invalid Scan_Filter_Policy
-    Parameters.
-
-    Initial Condition:
-        The IUT is not scanning and does not declare Decision-based Advertising
-        Filtering support. Check the reported feature mask before the procedure.
-
-    Test Steps:
-        1. Send valid Extended Scan Parameters with Scan_Filter_Policy bits
-           2 and 3 set to a value other than 0b00.
-        2. Require Command Complete with nonzero Status. If Status differs from
-           Unsupported Feature or Parameter Value (0x11), issue a warning.
-
-    Observation Setup:
-        Check the reported feature mask before the source steps. Exercise all
-        three nonzero choices of the two bits (01, 10, 11), retaining valid PHY,
-        timing and address parameters. The source does not number those choices
-        as separate steps; this implementation repeats steps 1 and 2 for each.
-
-    Expected Outcome:
-        Pass verdict: each command returns a nonzero status, matching opcode
-        and credit. The source prefers 0x11 but explicitly allows other errors.
-
-    Reference:
-        HCI.TS.p39.pdf, Section 4.7, independently titled HCI/DDI/BI-68-C;
-        PDF/printed page 102, steps 1-2.
-        Source reference [18], Section 7.8.64.
-    """
-    features = await tester.command(hci.HCI_LE_Read_Local_Supported_Features_Command())
-    assert (
-        not int.from_bytes(features.le_features, 'little')
-        & hci.LeFeatureMask.DECISION_BASED_ADVERTISING_FILTERING
-    )
-    for policy in (0b0100, 0b1000, 0b1100):
-        result = await tester.command(
-            scan_parameters(extended=True, scanning_filter_policy=policy),
-            tuple(
-                code
-                for code in ErrorCode
-                if code not in (ErrorCode.SUCCESS, ErrorCode.RESERVED_FOR_FUTURE_USE)
-            ),
-        )
-        if result.status != ErrorCode.UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE_ERROR:
-            warnings.warn(
-                (
-                    f'HCI/DDI/BI-68-C: expected preferred status 0x11, received '
-                    f'{result.status:#04x}'
-                ),
-                stacklevel=2,
-            )
 
 
 async def invalid_decision_advertising_parameters(tester):
@@ -1648,6 +1594,46 @@ PERIODIC_INCOMPATIBLE_PROPERTIES = (
     Properties.SCANNABLE_ADVERTISING,
     Properties.SCANNABLE_ADVERTISING | Properties.DIRECTED_ADVERTISING,
 )
+
+
+async def enable_without_random_address(tester, *, operation, own_types):
+    """Reject Invalid Enable Command.
+
+    Initial Condition:
+        Reset standby IUT; its LE Random Device Address has not been set.
+
+    Test Steps:
+        For each own-address type specified in Table 4.14:
+        1-2. Configure legacy/extended advertising or scanning and receive Success.
+        3-4. Enable the configured operation and receive Command Complete 0x12.
+
+    Expected Outcome:
+        Configuration succeeds, but enabling fails with Invalid HCI Command
+        Parameters because there is neither a random fallback nor a Local IRK.
+
+    Reference:
+        HCI.TS.p39, Section 4.7, BI-06/07/08/09/11-C, pages 73-74,
+        Table 4.14, Figure 4.34; Core Vol 4, Part E, 7.8.9/11/56/65.
+    """
+    for own_type in own_types:
+        await tester.command(hci.HCI_Reset_Command())
+        if operation == 'legacy_advertising':
+            configure = legacy_parameters(own_address_type=own_type)
+            enable = hci.HCI_LE_Set_Advertising_Enable_Command(1)
+        elif operation == 'extended_advertising':
+            configure = extended_parameters(own_address_type=own_type)
+            enable = extended_enable()
+        else:
+            extended = operation == 'extended_scanning'
+            configure = scan_parameters(extended=extended, own_address_type=own_type)
+            enable = (
+                hci.HCI_LE_Set_Extended_Scan_Enable_Command(1, 0, 0, 0)
+                if extended
+                else hci.HCI_LE_Set_Scan_Enable_Command(1, 0)
+            )
+        await tester.command(configure)
+        await tester.command(enable, ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR)
+
 
 PROCEDURES: ProcedureMap = {}
 
@@ -2321,20 +2307,6 @@ PROCEDURES |= procedure_cases(
     },
 )
 
-# Reject Decision-based Advertising filtering policies when unsupported.
-PROCEDURES |= procedure_cases(
-    invalid_decision_scan_parameters,
-    {
-        'HCI/DDI/BI-68-C': (
-            (
-                'Reject LE Set Extended Scan Parameters with Invalid '
-                'Scan_Filter_Policy Parameters'
-            ),
-            {},
-        ),
-    },
-)
-
 # Verify rejection of the three invalid Decision PDU property combinations.
 PROCEDURES |= procedure_cases(
     invalid_decision_advertising_parameters,
@@ -2391,6 +2363,29 @@ PROCEDURES |= procedure_cases(
                 ),
             ],
         ),
+    },
+)
+
+
+# Verify that advertising and scanning enable commands reject an unset random address
+# after successful parameter configuration.
+PROCEDURES |= procedure_cases(
+    enable_without_random_address,
+    {
+        f'HCI/DDI/BI-{number:02}-C': (
+            'Reject Invalid Enable Command',
+            {
+                'operation': operation,
+                'own_types': own_types,
+            },
+        )
+        for number, operation, own_types in [
+            (6, 'legacy_advertising', (3,)),
+            (7, 'legacy_scanning', (1, 3)),
+            (8, 'extended_advertising', (1,)),
+            (9, 'extended_advertising', (3,)),
+            (11, 'extended_scanning', (1, 3)),
+        ]
     },
 )
 

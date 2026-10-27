@@ -41,6 +41,10 @@ from bscontroller.linklayer import (
 )
 from bscontroller.linklayer.api import InitiatingConfig, ScanWindowConfig
 from bscontroller.linklayer.data_length import valid_data_length
+from bscontroller.linklayer.filtering import (
+    LEGACY_INITIATOR_FILTER_POLICIES,
+    InitiatorFilterPolicy,
+)
 from bscontroller.linklayer.parameters import (
     Parameters,
     valid_channel_map,
@@ -66,9 +70,13 @@ class LeConnectionCommands(LeControllerContext):
             self.controller._send_hci_command_status(status, command.op_code)
             return
         if (
-            command.initiator_filter_policy not in (0, 1)
-            or command.own_address_type
-            not in (hci.OwnAddressType.PUBLIC, hci.OwnAddressType.RANDOM)
+            command.initiator_filter_policy
+            not in (
+                tuple(InitiatorFilterPolicy)
+                if isinstance(command, hci.HCI_LE_Extended_Create_Connection_Command)
+                else LEGACY_INITIATOR_FILTER_POLICIES
+            )
+            or command.own_address_type not in tuple(hci.OwnAddressType)
             or command.peer_address_type
             not in (hci.AddressType.PUBLIC_DEVICE, hci.AddressType.RANDOM_DEVICE)
         ):
@@ -83,6 +91,7 @@ class LeConnectionCommands(LeControllerContext):
                 windows,
                 tuple(parameters.items()),
                 filter_policy=command.initiator_filter_policy,
+                own_address_type=command.own_address_type,
             )
         )
         self.controller._send_hci_command_status(status, command.op_code)

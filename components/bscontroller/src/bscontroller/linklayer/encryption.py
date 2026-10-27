@@ -186,6 +186,8 @@ class Encryption:
         self.enabled = not status
         self.last_authenticated_us = self.connection.radio.now_us
         self.stop_ping()
+        if status and self.connection.peer_rpa is not None:
+            self.connection.link.privacy.encryption_failed(self.connection.peer)
         self.listener.on_encryption_changed(self.connection, status, self.refresh)
         if status:
             self.security.tx_enabled = self.security.rx_enabled = False

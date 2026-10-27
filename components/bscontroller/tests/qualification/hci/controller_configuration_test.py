@@ -25,8 +25,12 @@ from tests.qualification.cases import (
 )
 from tests.qualification.peer import establish
 from tests.qualification.tester import (
+    PEER_ADDRESS,
     create_connection,
+    create_sync,
     extended_parameters,
+    legacy_parameters,
+    scan_parameters,
 )
 
 ErrorCode = hci.HCI_ErrorCode
@@ -532,50 +536,6 @@ async def invalid_periodic_parameters(tester):
     )
 
 
-async def invalid_initiator_filter_policy(tester):
-    """Reject LE Extended Create Connection with Invalid Initiator_Filter_Policy
-    Parameters.
-
-    Initial Condition:
-        The IUT is not scanning, has no pending initiation, and does not declare
-        Decision-based Advertising Filtering support.
-
-    Test Steps:
-        1. Send LE Extended Create Connection with Initiator_Filter_Policy
-           different from 0x00 and 0x01; all other parameters are valid.
-        2. Require Unsupported Feature or Parameter Value (0x11) for that command.
-
-    Observation Setup:
-        Verify the feature prerequisite through HCI before the source steps.
-        Repeat both steps for policies 2, 3 and 255. The source does not prescribe
-        separate numbered steps or additional requirements for those vectors.
-
-    Expected Outcome:
-        Pass verdict: Command Status with status 0x11, matching opcode and
-        one command credit is required for every selected negative vector.
-
-    Source Correction:
-        Step 2 and the verdict name Command Complete, but Core Vol 4, Part E,
-        Section 7.8.66 specifies Command Status for Extended Create Connection,
-        including this unsupported-policy error. Amber confirms this event-name
-        inconsistency; no adopted SIG erratum is claimed.
-
-    Reference:
-        HCI.TS.p39.pdf, Section 4.10, HCI/CCO/BI-72-C;
-        PDF/printed page 214, steps 1-2; source reference [18], Section 7.8.66.
-    """
-    features = await tester.command(hci.HCI_LE_Read_Local_Supported_Features_Command())
-    assert (
-        not int.from_bytes(features.le_features, 'little')
-        & hci.LeFeatureMask.DECISION_BASED_ADVERTISING_FILTERING
-    )
-    for policy in (2, 3, 255):
-        await tester.command(
-            create_connection(extended=True, initiator_filter_policy=policy),
-            ErrorCode.UNSUPPORTED_FEATURE_OR_PARAMETER_VALUE_ERROR,
-        )
-
-
 async def invalid_connection_event_lengths(tester):
     """LE Create Connection, Invalid Parameters.
 
@@ -607,6 +567,311 @@ async def invalid_connection_event_lengths(tester):
         create_connection(min_ce_length=1), ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR
     )
     await tester.command(hci.HCI_LE_Create_Connection_Cancel_Command())
+
+
+# Public IXIT values for this Controller configuration.
+EXPECTED_RESOLVING_LIST_SIZE = 16
+EXPECTED_DECISION_TESTS = 8
+PEER_IRK = bytes.fromhex('00112233445566778899aabbccddeeff')
+LOCAL_IRK = bytes.fromhex('ffeeddccbbaa99887766554433221100')
+
+
+def _resolving_add(address=PEER_ADDRESS, *, address_type=None):
+    return hci.HCI_LE_Add_Device_To_Resolving_List_Command(
+        address.address_type if address_type is None else address_type,
+        address,
+        PEER_IRK,
+        LOCAL_IRK,
+    )
+
+
+async def resolving_list_remove(tester, *, clear=False):
+    """Remove or clear resolving records in standby.
+
+    Initial Condition:
+        The IUT is in standby with address resolution disabled.
+
+    Test Steps:
+        The source describes an unnumbered procedure: add a valid peer identity,
+        receive successful Command Complete, then remove that identity or clear
+        the list and receive successful Command Complete.
+
+    Expected Outcome:
+        Both commands succeed with matching opcodes and one command credit.
+
+    Reference:
+        HCI.TS.p39, Section 4.10, BV-12-C/BV-13-C, pages 159-160,
+        Figures 4.87-4.88; Core Vol 4, Part E, 7.8.38-40.
+    """
+    await tester.command(_resolving_add())
+    await tester.command(
+        hci.HCI_LE_Clear_Resolving_List_Command()
+        if clear
+        else hci.HCI_LE_Remove_Device_From_Resolving_List_Command(1, PEER_ADDRESS)
+    )
+    # Observe removal through the public API, never by reading LL internals.
+    await tester.command(
+        hci.HCI_LE_Remove_Device_From_Resolving_List_Command(1, PEER_ADDRESS),
+        ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR,
+    )
+
+
+async def resolving_list_size(tester):
+    """Read resolving-list capacity.
+
+    Initial Condition:
+        The IUT is in standby.
+
+    Test Steps:
+        Send LE Read Resolving List Size and receive Command Complete.
+
+    Expected Outcome:
+        Success and Resolving_List_Size equals the declared IXIT capacity 16.
+
+    Reference:
+        HCI.TS.p39, Section 4.10, BV-14-C, page 161, Figure 4.89;
+        Core Vol 4, Part E, 7.8.41.
+    """
+    result = await tester.command(hci.HCI_LE_Read_Resolving_List_Size_Command())
+    assert result.resolving_list_size == EXPECTED_RESOLVING_LIST_SIZE
+
+
+async def resolving_list_busy(tester, *, role):
+    """Resolving List Commands fail when list in use.
+
+    Initial Condition:
+        Standby; add one valid peer and enable address resolution.
+
+    Test Steps:
+        1. Send the role configuration and enable commands in Table 4.38.
+        2. Send Add, Remove, Clear, Set Address Resolution Enable (both 0 and 1),
+           and Set Privacy Mode for both public and random identity types.
+
+    Test Case Configuration:
+        Advertising uses ADV_NONCONN_IND; scanning is active; initiation uses
+        explicit peer filtering; periodic acquisition uses Options zero.
+
+    Expected Outcome:
+        Role setup succeeds. Each of the seven list commands returns nonzero
+        status in Command Complete, as specified by the source verdict.
+
+    Reference:
+        HCI.TS.p39, Section 4.10.2, pages 173-175, Table 4.38, Figure 4.98;
+        Core Vol 4, Part E, 7.8.38-40, 7.8.44 and 7.8.77.
+    """
+    await tester.command(_resolving_add())
+    await tester.command(hci.HCI_LE_Set_Address_Resolution_Enable_Command(1))
+    if role == 'advertising':
+        await tester.command(legacy_parameters(advertising_type=3))
+        await tester.command(hci.HCI_LE_Set_Advertising_Enable_Command(1))
+    elif role == 'scanning':
+        await tester.command(scan_parameters(le_scan_type=1))
+        await tester.command(hci.HCI_LE_Set_Scan_Enable_Command(1, 0))
+    elif role == 'sync':
+        await tester.command(create_sync())
+    else:
+        await tester.command(create_connection(extended=role == 'extended'))
+    commands = [
+        _resolving_add(),
+        hci.HCI_LE_Remove_Device_From_Resolving_List_Command(1, PEER_ADDRESS),
+        hci.HCI_LE_Clear_Resolving_List_Command(),
+        hci.HCI_LE_Set_Address_Resolution_Enable_Command(0),
+        hci.HCI_LE_Set_Address_Resolution_Enable_Command(1),
+        hci.HCI_LE_Set_Privacy_Mode_Command(0, PEER_ADDRESS, 1),
+        hci.HCI_LE_Set_Privacy_Mode_Command(1, PEER_ADDRESS, 1),
+    ]
+    for command in commands:
+        await tester.command(command, tuple(range(1, 256)))
+
+
+async def resolving_list_duplicate(tester, *, change):
+    """LE Add Device To Resolving List: duplicate identity or Peer IRK.
+
+    Initial Condition:
+        The resolving list is empty and not in use.
+
+    Test Steps:
+        1-2. Add a valid identity and receive Success.
+        3-4. Repeat with identical values, a changed identity type, or a changed
+             identity address, retaining the same nonzero Peer IRK.
+        5-6. For changed identities, remove the proposed second identity; the
+             result is Unknown Connection Identifier after rejected addition,
+             or Success after an accepted addition (source alternatives 6A/6B).
+
+    Expected Outcome:
+        The repeated addition returns Success or a valid error. Removal follows
+        the corresponding source alternative.
+
+    Source Correction:
+        The Expected Outcome on page 194 says the second record is never added,
+        whereas step 6B explicitly permits successful removal after accepted
+        addition. Preserve both numbered alternatives; this DUT rejects and
+        takes 6A. Core Vol 4, Part E, 7.8.38 lets an identical four-parameter
+        repeat succeed or fail (O), and makes rejection of a duplicate identity
+        or non-zero Peer_IRK recommended with 0x12 if rejected (RC).
+        This is a local interpretation, not an adopted SIG erratum.
+
+    Reference:
+        HCI.TS.p39, Section 4.10.9, pages 193-194, Table 4.48, Figure 4.108;
+        Core Vol 4, Part E, 7.8.38-39.
+    """
+    await tester.command(_resolving_add())
+    address = (
+        hci.Address(bytes(PEER_ADDRESS), 0)
+        if change == 'type'
+        else (
+            hci.Address('C0:11:22:33:44:66', 1) if change == 'address' else PEER_ADDRESS
+        )
+    )
+    result = await tester.command(_resolving_add(address), tuple(range(256)))
+    if change != 'none':
+        await tester.command(
+            hci.HCI_LE_Remove_Device_From_Resolving_List_Command(
+                address.address_type, address
+            ),
+            ErrorCode.SUCCESS
+            if result.status == 0
+            else ErrorCode.UNKNOWN_CONNECTION_IDENTIFIER_ERROR,
+        )
+
+
+async def create_without_random_address(tester, *, extended, own_type, policy):
+    """Reject connection creation with an unset random fallback address.
+
+    Initial Condition:
+        Reset IUT, no random address and no usable Local IRK.
+
+    Test Steps:
+        1. Send Create Connection or Extended Create Connection with own address
+           type and filter policy from Table 4.50 or 4.51.
+        2. Accept Command Status 0x12, or successful Command Status followed by
+           Connection Complete (Enhanced for extended initiation) with 0x12.
+
+    Expected Outcome:
+        Invalid HCI Command Parameters is reported through either permitted path.
+
+    Source Correction:
+        The initial condition says Initiating State, although no earlier creation
+        command is specified. Start in standby so the command under test creates
+        the attempted initiation; otherwise Command Disallowed would mask the
+        random-address check. Core Vol 4, Part E, 7.8.12/66 defines this validation.
+        For BI-54/55/56, the Section 4.10.12 Expected Outcome on page 202 names
+        HCI_LE_Connection_Complete, whereas step 2B.2 names
+        HCI_LE_Enhanced_Connection_Complete. Core Vol 4, Part E, 7.8.66 generates
+        only the Enhanced event for Extended Create Connection, so ALT 2B follows
+        step 2B.2. These are local clarifications, not adopted SIG errata.
+
+    Reference:
+        HCI.TS.p39, Sections 4.10.11-12, pages 200-202, Tables 4.50-51;
+        Core Vol 4, Part E, 7.8.12 and 7.8.66.
+    """
+    await tester.command(hci.HCI_Reset_Command())
+    await tester.masks()
+    result = await tester.command(
+        create_connection(
+            extended=extended, own_address_type=own_type, initiator_filter_policy=policy
+        ),
+        (ErrorCode.SUCCESS, ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR),
+    )
+    if result.status == ErrorCode.SUCCESS:
+        event = await tester.event(
+            hci.HCI_LE_Enhanced_Connection_Complete_Event
+            if extended
+            else hci.HCI_LE_Connection_Complete_Event
+        )
+        assert event.status == ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR
+
+
+async def invalid_decision_data(tester):
+    """LE Set Decision Data, Invalid Parameters.
+
+    Initial Condition:
+        The IUT is not scanning.
+
+    Test Steps:
+        Repeat steps 1-3 for all five Table 4.63 rounds: configure decision
+        advertising on LE 1M, send Decision Data with the specified handle,
+        flags and length, and receive Command Complete with the listed status.
+
+    Expected Outcome:
+        Unknown handle: 0x42; tag shorter than six: 0x12; five arbitrary octets:
+        Success; nine octets: 0x12; empty data without a tag: Success.
+
+    Reference:
+        HCI.TS.p39, Section 4.10, BI-73-C, pages 214-215, Table 4.63;
+        Core Vol 4, Part E, 7.8.144.
+    """
+    for handle, flags, size, status in [
+        (1, 0, 0, 0x42),
+        (0, 1, 5, 0x12),
+        (0, 0, 5, 0),
+        (0, 0, 9, 0x12),
+        (0, 0, 0, 0),
+    ]:
+        await tester.command(extended_parameters(advertising_event_properties=0x80))
+        await tester.command(
+            hci.HCI_LE_Set_Decision_Data_Command(handle, flags, bytes(size)), status
+        )
+
+
+async def invalid_decision_instructions(tester):
+    """LE Set Decision Instructions, Invalid Parameters.
+
+    Initial Condition:
+        IXIT TSPX_max_decision_tests is eight.
+
+    Test Steps:
+        Repeat steps 1-2 for Table 4.64: zero tests, one more than IXIT capacity,
+        and one test with Test_Flags[0] bit zero cleared.
+
+    Expected Outcome:
+        Command Complete statuses are respectively 0x12, 0x43 and 0x12.
+
+    Reference:
+        HCI.TS.p39, Section 4.10, BI-74-C, pages 215-216, Table 4.64;
+        Core Vol 4, Part E, 7.8.145.
+    """
+    for count, flags, status in [
+        (0, 1, 0x12),
+        (EXPECTED_DECISION_TESTS + 1, 1, 0x43),
+        (1, 0, 0x12),
+    ]:
+        await tester.command(
+            hci.HCI_LE_Set_Decision_Instructions_Command(
+                [flags] * count, [6] * count, [bytes([7]) + bytes(15)] * count
+            ),
+            status,
+        )
+
+
+async def eight_decision_tests(tester):
+    """LE Set Decision Instructions, Support for 8 Tests.
+
+    Initial Condition:
+        The IUT is in standby.
+
+    Test Steps:
+        1. Send eight valid AdvMode tests with the first test starting a group.
+        2. Receive successful Command Complete.
+
+    Expected Outcome:
+        The controller accepts all eight tests in one command.
+
+    Source Correction:
+        Page 216 step 1 mentions General_Flags. Core Vol 4, Part E, 7.8.145
+        defines no such command field and requires Test_Flags[0] bit 0 to be one.
+        Send the Core-defined arrays, with first flags 0x03 and remaining 0x02.
+        This local wire-format correction is not an adopted SIG erratum.
+
+    Reference:
+        HCI.TS.p39, Section 4.10, BV-25-C, page 216;
+        Core Vol 4, Part E, 7.8.145.
+    """
+    await tester.command(
+        hci.HCI_LE_Set_Decision_Instructions_Command(
+            [3] + [2] * 7, [6] * 8, [bytes([7]) + bytes(15)] * 8
+        )
+    )
 
 
 PROCEDURES: ProcedureMap = {}
@@ -739,20 +1004,6 @@ PROCEDURES |= procedure_cases(
     },
 )
 
-# Verify rejection of decision-based initiation when the feature is unsupported.
-PROCEDURES |= procedure_cases(
-    invalid_initiator_filter_policy,
-    {
-        'HCI/CCO/BI-72-C': (
-            (
-                'Reject LE Extended Create Connection with Invalid '
-                'Initiator_Filter_Policy Parameters'
-            ),
-            {},
-        ),
-    },
-)
-
 # Verify rejection of Min_CE_Length greater than Max_CE_Length.
 PROCEDURES |= procedure_cases(
     invalid_connection_event_lengths,
@@ -763,6 +1014,104 @@ PROCEDURES |= procedure_cases(
         ),
     },
 )
+
+# Verify successful removal of one resolving-list entry or clearing of the list after
+# adding a valid peer identity.
+PROCEDURES |= procedure_cases(
+    resolving_list_remove,
+    {
+        'HCI/CCO/BV-12-C': ('LE Remove Device From Resolving List Command', {}),
+        'HCI/CCO/BV-13-C': ('LE Clear Resolving List Command', {'clear': True}),
+    },
+)
+
+# Verify that Read Resolving List Size reports the declared total capacity.
+PROCEDURES |= procedure_cases(
+    resolving_list_size,
+    {
+        'HCI/CCO/BV-14-C': ('LE Read Resolving List Size Command', {}),
+    },
+)
+
+# Verify that resolving-list commands fail while the enabled resolver is in use by
+# advertising, scanning, initiating or periodic sync acquisition.
+PROCEDURES |= procedure_cases(
+    resolving_list_busy,
+    {
+        f'HCI/CCO/BI-{number:02}-C': (
+            'Resolving List Commands fail when list in use',
+            {'role': role},
+        )
+        for number, role in enumerate(
+            ('advertising', 'scanning', 'legacy', 'extended', 'sync'), 1
+        )
+    },
+)
+
+# Verify handling of a repeated identity or nonzero Peer IRK, including removal of the
+# proposed second identity after the duplicate addition.
+PROCEDURES |= procedure_cases(
+    resolving_list_duplicate,
+    {
+        f'HCI/CCO/BI-{number}-C': (
+            'LE Add Device To Resolving List – Duplicate Entry'
+            if number == 46
+            else 'LE Add Device To Resolving List – Existing Peer IRK Entry',
+            {'change': change},
+        )
+        for number, change in [(46, 'none'), (47, 'type'), (48, 'address')]
+    },
+)
+
+# Verify rejection of legacy and extended connection creation when the selected own-
+# address type requires an unset random fallback address.
+PROCEDURES |= procedure_cases(
+    create_without_random_address,
+    {
+        f'HCI/CCO/BI-{number}-C': (
+            f'Reject Invalid {"Extended " if number >= 54 else ""}'
+            'Create Connection Command, '
+            f'0x{own_type:02X}, {"N/A" if own_type == 1 else f"0x{policy:02X}"}',
+            {'extended': number >= 54, 'own_type': own_type, 'policy': policy},
+        )
+        for number, own_type, policy in [
+            (51, 1, 0),
+            (52, 3, 0),
+            (53, 3, 1),
+            (54, 1, 0),
+            (55, 3, 0),
+            (56, 3, 1),
+        ]
+    },
+)
+
+# Verify the specified statuses for unknown advertising handles and decision-data
+# lengths, including insufficient tag data and valid empty data.
+PROCEDURES |= procedure_cases(
+    invalid_decision_data,
+    {
+        'HCI/CCO/BI-73-C': ('LE Set Decision Data, Invalid Parameters', {}),
+    },
+)
+
+# Verify rejection of zero decision tests, a test count above the declared limit, and a
+# first test that does not start a group.
+PROCEDURES |= procedure_cases(
+    invalid_decision_instructions,
+    {
+        'HCI/CCO/BI-74-C': ('LE Set Decision Instructions, Invalid Parameters', {}),
+    },
+)
+
+# Verify that Set Decision Instructions accepts at least eight valid tests in one
+# command.
+PROCEDURES |= procedure_cases(
+    eight_decision_tests,
+    {
+        'HCI/CCO/BV-25-C': ('LE Set Decision Instructions, Support for 8 Tests', {}),
+    },
+)
+
 RADIO_CASES = ('HCI/CCO/BV-09-C', 'HCI/CCO/BI-40-C', 'HCI/CCO/BI-43-C')
 
 

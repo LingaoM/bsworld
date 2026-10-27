@@ -36,10 +36,11 @@ def _option(default: int, low: int, high: int) -> Any:
 class ControllerConfig:
     """Controller-defined values; comments cite Core Vol 4, Part E."""
 
-    # 7.4.1 Read Local Version Information. Versions: Core 4.0 (6) to 6.2 (16).
-    hci_version: int = _option(0x09, 0x06, 0x10)
+    # 7.4.1 Read Local Version Information. Default Core 6.1 includes
+    # decision filtering and the v2 randomized RPA timeout command.
+    hci_version: int = _option(0x0F, 0x06, 0x10)
     hci_revision: int = _option(0, 0, 0xFFFF)
-    lmp_version: int = _option(0x09, 0x06, 0x10)
+    lmp_version: int = _option(0x0F, 0x06, 0x10)
     lmp_subversion: int = _option(0, 0, 0xFFFF)
     manufacturer: int = _option(0xFFFF, 0, 0xFFFF)
     # 7.8.2 LE Read Buffer Size.
@@ -55,6 +56,8 @@ class ControllerConfig:
     max_advertising_data_length: int = _option(1650, 0x1F, 0x672)
     # 7.8.14 / 7.8.73 list sizes.
     filter_accept_list_size: int = _option(16, 1, 0xFF)
+    # 7.8.41 LE Read Resolving List Size.
+    resolving_list_size: int = _option(16, 1, 0xFF)
     periodic_advertiser_list_size: int = _option(8, 1, 0xFF)
     # Concurrency limits; 5.3.1 bounds them by the 0x0000-0x0EFF handle space.
     max_connections: int = _option(64, 1, 0x0EFF)

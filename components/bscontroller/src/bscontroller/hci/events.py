@@ -19,6 +19,7 @@ from bscontroller.hci import (
     HCI_LE_PERIODIC_REPORT_CTE_NONE,
     HCI_LE_PERIODIC_REPORT_DATA_SIZE_MAX,
 )
+from bscontroller.hci.records import ConnectionRecord
 from bscontroller.linklayer import PDU_CONTROL_FEATURE_SET_SIZE
 from bscontroller.linklayer.api import (
     AdvertisingSnapshot,
@@ -197,8 +198,6 @@ class LeControllerEvents:
         """LE (Enhanced) Connection Complete and Channel Selection Algorithm events (Vol
         4, Part E, 7.7.65.1, 7.7.65.10, 7.7.65.20).
         """
-        from bscontroller.hci.records import ConnectionRecord
-
         parameters = connection.parameters
         self.controller.le_connections[connection.peer] = ConnectionRecord(
             self.controller, connection
@@ -210,6 +209,9 @@ class LeControllerEvents:
                 role=connection.role,
                 peer_address_type=connection.peer.address_type,
                 peer_address=connection.peer,
+                peer_resolvable_private_address=connection.peer_rpa or hci.Address.ANY,
+                local_resolvable_private_address=connection.local_rpa
+                or hci.Address.ANY,
                 connection_interval=parameters.interval,
                 peripheral_latency=parameters.latency,
                 supervision_timeout=parameters.timeout,
@@ -280,14 +282,22 @@ class LeControllerEvents:
         )
 
     def _connection_complete_event(self, **parameters):
+        local_rpa = parameters.pop('local_resolvable_private_address', hci.Address.ANY)
+        peer_rpa = parameters.pop('peer_resolvable_private_address', hci.Address.ANY)
         if self.controller.le_event_mask & (
             1 << (hci.HCI_LE_ENHANCED_CONNECTION_COMPLETE_EVENT - 1)
         ):
             return hci.HCI_LE_Enhanced_Connection_Complete_Event(
                 **parameters,
-                local_resolvable_private_address=hci.Address.ANY,
-                peer_resolvable_private_address=hci.Address.ANY,
+                local_resolvable_private_address=local_rpa,
+                peer_resolvable_private_address=peer_rpa,
             )
+        parameters['peer_address_type'] = (
+            hci.AddressType.PUBLIC_DEVICE
+            if parameters['peer_address_type']
+            in (hci.AddressType.PUBLIC_DEVICE, hci.AddressType.PUBLIC_IDENTITY)
+            else hci.AddressType.RANDOM_DEVICE
+        )
         return hci.HCI_LE_Connection_Complete_Event(**parameters)
 
     def on_acl_completed(self, connection: ConnectionSnapshot):
@@ -361,6 +371,31 @@ class LeControllerEvents:
                 return
             self.seen.add(key)
         rssi = max(RADIO_TX_POWER_MIN_DBM, min(RADIO_TX_POWER_MAX_DBM, round(rssi)))
+        if (
+            not self.extended_scan
+            and target is not None
+            and target.address_type == hci.AddressType.UNABLE_TO_RESOLVE
+        ):
+            # 7.7.65.11 uses a dedicated legacy event for an unresolved RPA
+            # TargetA; its Direct_Address_Type is Random, not the extended
+            # report's 0xFE "unable to resolve" metadata value.
+            self._emit_hci_packet(
+                hci.HCI_LE_Directed_Advertising_Report_Event(
+                    [
+                        hci.HCI_LE_Directed_Advertising_Report_Event.Report(
+                            event_type=hci.HCI_LE_Advertising_Report_Event.EventType.ADV_DIRECT_IND,
+                            address_type=address.address_type,
+                            address=address,
+                            direct_address_type=hci.AddressType.RANDOM_DEVICE,
+                            direct_address=hci.Address(
+                                bytes(target), hci.AddressType.RANDOM_DEVICE
+                            ),
+                            rssi=rssi,
+                        )
+                    ]
+                )
+            )
+            return
         if self.extended_scan:
             for offset in range(
                 0, max(1, len(data)), HCI_LE_EXT_ADV_REPORT_DATA_SIZE_MAX
