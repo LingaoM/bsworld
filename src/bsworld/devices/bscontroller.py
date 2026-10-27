@@ -25,18 +25,30 @@ from ..runtime.proc import ProcessManager
 from .controller import Controller
 
 if TYPE_CHECKING:
-    from bscontroller import RadioController
+    from bscontroller import ControllerConfig, RadioController
 
 
 @dataclass(eq=False, repr=False)
 class BSController(Controller):
+    """BSController in a worker thread.
+
+    ``config`` is a ``bscontroller.ControllerConfig`` with this Controller's
+    Controller-defined values (buffers, list sizes, limits).
+    """
+
     max_step_us: int | None = None
+    config: ControllerConfig | None = None
     _worker: RadioController | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.max_step_us is not None and self.max_step_us <= 0:
             raise ValueError("max_step_us must be positive")
+        if self.config is not None:
+            from bscontroller import ControllerConfig
+
+            if not isinstance(self.config, ControllerConfig):
+                raise TypeError("config must be a bscontroller.ControllerConfig")
 
     async def start(self, pm: ProcessManager, env: Env, *, log_dir: Path) -> None:
         from bscontroller import RadioController
@@ -47,11 +59,14 @@ class BSController(Controller):
             raise RuntimeError(
                 "hci_snoop_file is assigned when the Controller is allocated"
             )
+        name = f"hci{self.controller_dev_id}"
         options = {"hci_snoop_file": self.hci_snoop_file, "hci_socket": self.hci_sock}
         if self.max_step_us is not None:
             options["max_step_us"] = self.max_step_us
+        if self.config is not None:
+            options["config"] = self.config
         self._worker = RadioController(
-            f"hci{self.controller_dev_id}",
+            name,
             self.public_address
             or (
                 f"F0:F1:F2:{(self.controller_dev_id >> 16) & 255:02X}:"

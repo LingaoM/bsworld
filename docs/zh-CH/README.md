@@ -90,7 +90,7 @@ pytest tests/integration -n auto
 
 ### 选择测试用的 Controller
 
-集成场景默认分别使用 Zephyr Controller（`[zephyr]`）和 Python BSController（`[bscontroller]`）运行。通过 pytest 参数 ID 选择一种实现：
+集成场景默认分别使用 Zephyr Controller（`[zephyr]`）和 Python BSController（`[bscontroller]`）运行，参见[虚拟 Controller](controllers.md)。通过 pytest 参数 ID 选择一种实现：
 
 ```sh
 pytest tests/integration -n auto -v -k '[zephyr]'
@@ -114,7 +114,7 @@ BSWorld 保留业务程序和 Host 协议栈的原生接口。每个 Host 都通
 
 <div align="center"><img src="../images/babblesim_arch.svg" alt="BSWorld 参与者通过独立的虚拟 Controller 连接到共享的 BabbleSim PHY" width="80%"><br><em>图 1：BSWorld 架构</em><br><br></div>
 
-虚拟 Controller 实现 HCI 命令、事件、ACL 数据、Link Layer 流程以及无线收发。同一拓扑可以混用 RTOS、Python 和基于 QEMU 的 Linux 参与者，也可以混用两种 Controller。选择方式参见[编写测试](writing-tests.md#选择-controller)。
+虚拟 Controller 实现 HCI 命令、事件、ACL 数据、Link Layer 流程以及无线收发。同一拓扑可以混用 RTOS、Python 和基于 QEMU 的 Linux 参与者，也可以混用两种 Controller。选择和配置方式参见[虚拟 Controller](controllers.md)。
 
 HCI 交互保存为 `hciN.snoop`，可使用 Wireshark 等支持 BTSnoop 的工具分析；无线交互保存为 `babblesim/ellisys.bttrp`，可使用 Ellisys 分析。文件位置和排查顺序参见[日志、跟踪文件与抓包](artifacts.md)。
 
@@ -132,6 +132,7 @@ BSWorld 将业务程序、Controller、干扰设备和 pytest 注册到同一仿
 ## 文档
 
 - [编写测试和 RF 场景](writing-tests.md)：定义拓扑、接入业务程序、使用 asyncio 等待并配置 RF 条件。
+- [虚拟 Controller](controllers.md)：选择 Zephyr 或 Python Controller、用两种实现运行同一场景、配置 BSController。
 - [日志、跟踪文件与抓包](artifacts.md)：查找和分析测试产物。
 - [开发检查](development.md)：运行单元测试、静态检查和覆盖率统计。
 - [Docker 使用说明](../../docker/README.zh-CN.md)：运行已发布镜像、选择测试套件和构建本地镜像。
