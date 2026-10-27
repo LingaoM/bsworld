@@ -1397,3 +1397,41 @@ def test_plaintext_duplicate_cannot_pass_as_encrypted(central):
     header, wire, _, _ = snapshot
     central.connection.accept(bytes([header, len(wire)]) + wire, True)
     central.ut_rx(DISCONNECTED, reason=MIC_FAILURE)
+
+
+@pytest.mark.parametrize('fatal', [False, True])
+def test_resolved_peer_encryption_failure_discards_private_addresses(central, fatal):
+    """Encryption failure on a resolved peer rotates both cached RPAs.
+
+    Purpose: Verify that when encryption fails on a connection whose peer was
+    resolved, the Controller discards the local and peer RPAs for that
+    resolving-list entry, because a wrong IRK can resolve a peer by accident,
+    while the connection keeps its original address metadata (Vol 6, Part B,
+    4.7). Covers ordinary key rejection and fatal MIC termination.
+
+    Steps:
+        1. Add the connected peer's identity to the resolving list.
+        2. Generate the local RPA, read the peer RPA, and record both on the
+           connection.
+        3. Fail encryption with Key Missing, or terminate with MIC Failure.
+
+    Expected:
+        - The resolving list's local and peer RPAs both differ from the
+          originals.
+        - The connection still records the original local and peer RPAs.
+    """
+    privacy = central.link.privacy
+    identity = central.connection.peer
+    assert privacy.add(identity, bytes(range(16)), bytes(range(16, 32))) == 0
+    old_local = privacy.local_address(2, hci.Address.ANY, identity)
+    old_peer = privacy.read_rpa(identity, local=False)[1]
+    central.connection.local_rpa = old_local
+    central.connection.peer_rpa = old_peer
+    if fatal:
+        central.connection.complete(MIC_FAILURE)
+    else:
+        central.connection.encryption.finish(KEY_MISSING)
+    assert privacy.read_rpa(identity, local=True)[1] != old_local
+    assert privacy.read_rpa(identity, local=False)[1] != old_peer
+    assert central.connection.local_rpa == old_local
+    assert central.connection.peer_rpa == old_peer

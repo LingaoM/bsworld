@@ -61,6 +61,8 @@ class Connection:
         self.radio: Radio = link.radio
         self.parameters: Parameters = parameters
         self.peer = peer
+        self.peer_rpa: Address | None = None
+        self.local_rpa: Address | None = None
         self.self_address = self_address
         self.role: int = role
         self.csa2 = csa2
@@ -140,6 +142,12 @@ class Connection:
         """
         if self.closed:
             return
+        if (
+            reason == ErrorCode.CONNECTION_TERMINATED_DUE_TO_MIC_FAILURE_ERROR
+            and self.peer_rpa is not None
+        ):
+            # MIC failures can abort before Encryption Change is delivered.
+            self.link.privacy.encryption_failed(self.peer)
         self.llcp.close(reason)
         self.closed = True
         self.link.trace(

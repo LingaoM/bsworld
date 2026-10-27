@@ -1052,7 +1052,7 @@ def test_initiating_templates_allocate_no_wire_identity(host, extended):
     'changes',
     [
         dict(initiator_filter_policy=2),
-        dict(own_address_type=2),
+        dict(own_address_type=4),
         dict(peer_address_type=2),
     ],
 )

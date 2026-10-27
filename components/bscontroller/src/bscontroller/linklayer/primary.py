@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from bscontroller.address import Address, AddressType
+from bscontroller.address import Address, AddressType, OwnAddressType
 from bscontroller.linklayer import (
     LL_ADV_PRIMARY_CHANNELS,
     LL_CONN_INTERVAL_UNIT_US,
@@ -40,6 +40,12 @@ from bscontroller.linklayer.advertising import (
 )
 from bscontroller.linklayer.discovery import Advertising
 from bscontroller.linklayer.extended import advertising_time_us
+from bscontroller.linklayer.filtering import (
+    DecisionMode,
+    InitiatorFilterPolicy,
+    ScanningFilterPolicy,
+    scanning_decision_mode,
+)
 from bscontroller.linklayer.parameters import Parameters
 from bscontroller.linklayer.results import ConnectionAccepted
 from bscontroller.linklayer.state import (
@@ -116,8 +122,13 @@ async def advertising_request(
     B, 4.4.2.3-4.4.2.5, 4.3.2).
     """
     pdu = packet.pdu
-    peer = advertising_request_peer(pdu, item.address, item.target)
+    peer = advertising_request_peer(pdu, item.address, None)
     if peer is None:
+        return False
+    identity = link.privacy.identity(peer)
+    if identity is None or (
+        item.target is not None and identity != link.privacy.identity(item.target)
+    ):
         return False
     if (
         item.pdu_type in (AdvertisingPduType.ADV_IND, AdvertisingPduType.ADV_SCAN_IND)
@@ -126,7 +137,7 @@ async def advertising_request(
     ):
         if (
             item.filter_policy & LL_ADV_FILTER_SCAN_MASK
-            and peer not in link.accept_list
+            and identity not in link.accept_list
         ):
             return False
         payload = bytes(item.address) + item.scan_response
@@ -153,7 +164,7 @@ async def advertising_request(
         if (
             item.target is None
             and item.filter_policy & LL_ADV_FILTER_CONNECT_MASK
-            and peer not in link.accept_list
+            and identity not in link.accept_list
         ):
             return False
         try:
@@ -170,6 +181,7 @@ async def advertising_request(
                 Role.PERIPHERAL,
                 packet.end_us,
                 self_address=item.address,
+                local_rpa=item.local_rpa,
                 csa2=bool(pdu[0] & PDU_ADV_CHSEL_MASK),
                 advertiser=item,
             )
@@ -184,8 +196,16 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
     """
     item = link.initiating
     pdu = packet.pdu
-    if pdu and pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_EXT_IND:
+    if pdu and pdu[0] & PDU_ADV_TYPE_MASK in (
+        AdvertisingPduType.ADV_EXT_IND,
+        AdvertisingPduType.ADV_DECISION_IND,
+    ):
         await scan_extended(link, packet, initiating=True)
+        return
+    if (
+        item is not None
+        and item.filter_policy == InitiatorFilterPolicy.DECISION_PDUS_ONLY
+    ):
         return
     if (
         item is None
@@ -195,18 +215,38 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
         or pdu[1] != len(pdu) - PDU_HEADER_SIZE
     ):
         return
-    if pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_DIRECT_IND and (
-        len(pdu) != PDU_ADV_DIRECT_SIZE
-        or pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:PDU_ADV_ADDRESSES_END]
-        != bytes(item.address)
-        or bool(pdu[0] & PDU_ADV_RXADD_MASK) != item.address.is_random
-    ):
-        return
     peer = Address(
         pdu[PDU_ADV_ADDRESS_OFFSET:PDU_ADV_SECOND_ADDRESS_OFFSET],
         AddressType(bool(pdu[0] & PDU_ADV_TXADD_MASK)),
     )
-    if peer not in link.accept_list if item.filter_policy else peer != item.peer:
+    identity = link.privacy.identity(peer)
+    if identity is None:
+        return
+    item.address, generated = link.privacy.select_local_address(
+        item.own_address_type, item.identity_address or item.address, identity
+    )
+    local_rpa = item.address if generated else None
+    if pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_DIRECT_IND:
+        if len(pdu) != PDU_ADV_DIRECT_SIZE:
+            return
+        target = Address(
+            pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:PDU_ADV_ADDRESSES_END],
+            AddressType(bool(pdu[0] & PDU_ADV_RXADD_MASK)),
+        )
+        if (
+            OwnAddressType(item.own_address_type).uses_resolvable_address
+            and not target.is_resolvable
+        ) or not link.privacy.accept_target(target, item.address, peer):
+            return
+    peer = Address(
+        pdu[PDU_ADV_ADDRESS_OFFSET:PDU_ADV_SECOND_ADDRESS_OFFSET],
+        AddressType(bool(pdu[0] & PDU_ADV_TXADD_MASK)),
+    )
+    if (
+        identity not in link.accept_list
+        if InitiatorFilterPolicy(item.filter_policy).filters_non_decision_pdus
+        else identity != item.peer
+    ):
         return
     if not link.roles.connections.can_accept(peer):
         return
@@ -239,6 +279,7 @@ async def initiate(link: RadioLink, channel: int, packet: Received) -> None:
             Role.CENTRAL,
             end_us,
             self_address=item.address,
+            local_rpa=local_rpa,
             csa2=csa2,
             initiator=item,
         )
@@ -252,8 +293,19 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
     pdu = packet.pdu
     if len(pdu) < PDU_HEADER_SIZE or pdu[1] != len(pdu) - PDU_HEADER_SIZE:
         return
-    if pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_EXT_IND:
-        await scan_extended(link, packet)
+    decision = pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_DECISION_IND
+    if pdu[0] & PDU_ADV_TYPE_MASK in (
+        AdvertisingPduType.ADV_EXT_IND,
+        AdvertisingPduType.ADV_DECISION_IND,
+    ):
+        if not decision or (link.scan is not None and link.scan.extended):
+            await scan_extended(link, packet)
+        return
+    if (
+        link.scan is not None
+        and scanning_decision_mode(link.scan.filter_policy)
+        == DecisionMode.DECISION_PDUS_ONLY
+    ):
         return
     flags = AdvertisingProperties
     types: dict[int, AdvertisingProperties] = {
@@ -276,7 +328,14 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
         pdu[PDU_ADV_ADDRESS_OFFSET:PDU_ADV_SECOND_ADDRESS_OFFSET],
         AddressType(bool(pdu[0] & PDU_ADV_TXADD_MASK)),
     )
-    if link.scan and link.scan.filter_policy and address not in link.accept_list:
+    identity = link.privacy.identity(address)
+    if identity is None:
+        return
+    if (
+        link.scan
+        and link.scan.filter_policy & ScanningFilterPolicy.FILTER_ACCEPT_LIST
+        and identity not in link.accept_list
+    ):
         return
     if pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_DIRECT_IND:
         if len(pdu) != PDU_ADV_DIRECT_SIZE or link.scan is None:
@@ -285,24 +344,29 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
             pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:PDU_ADV_ADDRESSES_END],
             AddressType(bool(pdu[0] & PDU_ADV_RXADD_MASK)),
         )
-        if target != link.scan.address:
+        if not link.privacy.accept_target(target, link.scan.address, address) and not (
+            link.scan.filter_policy & ScanningFilterPolicy.ACCEPT_ALL_DIRECTED_RPAS
+            and target.is_resolvable
+        ):
             return
         # Directed legacy advertising carries a target address instead of AdvData
         # and cannot be followed by the active-scan exchange below.
         link.listener.on_advertisement(
-            address,
+            identity,
             b'',
             packet.rssi,
             AdvertisingReport(types[AdvertisingPduType.ADV_DIRECT_IND]),
             None,
             0,
             None,
-            target=target,
+            target=link.privacy.report_target(
+                target, link.scan.identity_address or link.scan.address, address
+            ),
         )
         return
     # Report the advertisement independently of whether a scan response arrives.
     link.listener.on_advertisement(
-        address,
+        identity,
         pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:],
         packet.rssi,
         AdvertisingReport(types[pdu[0] & PDU_ADV_TYPE_MASK]),
@@ -319,6 +383,11 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
     ):
         # Consume backoff only for an eligible advertisement. A missing response
         # or one from another advertiser counts as a failed attempt.
+        link.scan.address = link.privacy.local_address(
+            link.scan.own_address_type,
+            link.scan.identity_address or link.scan.address,
+            identity,
+        )
         request = scan_request(link.scan.address, address)
         end_us = await link._transmit(
             channel, request, start_us=packet.end_us + LL_IFS_US
@@ -336,7 +405,7 @@ async def scan_packet(link: RadioLink, channel: int, packet: Received) -> None:
         link.scan.backoff.complete(success, link.random)
         if success and response is not None:
             link.listener.on_advertisement(
-                address,
+                identity,
                 response.pdu[PDU_ADV_SECOND_ADDRESS_OFFSET:],
                 response.rssi,
                 AdvertisingReport(

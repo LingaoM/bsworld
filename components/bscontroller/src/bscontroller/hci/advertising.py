@@ -58,6 +58,9 @@ SUPPORTED_ADVERTISING_PROPERTIES = int(
     | Properties.USE_LEGACY_ADVERTISING_PDUS
     | Properties.ANONYMOUS_ADVERTISING
     | Properties.INCLUDE_TX_POWER
+    | Properties.USE_DECISION_PDUS
+    | Properties.INCLUDE_ADVA_IN_DECISION_PDUS
+    | Properties.INCLUDE_ADI_IN_DECISION_PDUS
 )
 
 # Periodic trains require extended, nonconnectable, nonscannable, nonanonymous sets.
@@ -96,6 +99,22 @@ LEGACY_ADVERTISING_PROPERTIES: dict[int, AdvertisingPduType] = {
 
 
 class LeAdvertisingCommands(LeControllerContext):
+    def on_hci_le_set_decision_data_command(self, command):
+        """Set per-set decision data (Core Vol 4, Part E, 7.8.144).
+
+        Forward the decoded flags and payload to the LL advertising service,
+        which validates the handle and payload before replacing the stored data.
+        Updates are allowed while advertising is enabled; the event executor
+        reads the stored data when building an ADV_DECISION_IND PDU.
+        """
+        return hci.HCI_StatusReturnParameters(
+            self.ll.advertising.set_decision_data(
+                command.advertising_handle,
+                command.decision_type_flags,
+                command.decision_data,
+            )
+        )
+
     def on_hci_le_read_advertising_physical_channel_tx_power_command(self, _command):
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.6 LE Read Advertising Physical Channel Tx
@@ -128,6 +147,8 @@ class LeAdvertisingCommands(LeControllerContext):
             else None,
             high_duty=high_duty,
             filter_policy=record.advertising_filter_policy,
+            own_address_type=record.own_address_type,
+            privacy_peer=record.peer_address,
         )
 
     def on_hci_le_set_advertising_parameters_command(self, command):
@@ -138,11 +159,7 @@ class LeAdvertisingCommands(LeControllerContext):
             return hci.HCI_StatusReturnParameters(DISALLOWED)
         if (
             command.advertising_type not in LEGACY_PDU_TYPES
-            or command.own_address_type
-            not in (
-                hci.OwnAddressType.PUBLIC,
-                hci.OwnAddressType.RANDOM,
-            )
+            or command.own_address_type not in tuple(hci.OwnAddressType)
         ):
             return hci.HCI_StatusReturnParameters(UNSUPPORTED)
         if (
@@ -232,8 +249,7 @@ class LeAdvertisingCommands(LeControllerContext):
         if status != SUCCESS:
             return status
         if (
-            command.own_address_type
-            not in (hci.OwnAddressType.PUBLIC, hci.OwnAddressType.RANDOM)
+            command.own_address_type not in tuple(hci.OwnAddressType)
             or command.advertising_filter_policy
             not in (
                 0,
@@ -247,6 +263,18 @@ class LeAdvertisingCommands(LeControllerContext):
             status = UNSUPPORTED
         elif (
             properties & ~SUPPORTED_ADVERTISING_PROPERTIES
+            or (
+                properties & Properties.USE_DECISION_PDUS
+                and properties & Properties.DIRECTED_ADVERTISING
+            )
+            or (
+                not properties & Properties.USE_DECISION_PDUS
+                and properties
+                & (
+                    Properties.INCLUDE_ADVA_IN_DECISION_PDUS
+                    | Properties.INCLUDE_ADI_IN_DECISION_PDUS
+                )
+            )
             or (
                 command.advertising_tx_power != TX_POWER_NO_PREFERENCE
                 and not RADIO_TX_POWER_MIN_DBM
@@ -282,6 +310,7 @@ class LeAdvertisingCommands(LeControllerContext):
                     & (
                         Properties.CONNECTABLE_ADVERTISING
                         | Properties.SCANNABLE_ADVERTISING
+                        | Properties.INCLUDE_ADVA_IN_DECISION_PDUS
                     )
                 )
             )
@@ -311,7 +340,12 @@ class LeAdvertisingCommands(LeControllerContext):
             properties & Properties.HIGH_DUTY_CYCLE_DIRECTED_CONNECTABLE_ADVERTISING
         )
         return AdvertisingConfig(
-            address=self._address(command.own_address_type),
+            # Extended sets have independent random fallbacks (7.8.52/53).
+            # The LL service substitutes an address assigned to this handle;
+            # the global LE Set Random Address value belongs to other roles.
+            address=hci.Address.ANY_RANDOM
+            if hci.OwnAddressType(command.own_address_type).uses_random_fallback
+            else self.controller.public_address,
             interval_us=LL_DIRECT_ADV_INTERVAL_US
             if high_duty
             else (
@@ -350,6 +384,13 @@ class LeAdvertisingCommands(LeControllerContext):
             ),
             include_tx_power=bool(properties & Properties.INCLUDE_TX_POWER),
             sid=command.advertising_sid,
+            own_address_type=command.own_address_type,
+            privacy_peer=command.peer_address,
+            decision=bool(properties & Properties.USE_DECISION_PDUS),
+            decision_address=bool(
+                properties & Properties.INCLUDE_ADVA_IN_DECISION_PDUS
+            ),
+            decision_adi=bool(properties & Properties.INCLUDE_ADI_IN_DECISION_PDUS),
         )
 
     def on_hci_le_set_extended_advertising_parameters_command(self, command):

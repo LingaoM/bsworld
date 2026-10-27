@@ -101,9 +101,9 @@ Values the Bluetooth specification leaves to the Controller form a `ControllerCo
 
 | JSON key | Default | Range | Spec (Vol 4, Part E) |
 |---|---|---|---|
-| `hciVersion` | `0x09` (5.0) | `0x06`–`0x10` | 7.4.1 |
+| `hciVersion` | `0x0F` (6.1) | `0x06`–`0x10` | 7.4.1 |
 | `hciRevision` | `0` | `0`–`0xFFFF` | 7.4.1 |
-| `lmpVersion` | `0x09` (5.0) | `0x06`–`0x10` | 7.4.1 |
+| `lmpVersion` | `0x0F` (6.1) | `0x06`–`0x10` | 7.4.1 |
 | `lmpSubversion` | `0` | `0`–`0xFFFF` | 7.4.1 |
 | `manufacturer` | `0xFFFF` | `0`–`0xFFFF` | 7.4.1 |
 | `aclPacketCount` | `8` | `1`–`255` | 7.8.2 |
@@ -115,6 +115,7 @@ Values the Bluetooth specification leaves to the Controller form a `ControllerCo
 | `advertisingSetCount` | `16` | `1`–`240` | 7.8.58 |
 | `maxAdvertisingDataLength` | `1650` | `31`–`1650` | 7.8.57 |
 | `filterAcceptListSize` | `16` | `1`–`255` | 7.8.14 |
+| `resolvingListSize` | `16` | `1`–`255` | 7.8.41 |
 | `periodicAdvertiserListSize` | `8` | `1`–`255` | 7.8.73 |
 | `maxConnections` | `64` | `1`–`3839` | 5.3.1 |
 | `maxPeriodicSyncs` | `16` | `1`–`3839` | 5.3.1 |
@@ -151,7 +152,7 @@ other = RadioController("x", "F0:F1:F2:F3:F4:03", config=ControllerConfig(max_co
 
 ## Supported features
 
-These are the Link Layer features of the Bluetooth Core specification, listed by the version that introduced them. `*` marks the features BSController implements and reports in its LE FeatureSet ([Vol 6, Part B, 4.6](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/low-energy-controller/link-layer-specification.html#UUID-56ada5ed-4ae3-acee-198f-27ead57d86f1)). Legacy advertising, scanning, initiating and ACL connections from Core 4.0 are supported as well. Bluetooth Classic (BR/EDR) is not.
+These are the Link Layer features of the Bluetooth Core specification, listed by the version that introduced them. `*` marks implemented features. Assigned Link Layer feature bits are reported in the LE FeatureSet ([Vol 6, Part B, 4.6](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/low-energy-controller/link-layer-specification.html#UUID-56ada5ed-4ae3-acee-198f-27ead57d86f1)). Bluetooth Classic (BR/EDR) is not.
 
 | Core spec version | Link Layer feature | Supported |
 |---|---|:---:|
@@ -161,7 +162,8 @@ These are the Link Layer features of the Bluetooth Core specification, listed by
 | 4.1 | Peripheral-initiated Features Exchange | * |
 | 4.1 | LE Ping Procedure | * |
 | 4.2 | LE Data Packet Length Extension | * |
-| 4.2 | LL Privacy |  |
+| 4.2 | LL Privacy | * |
+| 4.2 | Extended Scanner Filter Policies | * |
 | 5.0 | LE 2M PHY | * |
 | 5.0 | LE Coded PHY | * |
 | 5.0 | Channel Selection Algorithm #2 | * |
@@ -183,10 +185,10 @@ These are the Link Layer features of the Bluetooth Core specification, listed by
 | 5.3 | Connection Subrating |  |
 | 5.4 | Periodic Advertising with Responses |  |
 | 6.0 | Channel Sounding |  |
-| 6.0 | Decision-Based Advertising Filtering |  |
+| 6.0 | Decision-Based Advertising Filtering | * |
 | 6.0 | Monitoring Advertisers |  |
 | 6.0 | Frame Space Update |  |
-| 6.1 | Randomized RPA Updates |  |
+| 6.1 | Randomized RPA Updates | * |
 | 6.2 | Shorter Connection Intervals |  |
 | 6.2 | Channel Sounding Amplitude-based Attack Resilience |  |
 | 6.3 | Channel Sounding Inline Phase Correction Term Transfer |  |
@@ -201,7 +203,7 @@ Inside one Controller, the Link Layer keeps a manager for each role (advertising
 
 ![Internal modules, state ownership and interaction paths of one Controller](docs/images/radio_controller_internal_arch.svg)
 
-*Figure 2: Inside one Controller. [Open the SVG for detail](docs/images/radio_controller_internal_arch.svg). Nested boxes show ownership. Black arrows are calls, dashed green arrows are callbacks, orange marks scheduling, blue marks PDUs and radio results, and dotted gray marks runtime wiring.*
+*Figure 2: Inside one Controller. Nested boxes show ownership. Black arrows are calls, dashed green arrows are callbacks, orange marks scheduling, blue marks PDUs and radio results, and dotted gray marks runtime wiring.*
 
 **Threads and time.** Each `RadioController` runs in a dedicated thread with its own event loop and PHY connection. The Host thread and the Controller thread share no state; they only pass immutable H4 packets. Radio time is in integer microseconds. Every Controller, and an optional Host clock, synchronizes with the PHY before simulation time advances, so timing does not depend on how fast the machine is.
 
@@ -230,6 +232,6 @@ python -m pytest tests/qualification -n auto -v -rs     # a few minutes, needs B
 python -m build                                         # sdist and wheel in dist/
 ```
 
-The qualification suite runs 501 selected HCI and Link Layer test cases from the Bluetooth test specifications against independent lower testers. Passing them does not make BSController Bluetooth-qualified. See [tests/README.md](tests/README.md) for the test scope.
+The qualification suite runs 612 selected HCI and Link Layer test cases from the Bluetooth test specifications against independent lower testers. Passing them does not make BSController Bluetooth-qualified. See [tests/README.md](tests/README.md) for the test scope.
 
 Licensing and third-party notices are in [LICENSE](LICENSE) and [NOTICE](NOTICE).

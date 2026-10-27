@@ -27,9 +27,11 @@ from bscontroller.linklayer import (
     PDU_DATA_NESN_MASK,
     PDU_DATA_SN_MASK,
     PDU_HEADER_SIZE,
+    AdvertisingPduType,
     ControlOpcode,
     LlId,
 )
+from tests.qualification import privacy as privacy_peer
 from tests.qualification.cases import (
     ProcedureMap,
     collect_cases,
@@ -40,7 +42,9 @@ from tests.qualification.link import (
     _EncryptedPeer,
     check_connection_silent,
 )
+from tests.qualification.ll import connection_test as connection_cases
 from tests.qualification.peer import (
+    PeerLink,
     establish,
     exchange_features,
     host_send,
@@ -48,8 +52,17 @@ from tests.qualification.peer import (
     received_acl,
 )
 from tests.qualification.tester import (
+    DUT_ADDRESS,
     LOWER_CENTRAL_PUBLIC_ADDRESS,
     LOWER_PERIPHERAL_PUBLIC_ADDRESS,
+    PEER_ADDRESS,
+    LinkParameters,
+    decode_extended,
+    extended_enable,
+    extended_parameters,
+    follow_auxiliary,
+    legacy_parameters,
+    request_pdu,
 )
 from tests.support import (
     AUTHENTICATED_PAYLOAD_TIMEOUT_DEFAULT,
@@ -1481,9 +1494,10 @@ async def initiate_le_ping_procedure_when_the_other_side_does_not_support_the_pr
     Source Correction:
         The final verdict names LL_PING_RSP, although the purpose, initial
         condition and Step 2 require an unsupported peer's LL_UNKNOWN_RSP.
-        Use LL_UNKNOWN_RSP(PING_REQ), consistent with Core Vol 6 Part B
-        Section 5.1.8 and Part D Section 6.13. Amber confirms this local
-        correction; it is not adopted SIG errata.
+        Use LL_UNKNOWN_RSP(PING_REQ): Core Vol 6 Part B Section 5.1.8 allows
+        Ping to an unsupporting peer, and Sections 2.4.2 and 5 define that
+        LL_UNKNOWN_RSP reply (Part D Section 6.13 is informative). Amber
+        confirms this local correction; it is not adopted SIG errata.
 
     Postamble:
         Maintain the connection through both exchanges, then terminate it.
@@ -2743,6 +2757,1062 @@ async def central_encryption_sending_data_and_not_request(tester):
     await _unexpected(tester, data=True, refresh=False)
 
 
+async def _privacy_advertising_parameters(
+    tester,
+    *,
+    peer,
+    own_type=2,
+    directed=False,
+    scannable=False,
+    nonconnectable=False,
+    extended=False,
+    policy=3,
+):
+    if extended:
+        await tester.command(
+            extended_parameters(
+                own_address_type=own_type,
+                peer_address_type=peer.address_type,
+                peer_address=peer,
+                advertising_event_properties=1 | (4 if directed else 0),
+                primary_advertising_channel_map=7,
+                advertising_filter_policy=policy,
+            )
+        )
+    else:
+        await tester.command(
+            legacy_parameters(
+                own_address_type=own_type,
+                peer_address_type=peer.address_type,
+                peer_address=peer,
+                advertising_type=1
+                if directed
+                else 2
+                if scannable
+                else 3
+                if nonconnectable
+                else 0,
+                advertising_channel_map=7,
+                advertising_filter_policy=policy,
+            )
+        )
+
+
+async def _privacy_advertising_enable(tester, enable=True, *, extended=False):
+    await tester.command(
+        extended_enable(int(enable))
+        if extended
+        else hci.HCI_LE_Set_Advertising_Enable_Command(int(enable))
+    )
+
+
+async def _privacy_advertisement(
+    tester, *, extended=False, scannable=False, directed=False, nonconnectable=False
+):
+    packet = await tester.expect_pdu(37, duration_us=100_000)
+    if extended:
+        fields = decode_extended(packet.pdu)
+        channel, packet, fields = await follow_auxiliary(tester, packet, fields)
+        address = hci.Address(fields['address'], int(bool(packet.pdu[0] & 0x40)))
+        target = (
+            hci.Address(fields['target'], int(bool(packet.pdu[0] & 0x80)))
+            if 'target' in fields
+            else None
+        )
+    else:
+        kind = (
+            AdvertisingPduType.ADV_DIRECT_IND
+            if directed
+            else AdvertisingPduType.ADV_SCAN_IND
+            if scannable
+            else AdvertisingPduType.ADV_NONCONN_IND
+            if nonconnectable
+            else AdvertisingPduType.ADV_IND
+        )
+        assert packet.pdu[0] & 15 == kind
+        address = hci.Address(packet.pdu[2:8], int(bool(packet.pdu[0] & 0x40)))
+        target = (
+            hci.Address(packet.pdu[8:14], int(bool(packet.pdu[0] & 0x80)))
+            if directed
+            else None
+        )
+        channel = 37
+    return channel, packet, address, target
+
+
+def _no_privacy_connection(tester):
+    assert not any(
+        isinstance(
+            event,
+            (
+                hci.HCI_LE_Connection_Complete_Event,
+                hci.HCI_LE_Enhanced_Connection_Complete_Event,
+            ),
+        )
+        and event.status == 0
+        for event in tester.events
+    )
+
+
+async def _privacy_scan_request(tester, packet, address, scanner, *, expected):
+    end = await tester.transmit(
+        37,
+        request_pdu(AdvertisingPduType.SCAN_REQ, advertiser=address, scanner=scanner),
+        start_us=packet.end_us + LL_IFS_US,
+    )
+    response = await tester.receive(37, duration_us=1000)
+    # A high-duty advertisement is never used in these scan-response checks.
+    assert bool(response) == expected
+    if response is not None:
+        assert response.pdu[0] & 15 == AdvertisingPduType.SCAN_RSP
+        assert response.pdu[2:8] == bytes(address)
+        assert abs(response.start_us - end - LL_IFS_US) <= 2
+    return response
+
+
+async def _privacy_incoming_connection(
+    tester,
+    *,
+    peer,
+    wire_peer,
+    directed=False,
+    extended=False,
+    local_irk=True,
+    expect=True,
+    own_type=2,
+    use_target=False,
+    target_key=privacy_peer.PEER_IRK,
+):
+    channel, packet, address, target = await _privacy_advertisement(
+        tester,
+        directed=directed,
+        extended=extended,
+    )
+    if local_irk:
+        privacy_peer.check_private_address(address, privacy_peer.LOCAL_IRK)
+    else:
+        assert address == (privacy_peer.FALLBACK if own_type & 1 else DUT_ADDRESS)
+    if use_target:
+        assert target is not None
+        wire_peer = target
+    if directed and target is not None and target.is_resolvable:
+        privacy_peer.check_private_address(target, target_key)
+    parameters = LinkParameters()
+    end = await tester.transmit(
+        channel,
+        request_pdu(
+            AdvertisingPduType.CONNECT_IND,
+            advertiser=address,
+            scanner=wire_peer,
+            data=parameters.encode(),
+        ),
+        start_us=packet.end_us + LL_IFS_US,
+    )
+    if extended:
+        response = await tester.receive(channel, duration_us=500)
+        assert bool(response) == expect
+        if response is not None:
+            fields = decode_extended(response.pdu)
+            assert response.pdu[0] & 15 == AdvertisingPduType.AUX_CONNECT_RSP
+            assert fields['address'] == bytes(address) and fields['target'] == bytes(
+                wire_peer
+            )
+            assert abs(response.start_us - end - LL_IFS_US) <= 2
+    link = PeerLink(tester, parameters, end, csa2=extended)
+    if extended:
+        link.anchor = end + 2500
+    if not expect:
+        assert await link.exchange(required=False) is None
+        _no_privacy_connection(tester)
+        return None, address, target
+    event = await tester.event(hci.HCI_LE_Enhanced_Connection_Complete_Event)
+    assert event.status == 0 and event.role == hci.Role.PERIPHERAL
+    assert event.peer_address == peer
+    expected_peer_type = (
+        2 + int(peer.is_random) if wire_peer.is_resolvable else peer.address_type
+    )
+    assert event.peer_address_type == expected_peer_type
+    assert bytes(event.peer_resolvable_private_address) == (
+        bytes(wire_peer) if wire_peer.is_resolvable else bytes(6)
+    )
+    assert bytes(event.local_resolvable_private_address) == (
+        bytes(address) if local_irk and own_type >= 2 else bytes(6)
+    )
+    link.handle = event.connection_handle
+    if extended:
+        selection = await tester.event(hci.HCI_LE_Channel_Selection_Algorithm_Event)
+        assert (
+            selection.connection_handle == link.handle
+            and selection.channel_selection_algorithm == 1
+        )
+        stopped = await tester.event(hci.HCI_LE_Advertising_Set_Terminated_Event)
+        assert stopped.status == 0 and stopped.connection_handle == link.handle
+    await link.exchange()
+    return link, address, target
+
+
+async def privacy_nonconnectable_advertising(tester, *, resolvable=False):
+    """Privacy: Non-connectable Undirected Advertising.
+
+    Initial Condition:
+        The Host supplies an NRPA, or a nonzero Local IRK and v2 RPA timeout
+        range one to two seconds; all primary advertising channels are enabled.
+
+    Test Steps:
+        1-3. Monitor the radio, provide the address/IRK and enable nonconnectable
+             advertising at a supported interval.
+        4-5. NRPA branch: observe 100 advertising events and compare AdvA exactly.
+             RPA branch: resolve every observed AdvA until it changes within the
+             selected timeout, and resolve the new AdvA with the same IRK.
+        6. Disable advertising.
+
+    Expected Outcome:
+        NRPA remains equal to the configured value. Both RPAs resolve with the
+        assigned Local IRK, and renewal occurs within the maximum plus one event.
+
+    Reference:
+        LL.TS.p28, Section 4.8.3.1, PDF pages 1186-1189, Table 4.8-1,
+        Figure 4.8-2; Core Vol 6, Part B, 1.3.2 and 6.2.1;
+        Vol 4, Part E, 7.8.45.
+    """
+    peer = LOWER_CENTRAL_PUBLIC_ADDRESS
+    if resolvable:
+        await privacy_peer.add_peer(tester, identity=peer, peer_irk=bytes(16))
+        await tester.command(
+            hci.HCI_LE_Set_Resolvable_Private_Address_Timeout_V2_Command(1, 2)
+        )
+    else:
+        await tester.command(
+            hci.HCI_LE_Set_Random_Address_Command(privacy_peer.FALLBACK)
+        )
+    await _privacy_advertising_parameters(
+        tester,
+        peer=peer,
+        own_type=2 if resolvable else 1,
+        nonconnectable=True,
+        policy=0,
+    )
+    await _privacy_advertising_enable(tester)
+    first = None
+    for _ in range(110):
+        _, packet, address, _ = await _privacy_advertisement(
+            tester, nonconnectable=True
+        )
+        if resolvable:
+            privacy_peer.check_private_address(address, privacy_peer.LOCAL_IRK)
+            if first is None:
+                first = address, packet.start_us
+            elif address != first[0]:
+                assert 970_000 <= packet.start_us - first[1] <= 2_030_000
+                break
+        else:
+            assert address == privacy_peer.FALLBACK
+    else:
+        assert not resolvable, 'RPA did not renew before its declared maximum'
+    await _privacy_advertising_enable(tester, False)
+
+
+async def privacy_scannable_nonresolvable(tester):
+    """Network Privacy: Scannable Advertising, non-resolvable private address.
+
+    Initial Condition:
+        One Host-provided NRPA; all primary advertising channels are enabled.
+
+    Test Steps:
+        1-3. Configure scannable advertising and assign the NRPA before enabling.
+        4-6. For 100 advertising events, verify AdvA and send SCAN_REQ with a
+             scanner NRPA at T_IFS; verify matching-address SCAN_RSP at T_IFS.
+        7. Disable advertising.
+
+    Expected Outcome:
+        Every request receives a valid response with the Host-provided AdvA.
+
+    Source Correction:
+        The source assigns the random address after enabling advertising. Core
+        Vol 4, Part E, 7.8.4 prohibits that command while advertising is enabled;
+        assign it before enable. This is a local sequencing correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-04-C, PDF pages 1189-1191, Figure 4.8-3;
+        Core Vol 6, Part B, 4.4.2.5.
+    """
+    await tester.command(hci.HCI_LE_Set_Random_Address_Command(privacy_peer.FALLBACK))
+    await _privacy_advertising_parameters(
+        tester, peer=LOWER_CENTRAL_PUBLIC_ADDRESS, own_type=1, scannable=True, policy=0
+    )
+    await _privacy_advertising_enable(tester)
+    for _ in range(100):
+        _, packet, address, _ = await _privacy_advertisement(tester, scannable=True)
+        assert address == privacy_peer.FALLBACK
+        await _privacy_scan_request(
+            tester, packet, address, privacy_peer.FALLBACK, expected=True
+        )
+    await _privacy_advertising_enable(tester, False)
+
+
+async def privacy_scannable_rpa_timeout(tester):
+    """Network Privacy: Scannable Advertising, Random RPA Timeout.
+
+    Initial Condition:
+        Shared peer/local IRKs, Filter Accept List identity, timeout range 1-2 s.
+
+    Test Steps:
+        1-5. Populate resolving/accept lists, set the timeout and enable scannable
+             advertising on all primary channels with scan filtering.
+        6-9. Resolve each AdvA, send peer-RPA SCAN_REQ and verify SCAN_RSP until
+             AdvA refreshes; verify the new AdvA resolves with the same key.
+        10-12. Stop advertising, disable resolution, restart the same advertiser.
+        13-17. Repeat twenty RPA requests; verify no responses, then disable.
+
+    Expected Outcome:
+        RPA generation/renewal operates independently of resolver enable, while
+        disabled resolution prevents accept-list matching of peer RPAs.
+
+    Source Correction:
+        Step 9 says ADV_NONCONN_IND and step 10 says nonconnectable disable;
+        the configured operation and all exchanges are scannable ADV_SCAN_IND.
+        Use that PDU/operation. Populate lists before enabling as required by
+        Core Vol 4, Part E, 7.8.5 and 7.8.44, which disallow the filter-policy
+        change and resolution enable while advertising is enabled. These are
+        local corrections, not SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.8.3.2, PDF pages 1191-1194, Table 4.8-2;
+        Core Vol 6, Part B, 4.7 and 6.2.3; Vol 4, Part E, 7.8.45.
+    """
+    peer = LOWER_CENTRAL_PUBLIC_ADDRESS
+    await privacy_peer.add_peer(tester, identity=peer)
+    await tester.command(hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(0, peer))
+    await tester.command(
+        hci.HCI_LE_Set_Resolvable_Private_Address_Timeout_V2_Command(1, 2)
+    )
+    await _privacy_advertising_parameters(tester, peer=peer, scannable=True, policy=1)
+    await _privacy_advertising_enable(tester)
+    scanner = privacy_peer.private_address(privacy_peer.PEER_IRK)
+    first = None
+    for _ in range(110):
+        _, packet, address, _ = await _privacy_advertisement(tester, scannable=True)
+        privacy_peer.check_private_address(address, privacy_peer.LOCAL_IRK)
+        await _privacy_scan_request(tester, packet, address, scanner, expected=True)
+        if first is None:
+            first = address, packet.start_us
+        elif address != first[0]:
+            assert 970_000 <= packet.start_us - first[1] <= 2_030_000
+            break
+    else:
+        raise AssertionError('scannable advertiser did not renew its RPA')
+    await _privacy_advertising_enable(tester, False)
+    await tester.command(hci.HCI_LE_Set_Address_Resolution_Enable_Command(0))
+    await _privacy_advertising_enable(tester)
+    for _ in range(20):
+        _, packet, address, _ = await _privacy_advertisement(tester, scannable=True)
+        privacy_peer.check_private_address(address, privacy_peer.LOCAL_IRK)
+        await _privacy_scan_request(tester, packet, address, scanner, expected=False)
+    await _privacy_advertising_enable(tester, False)
+
+
+async def privacy_scannable_identity_policy(
+    tester, *, device=False, enabled=True, policy=3
+):
+    """Network/device privacy filtering of identity or unresolved scanner addresses.
+
+    Initial Condition:
+        Shared IRKs and a sole accept-list identity; device mode only for BV-18.
+        BV-21 keeps address resolution disabled and sends a peer RPA.
+
+    Test Steps:
+        Populate both lists before enabling, configure scannable advertising with
+        accept-list filtering, observe and resolve AdvA, send SCAN_REQ at T_IFS
+        with the identity (BV-15/18) or RPA (BV-21), verify response presence or
+        absence, and disable advertising. Repeat twenty observed events.
+
+    Expected Outcome:
+        Device mode answers identity requests; network mode ignores identity
+        requests, and disabled resolution prevents RPA accept-list matching.
+
+    Source Correction:
+        BV-15-C and BV-18-C enable advertising in Step 2, before the Filter
+        Accept List and resolving-list Steps 3-4, then enable it again in Step
+        5. Core Vol 4, Part E, 7.8.5, 7.8.16 and 7.8.44 disallow those commands
+        while advertising is enabled, so configure the lists first; BV-21-C
+        already orders its setup this way. Advertising_Filter_Policy follows
+        each source: 0x01 for BV-15-C, 0x03 for BV-21-C; BV-18-C names no
+        value and uses 0x03 for its accept-list entry. This is a local
+        sequencing correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-15/18/21-C, PDF pages 1217-1219, 1223-1225,
+        1231-1233, Figures 4.8-15/18/21;
+        Core Vol 6, Part B, 4.7 and 6.2.3.
+    """
+    peer = LOWER_CENTRAL_PUBLIC_ADDRESS
+    await privacy_peer.add_peer(tester, identity=peer, device=device, enabled=enabled)
+    await tester.command(hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(0, peer))
+    await _privacy_advertising_parameters(
+        tester, peer=peer, scannable=True, policy=policy
+    )
+    await _privacy_advertising_enable(tester)
+    scanner = peer if enabled else privacy_peer.private_address(privacy_peer.PEER_IRK)
+    for _ in range(20):
+        _, packet, address, _ = await _privacy_advertisement(tester, scannable=True)
+        privacy_peer.check_private_address(address, privacy_peer.LOCAL_IRK)
+        await _privacy_scan_request(tester, packet, address, scanner, expected=device)
+    await _privacy_advertising_enable(tester, False)
+
+
+async def _privacy_advertiser_scenario(tester, *, scenario, extended=False):
+    peer = LOWER_CENTRAL_PUBLIC_ADDRESS
+    directed = scenario in (
+        'directed',
+        'directed_local',
+        'directed_peer',
+        'directed_unknown',
+        'ignore_directed',
+        'device_directed',
+        'target_as_initiator',
+    )
+    local_key = scenario not in ('none', 'peer', 'directed_peer', 'target_as_initiator')
+    peer_key = scenario not in ('none', 'local', 'directed_local')
+    device = scenario in ('device', 'device_directed')
+    unknown = scenario in ('unknown', 'directed_unknown')
+    ignored = scenario in ('ignore', 'ignore_directed') or unknown
+    identity_request = not peer_key or device or ignored and not unknown
+    own_type = 1 if scenario == 'none' else 2
+    config_peer = hci.Address('C0:11:22:33:44:66') if unknown else peer
+    await tester.command(hci.HCI_LE_Set_Resolvable_Private_Address_Timeout_Command(1))
+    if scenario == 'none':
+        await tester.command(
+            hci.HCI_LE_Set_Random_Address_Command(privacy_peer.FALLBACK)
+        )
+    else:
+        await privacy_peer.add_peer(
+            tester,
+            identity=config_peer,
+            peer_irk=(bytes(range(16)) if unknown else privacy_peer.PEER_IRK)
+            if peer_key
+            else bytes(16),
+            local_irk=privacy_peer.LOCAL_IRK if local_key else bytes(16),
+            device=device,
+        )
+        await tester.command(
+            hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(peer.address_type, peer)
+        )
+    await _privacy_advertising_parameters(
+        tester,
+        peer=config_peer,
+        own_type=own_type,
+        directed=directed,
+        extended=extended,
+        policy=0 if scenario == 'none' else 3,
+    )
+    await _privacy_advertising_enable(tester, extended=extended)
+    wire_peer = (
+        peer
+        if identity_request
+        else privacy_peer.private_address(privacy_peer.PEER_IRK)
+    )
+    # An absent record must fail resolution even if its identity is on the FAL.
+    if unknown:
+        wire_peer = privacy_peer.private_address(privacy_peer.PEER_IRK)
+    link, address, target = await _privacy_incoming_connection(
+        tester,
+        peer=peer,
+        wire_peer=wire_peer,
+        directed=directed,
+        extended=extended,
+        local_irk=local_key,
+        own_type=own_type,
+        expect=not ignored,
+        use_target=scenario == 'target_as_initiator',
+        target_key=bytes(range(16)) if unknown else privacy_peer.PEER_IRK,
+    )
+    if ignored:
+        if scenario == 'unknown':
+            for _ in range(9):
+                await _privacy_incoming_connection(
+                    tester,
+                    peer=peer,
+                    wire_peer=wire_peer,
+                    local_irk=local_key,
+                    expect=False,
+                )
+        await _privacy_advertising_enable(tester, False, extended=extended)
+        return
+    # Device privacy's source requires maintaining the ACL for at least RPA timeout.
+    if scenario == 'device':
+        for _ in range(35):
+            await link.exchange()
+    await link.disconnect(local=True)
+    if scenario in ('mutual', 'directed'):
+        await tester.command(hci.HCI_LE_Set_Address_Resolution_Enable_Command(0))
+        if scenario == 'mutual':
+            await _privacy_advertising_enable(tester, extended=extended)
+            for _ in range(20):
+                await _privacy_incoming_connection(
+                    tester,
+                    peer=peer,
+                    wire_peer=wire_peer,
+                    extended=extended,
+                    local_irk=True,
+                    expect=False,
+                )
+            await _privacy_advertising_enable(tester, False, extended=extended)
+        else:
+            # High-duty advertising has a fresh lifetime for each source round.
+            for index in range(20):
+                await _privacy_advertising_enable(tester)
+                await _privacy_incoming_connection(
+                    tester,
+                    peer=peer,
+                    wire_peer=privacy_peer.private_address(
+                        privacy_peer.PEER_IRK, 0x500000 + index
+                    ),
+                    directed=True,
+                    local_irk=True,
+                    expect=False,
+                )
+                await tester.wait(1_280_001)
+                event = await tester.event(hci.HCI_LE_Connection_Complete_Event)
+                assert event.status == ErrorCode.ADVERTISING_TIMEOUT_ERROR
+    if scenario in ('directed_local', 'directed_peer'):
+        # Establish the source's "new RPA has been generated" condition by
+        # waiting for the explicitly configured one-second address lifetime.
+        await tester.wait(1_000_001)
+        await _privacy_advertising_enable(tester, extended=extended)
+        _, _, renewed, renewed_target = await _privacy_advertisement(
+            tester, directed=True, extended=extended
+        )
+        if local_key:
+            assert renewed != address
+            privacy_peer.check_private_address(renewed, privacy_peer.LOCAL_IRK)
+        else:
+            assert renewed == address
+            assert renewed_target != target
+            privacy_peer.check_private_address(renewed_target, privacy_peer.PEER_IRK)
+        await _privacy_advertising_enable(tester, False, extended=extended)
+
+
+async def privacy_connectable_nonresolvable(tester):
+    """Network Privacy: Undirected Connectable Advertising, no IRKs.
+
+    Initial Condition:
+        A Host-assigned NRPA, accept-all connectable advertising on all channels.
+
+    Test Steps:
+        1-6. Configure the Lower Tester public address and local NRPA, advertise,
+             send CONNECT_IND using observed AdvA, exchange empty data starting
+             in the requested first window, and terminate through HCI.
+        7. Repeat with Lower Tester static and non-resolvable private addresses.
+
+    Expected Outcome:
+        All three peer address classes connect while AdvA remains the assigned NRPA.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-06-C, PDF pages 1195-1196, Figure 4.8-5;
+        Core Vol 6, Part B, 4.4.2.3 and 6.2.4.
+    """
+    for peer in (
+        LOWER_CENTRAL_PUBLIC_ADDRESS,
+        PEER_ADDRESS,
+        hci.Address('01:AA:BB:CC:DD:EE'),
+    ):
+        await tester.command(
+            hci.HCI_LE_Set_Random_Address_Command(privacy_peer.FALLBACK)
+        )
+        await _privacy_advertising_parameters(tester, peer=peer, own_type=1, policy=0)
+        await _privacy_advertising_enable(tester)
+        link, _, _ = await _privacy_incoming_connection(
+            tester, peer=peer, wire_peer=peer, local_irk=False, own_type=1
+        )
+        await link.disconnect(local=True)
+
+
+async def privacy_connectable_local_only(tester, *, extended=False):
+    """Privacy connectable local only.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-4: use a peer identity, zero Peer IRK, valid Local IRK and
+        identity in the Filter Accept List; enable connectable advertising.
+        Steps 5-10: resolve AdvA, connect using peer identity via CONNECT_IND or
+        AUX_CONNECT_REQ, verify Enhanced Connection Complete, exchange data and
+        disconnect.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Source Correction:
+        Step 8 places an identity in Peer_Resolvable_Private_Address. Core Vol
+        4, Part E, 7.7.65.10 requires zero when no peer RPA was used; check zero
+        and keep the identity in Peer_Address. This is a local correction, not
+        SIG errata.
+
+    Reference:
+        LL.TS.p28, 4.8.3.3, PDF pages 1196-1198, Table 4.8-3, Figure 4.8-6;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(tester, scenario='local', extended=extended)
+
+
+async def privacy_connectable_mutual_irks(tester, *, extended=False):
+    """Privacy connectable mutual irks.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-8: configure mutual IRKs and accept-list filtering, advertise a
+        local RPA, connect using a peer RPA and check both actual RPAs plus
+        identity in Enhanced Connection Complete. Steps 9-10: exchange data and
+        disconnect. Steps 11-16: disable resolution, re-enable advertising,
+        repeat twenty RPA connection requests and require neither connection nor
+        data responses before disabling.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, 4.8.3.4, PDF pages 1199-1202, Table 4.8-4, Figures 4.8-7/8;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(tester, scenario='mutual', extended=extended)
+
+
+async def privacy_connectable_peer_only(tester, *, extended=False):
+    """Privacy connectable peer only.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-4: install Peer IRK with zero Local IRK and the peer identity in
+        the accept list; advertise with own type 2. Steps 5-8: require public
+        AdvA, resolve peer-RPA InitA in CONNECT_IND, establish the ACL, exchange
+        empty data and disconnect.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-09-C, PDF pages 1203-1205, Figure 4.8-9;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(tester, scenario='peer', extended=extended)
+
+
+async def privacy_connectable_unknown_peer(tester, *, extended=False):
+    """Privacy connectable unknown peer.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-6: configure the local IRK with an unrelated resolving-list
+        identity and put the actual peer identity only in the accept list;
+        enable local-RPA advertising. Steps 7-9: repeat ten received
+        advertisements and peer-RPA connection requests. Verify every attempt is
+        rejected without a connection event or data response.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-10-C, PDF pages 1205-1207, Figure 4.8-10;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(tester, scenario='unknown', extended=extended)
+
+
+async def privacy_directed_mutual_irks(tester, *, extended=False):
+    """Privacy directed mutual irks.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-8: install mutual IRKs, enable resolution and high-duty directed
+        advertising, verify local-RPA AdvA and peer-RPA TargetA, connect with a
+        separately generated peer RPA, exchange data and disconnect. Steps 9-14:
+        disable resolution and perform twenty high-duty advertising sessions,
+        send a different peer RPA in each request, require no accepted ACL/data
+        response and Advertising Timeout status 0x3C for each session.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Source Correction:
+        The source calls the directed target InitA; Core Vol 6, Part B, 2.3.1.2
+        calls it TargetA. Use that name while retaining InitA for CONNECT_IND.
+        This is a local correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, 4.8.3.4, SEC/ADV/BV-11-C, PDF pages 1207-1209, Figure 4.8-11;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(tester, scenario='directed', extended=extended)
+
+
+async def privacy_directed_local_only(tester, *, extended=False):
+    """Privacy directed local only.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-8: install zero Peer IRK and nonzero Local IRK, enable directed
+        advertising, require local-RPA AdvA and peer identity TargetA, connect
+        using that identity and verify Enhanced Connection Complete. Steps 9-10:
+        exchange data and disconnect. Steps 11-13: wait for the configured RPA
+        lifetime, re-enable and require renewed AdvA.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Source Correction:
+        Step 8 puts the peer identity in Peer_Resolvable_Private_Address; Core
+        Vol 4, Part E, 7.7.65.10 requires zero for an identity-only peer. Check
+        zero, retaining Peer_Address as identity. This is a local correction,
+        not SIG errata.
+
+    Reference:
+        LL.TS.p28, 4.8.3.5, PDF pages 1209-1212, Table 4.8-5, Figure 4.8-12;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(
+        tester, scenario='directed_local', extended=extended
+    )
+
+
+async def privacy_directed_peer_only(tester, *, extended=False):
+    """Privacy directed peer only.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-6: install nonzero Peer IRK and zero Local IRK, enable directed
+        advertising with own type 2, require public AdvA and peer-RPA TargetA,
+        accept a peer-RPA request and exchange data. Steps 7-10: disconnect,
+        wait for timeout, re-enable and require a new resolvable TargetA.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Source Correction:
+        Step 8 says both addresses renew, while Local IRK is zero and the
+        expected outcome keeps AdvA as identity. Core Vol 6, Part B, 4.7 uses
+        the local Identity Address when the Local IRK is all zeros, and 6.2.2
+        requires a Peer-IRK RPA in TargetA; require only TargetA to renew.
+        This is a local correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-13-C, PDF pages 1213-1215, Figure 4.8-13;
+        Core Vol 6, Part B, 4.7 and 6.2.2; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(
+        tester, scenario='directed_peer', extended=extended
+    )
+
+
+async def privacy_directed_unknown_peer(tester, *, extended=False):
+    """Privacy directed unknown peer.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-4: configure an unrelated identity/Peer IRK with the local IRK
+        and enable directed advertising towards that record. Steps 5-6: resolve
+        local AdvA and submit a connection request from an RPA generated by the
+        actual peer, whose IRK is absent. Require no accepted connection or data
+        response.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-14-C, PDF pages 1215-1217, Figure 4.8-14;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(
+        tester, scenario='directed_unknown', extended=extended
+    )
+
+
+async def privacy_connectable_identity_rejected(tester, *, extended=False):
+    """Privacy connectable identity rejected.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-4: install mutual IRKs in network privacy mode, add peer
+        identity to the accept list and enable connectable advertising. Steps
+        5-8: resolve local AdvA, send CONNECT_IND with identity InitA, transmit
+        candidate data in the requested first window and require no response or
+        accepted connection. Step 9: disable advertising.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-16-C, PDF pages 1219-1221, Figure 4.8-16;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(tester, scenario='ignore', extended=extended)
+
+
+async def privacy_directed_identity_rejected(tester, *, extended=False):
+    """Privacy directed identity rejected.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-4: configure mutual IRKs in network privacy mode and enable
+        directed advertising. Steps 5-8: resolve local AdvA, send identity InitA
+        in CONNECT_IND and candidate data in the first window; require no
+        connection event or data response. Step 9: disable advertising.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-17-C, PDF pages 1221-1223, Figure 4.8-17;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(
+        tester, scenario='ignore_directed', extended=extended
+    )
+
+
+async def privacy_connectable_device_mode(tester, *, extended=False):
+    """Privacy connectable device mode.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-8: install mutual IRKs in device mode and accept-list filtering,
+        enable advertising, connect using the peer identity and verify local RPA
+        plus zero peer RPA in Enhanced Connection Complete. Steps 9-11: exchange
+        empty data for at least the one-second address lifetime, then terminate
+        through HCI.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, 4.8.3.6, PDF pages 1225-1228, Table 4.8-6, Figure 4.8-19;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(tester, scenario='device', extended=extended)
+
+
+async def privacy_directed_device_mode(tester, *, extended=False):
+    """Privacy directed device mode.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-6: install mutual IRKs in device mode, enable directed
+        advertising with local-RPA AdvA and peer-RPA TargetA, then connect using
+        peer identity InitA. Steps 7-8: verify the accepted ACL, exchange empty
+        data and terminate through HCI.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-20-C, PDF pages 1229-1231, Figure 4.8-20;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(
+        tester, scenario='device_directed', extended=extended
+    )
+
+
+async def privacy_directed_target_as_initiator(tester, *, extended=False):
+    """Privacy directed target as initiator.
+
+    Initial Condition:
+        Standby with shared identities/IRKs configured as specified below.
+        Use all primary advertising channels and a one-second RPA lifetime.
+
+    Test Steps:
+        Steps 1-4: install Peer IRK with zero Local IRK, enable directed
+        advertising using own type 2 and verify public AdvA plus peer-RPA
+        TargetA. Step 5: copy the exact received TargetA into CONNECT_IND InitA
+        and retain observed AdvA. Steps 6-7: require successful connection,
+        exchange empty data and terminate.
+
+    Expected Outcome:
+        The advertised address types, resolution and privacy-mode decisions match
+        the specified vectors; successful ACLs exchange data, rejected ones do not.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BV-22-C, PDF pages 1233-1235, Figure 4.8-22;
+        Core Vol 6, Part B, 4.7 and 6.2.2/4; Vol 4, Part E, 7.7.65.10.
+    """
+    await _privacy_advertiser_scenario(
+        tester, scenario='target_as_initiator', extended=extended
+    )
+
+
+async def privacy_duplicate_advertiser(tester):
+    """Reject Existing Connection Request, Different Peer RPA.
+
+    Initial Condition:
+        The Lower Tester and IUT are not bonded. A public peer identity will be
+        installed after the first ACL, matching the source's key-distribution stage.
+
+    Test Steps:
+        1-5. Advertise on channel 37, accept a peer-RPA CONNECT_IND with a 50-ms
+             interval and verify the first Connection Complete.
+        6-9. Maintain acknowledged empty data, add the peer identity/IRK, enable
+             resolution and re-enable advertising with identity accept-list filtering.
+        10-13. Receive continued advertising and send CONNECT_IND using a new
+               RPA of the same peer and a different Access Address. Require no
+               successful completion and continued advertising.
+        14-16. Independently schedule both candidate ACLs for five seconds;
+               require acknowledged replies only for the original connection.
+
+    Expected Outcome:
+        The newly learned IRK identifies the earlier unresolved RPA as the same
+        peer, so a different peer RPA cannot create another connection.
+
+    Source Correction:
+        The initial condition requests accept-list filtering before any IRK is
+        available, which would prevent the initial peer RPA from matching its
+        identity. Allow the unbonded first connection, then enable the specified
+        filtering after steps 7-8. Core Vol 6, Part B, 4.7 requires resolution
+        before identity filtering. This is a local setup correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, SEC/ADV/BI-01-C, PDF pages 1235-1238, Figures 4.8-23/24;
+        Core Vol 6, Part B, 4.5 and 4.7.
+    """
+    await connection_cases.reject_existing_connection_request(tester, privacy=True)
+
+
+async def privacy_duplicate_initiator(tester):
+    """Duplicate Connection Request, Different Peer RPA.
+
+    Initial Condition:
+        Unbonded peer advertising with an RPA; no Filter Accept List is used.
+
+    Test Steps:
+        1-5. Initiate towards the received raw RPA, send CONNECT_IND at T_IFS and
+             verify Connection Complete and the initial ACL parameters.
+        6-8. Maintain empty-data acknowledgements, add the peer identity/IRK and
+             enable address resolution.
+        9-11. Advertise a different RPA on all primary channels, send a second
+              Create Connection for it, and maintain the original ACL for five seconds.
+        12. Accept status 0x0B, a completion with 0x0B after successful status,
+            or successful status followed by no completion and later successful
+            cancellation with completion status 0x02.
+
+    Expected Outcome:
+        No second CONNECT_IND is transmitted to the resolved existing peer;
+        the original ACL continues acknowledged data for the entire observation.
+
+    Reference:
+        LL.TS.p28, SEC/INI/BI-01-C, PDF pages 1240-1243, Figures 4.8-26/27;
+        Core Vol 6, Part B, 4.5 and 4.7.
+    """
+    await connection_cases.duplicate_connection_request(tester, privacy=True)
+
+
+async def privacy_random_address_scanning(tester, *, encrypt):
+    """Random Address Scanning, with optional LE Encrypt verification.
+
+    Initial Condition:
+        The common IR is used to derive IRK with d1(IR, 1, 0); the IUT actively
+        scans with one Host-generated random address.
+
+    Test Steps:
+        1-3. Set the local random address, enable active scanning using own type 1,
+             and configure the Lower Tester with an IRK-generated random address.
+        4-8. Advertise ADV_IND, observe SCAN_REQ with exact local/advertiser
+             addresses, respond at T_IFS and verify both Host reports.
+        9-10. Attempt Set Random Address while scanning and require Command
+              Disallowed; disable scanning successfully.
+        11. For BV-01, use LE Encrypt with IRK and padded prand and verify the
+            truncated ah result equals the advertiser address's hash.
+
+    Expected Outcome:
+        ScanA equals the assigned random address, reporting remains functional,
+        and a live address change is rejected. BV-01 also verifies the AES hash.
+
+    Source Correction:
+        Step 11 swaps the address halves: Core Vol 6, Part B, 1.3.2.2 puts prand
+        in the most significant three address octets and hash in the least
+        significant three. HCI octet strings are little endian, so encrypt
+        address[3:6] plus thirteen zero octets and compare result[:3] to
+        address[:3]. This is a local correction, not adopted SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.8.4.1, PDF pages 1238-1240, Table 4.8-7,
+        Figure 4.8-25; Core Vol 3, Part H, 2.2.2; Vol 6, Part B, 4.4.3.2.
+    """
+    irk = _aes(ROOT, (1).to_bytes(16, 'little'))
+    address = privacy_peer.private_address(irk)
+    await tester.command(hci.HCI_LE_Set_Random_Address_Command(privacy_peer.FALLBACK))
+    await privacy_peer.scanning(tester, active=True, own_type=1)
+    reports, requests = await privacy_peer.observe_advertising(
+        tester,
+        active=True,
+        address=address,
+        kind=AdvertisingPduType.ADV_IND,
+        duration_us=400_000,
+    )
+    assert reports and requests
+    assert all(
+        request.pdu[2:8] == bytes(privacy_peer.FALLBACK)
+        and request.pdu[8:14] == bytes(address)
+        for request in requests
+    )
+    assert any(report.event_type == 4 for report in reports)
+    assert all(report.address == address for report in reports)
+    await tester.command(
+        hci.HCI_LE_Set_Random_Address_Command(PEER_ADDRESS),
+        ErrorCode.COMMAND_DISALLOWED_ERROR,
+    )
+    await privacy_peer.scan_enable(tester, False)
+    if encrypt:
+        result = await tester.command(
+            hci.HCI_LE_Encrypt_Command(irk, bytes(address)[3:] + bytes(13))
+        )
+        assert result.encrypted_data[:3] == bytes(address)[:3]
+
+
 PROCEDURES: ProcedureMap = {}
 
 # Verify that a Peripheral performs an encryption-mode change using the correct
@@ -3204,6 +4274,348 @@ PROCEDURES |= procedure_cases(
         'LL/SEC/CEN/BI-09-C': (
             'Central Encryption: Sending Data and Not Request',
             {},
+        ),
+    },
+)
+
+
+# Verify that nonconnectable advertising contains the Host-assigned private address.
+# The Lower Tester observes the advertised packet contents.
+PROCEDURES |= procedure_cases(
+    privacy_nonconnectable_advertising,
+    {
+        'LL/SEC/ADV/BV-02-C': (
+            'Privacy – Non-connectable Undirected Advertising, '
+            'non-resolvable private address',
+            {},
+        ),
+        'LL/SEC/ADV/BV-27-C': (
+            'Privacy – Non-connectable Undirected Advertising, Resolvable '
+            'Private Address, Random RPA Timeout',
+            {'resolvable': True},
+        ),
+    },
+)
+
+# Verify scannable undirected advertising with a Host-assigned non-resolvable private
+# address and a successful scan-request/response exchange.
+PROCEDURES |= procedure_cases(
+    privacy_scannable_nonresolvable,
+    {
+        'LL/SEC/ADV/BV-04-C': (
+            'Network Privacy - Scannable Advertising, non-resolvable private address',
+            {},
+        ),
+    },
+)
+
+# Verify scannable advertising with resolvable private addresses, address renewal after
+# timeout, and suppression of unresolved scan requests when resolution is disabled.
+PROCEDURES |= procedure_cases(
+    privacy_scannable_rpa_timeout,
+    {
+        'LL/SEC/ADV/BV-28-C': (
+            'Network Privacy – Scannable Advertising, resolvable private '
+            'address, Random RPA Timeout',
+            {},
+        ),
+    },
+)
+
+# Verify scanner identity rejection in network privacy, acceptance in device privacy,
+# and rejection of peer RPAs when disabled resolution prevents accept-list matching.
+PROCEDURES |= procedure_cases(
+    privacy_scannable_identity_policy,
+    {
+        'LL/SEC/ADV/BV-15-C': (
+            'Network Privacy - Scannable Advertising, resolvable private '
+            'address, Ignore Identity Address',
+            {'policy': 1},
+        ),
+        'LL/SEC/ADV/BV-18-C': (
+            'Device Privacy - Scannable Advertising, resolvable private '
+            'address, Accept Identity Address',
+            {'device': True},
+        ),
+        'LL/SEC/ADV/BV-21-C': (
+            'Network Privacy - Scannable Advertising, resolvable private '
+            'address, Ignore scanner RPA',
+            {'enabled': False},
+        ),
+    },
+)
+
+# Verify that an advertiser using a non-resolvable private AdvA accepts a connection
+# and exchanges data as a Peripheral.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_nonresolvable,
+    {
+        'LL/SEC/ADV/BV-06-C': (
+            'Network Privacy - Undirected Connectable Advertising no Local '
+            'IRK, no peer IRK',
+            {},
+        ),
+    },
+)
+
+# Verify connection with a local-RPA AdvA and peer-identity InitA when only the Local
+# IRK is configured and the peer identity is in the Filter Accept List.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_local_only,
+    {
+        'LL/SEC/ADV/BV-07-C': (
+            'Network Privacy - Undirected Connectable Advertising with '
+            'Local IRK, no peer IRK, CONNECT_IND',
+            {},
+        ),
+    },
+)
+
+# Verify connection with local and peer RPAs when both IRKs are configured, and
+# rejection of the peer RPA after address resolution is disabled.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_mutual_irks,
+    {
+        'LL/SEC/ADV/BV-08-C': (
+            'Network Privacy - Undirected Connectable Advertising with '
+            'Local IRK and Peer IRK, CONNECT_IND',
+            {},
+        ),
+    },
+)
+
+# Verify connection with identity AdvA and peer-RPA InitA when the resolving list
+# contains a Peer IRK and a zero Local IRK.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_peer_only,
+    {
+        'LL/SEC/ADV/BV-09-C': (
+            'Network Privacy - Undirected Connectable Advertising without '
+            'Local IRK and with peer IRK',
+            {},
+        ),
+    },
+)
+
+# Verify that accept-list filtering rejects connection requests from a peer whose RPA
+# cannot be resolved with the configured Peer IRK.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_unknown_peer,
+    {
+        'LL/SEC/ADV/BV-10-C': (
+            'Network Privacy - Undirected Connectable Advertising using '
+            'Resolving List and Peer Device Identity not in the List',
+            {},
+        ),
+    },
+)
+
+# Verify directed connection establishment with local and peer RPAs, address renewal,
+# and rejection of the peer RPA after resolution is disabled.
+PROCEDURES |= procedure_cases(
+    privacy_directed_mutual_irks,
+    {
+        'LL/SEC/ADV/BV-11-C': (
+            'Network Privacy - Directed Connectable Advertising using local '
+            'and remote IRK',
+            {},
+        ),
+    },
+)
+
+# Verify directed connection establishment using local-RPA AdvA and peer-identity
+# TargetA with only a Local IRK, and renewal of AdvA after timeout.
+PROCEDURES |= procedure_cases(
+    privacy_directed_local_only,
+    {
+        'LL/SEC/ADV/BV-12-C': (
+            'Network Privacy - Directed Connectable Advertising with local '
+            'IRK but without remote IRK, CONNECT_IND',
+            {},
+        ),
+    },
+)
+
+# Verify directed connection establishment using identity AdvA and peer-RPA TargetA
+# with only a Peer IRK, and renewal of TargetA after timeout.
+PROCEDURES |= procedure_cases(
+    privacy_directed_peer_only,
+    {
+        'LL/SEC/ADV/BV-13-C': (
+            'Network Privacy - Directed Connectable Advertising without '
+            'local IRK but with remote IRK',
+            {},
+        ),
+    },
+)
+
+# Verify that directed advertising rejects a connection request from a peer whose RPA
+# does not match the configured resolving record.
+PROCEDURES |= procedure_cases(
+    privacy_directed_unknown_peer,
+    {
+        'LL/SEC/ADV/BV-14-C': (
+            'Network Privacy - Directed Connectable Advertising using '
+            'Resolving List and Peer Device Identity not in the List',
+            {},
+        ),
+    },
+)
+
+# Verify that network privacy rejects an identity-address connection request when the
+# peer identity has an associated IRK in the resolving list.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_identity_rejected,
+    {
+        'LL/SEC/ADV/BV-16-C': (
+            'Network Privacy - Undirected Connectable Advertising with '
+            'Local IRK and Peer IRK, Ignore Identity Address',
+            {},
+        ),
+    },
+)
+
+# Verify that directed advertising in network privacy rejects a peer identity InitA
+# when the peer has an associated IRK in the resolving list.
+PROCEDURES |= procedure_cases(
+    privacy_directed_identity_rejected,
+    {
+        'LL/SEC/ADV/BV-17-C': (
+            'Network Privacy - Directed Connectable Advertising using local '
+            'and remote IRK, Ignore Identity Address',
+            {},
+        ),
+    },
+)
+
+# Verify that undirected connectable advertising in device privacy accepts a peer
+# identity InitA despite an associated Peer IRK and maintains the resulting connection.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_device_mode,
+    {
+        'LL/SEC/ADV/BV-19-C': (
+            'Device Privacy - Undirected Connectable Advertising with Local '
+            'IRK and Peer IRK, Accept Identity Address, CONNECT_IND',
+            {},
+        ),
+    },
+)
+
+# Verify that directed advertising in device privacy accepts a peer identity InitA
+# despite an associated Peer IRK and exchanges connection data.
+PROCEDURES |= procedure_cases(
+    privacy_directed_device_mode,
+    {
+        'LL/SEC/ADV/BV-20-C': (
+            'Device Privacy - Directed Connectable Advertising using local '
+            'and remote IRK, Accept Identity Address',
+            {},
+        ),
+    },
+)
+
+# Verify connection acceptance when the Lower Tester copies the exact peer-RPA TargetA
+# from directed advertising into CONNECT_IND InitA.
+PROCEDURES |= procedure_cases(
+    privacy_directed_target_as_initiator,
+    {
+        'LL/SEC/ADV/BV-22-C': (
+            'Network Privacy – Directed Connectable Advertising using '
+            'Target RPA as InitA',
+            {},
+        ),
+    },
+)
+
+# Verify connection with a local-RPA AdvA and peer-identity InitA when only the Local
+# IRK is configured and the peer identity is in the Filter Accept List.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_local_only,
+    {
+        'LL/SEC/ADV/BV-23-C': (
+            'Network Privacy - Undirected Connectable Advertising with '
+            'Local IRK, no peer IRK, AUX_CONNECT_REQ',
+            {'extended': True},
+        ),
+    },
+)
+
+# Verify connection with local and peer RPAs when both IRKs are configured, and
+# rejection of the peer RPA after address resolution is disabled.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_mutual_irks,
+    {
+        'LL/SEC/ADV/BV-24-C': (
+            'Network Privacy - Undirected Connectable Advertising with '
+            'Local IRK and Peer IRK, AUX_CONNECT_REQ',
+            {'extended': True},
+        ),
+    },
+)
+
+# Verify directed connection establishment using local-RPA AdvA and peer-identity
+# TargetA with only a Local IRK, and renewal of AdvA after timeout.
+PROCEDURES |= procedure_cases(
+    privacy_directed_local_only,
+    {
+        'LL/SEC/ADV/BV-25-C': (
+            'Network Privacy - Directed Connectable Advertising with local '
+            'IRK but without remote IRK, AUX_CONNECT_REQ',
+            {'extended': True},
+        ),
+    },
+)
+
+# Verify that undirected connectable advertising in device privacy accepts a peer
+# identity InitA despite an associated Peer IRK and maintains the resulting connection.
+PROCEDURES |= procedure_cases(
+    privacy_connectable_device_mode,
+    {
+        'LL/SEC/ADV/BV-26-C': (
+            'Device Privacy - Undirected Connectable Advertising with Local '
+            'IRK and Peer IRK, Accept Identity Address, AUX_CONNECT_REQ',
+            {'extended': True},
+        ),
+    },
+)
+
+
+# Verify that an advertiser rejects another connection from an already connected peer
+# after learning its IRK and receiving a different RPA. The Lower Tester maintains the
+# original Central connection.
+PROCEDURES |= procedure_cases(
+    privacy_duplicate_advertiser,
+    {
+        'LL/SEC/ADV/BI-01-C': (
+            'Reject Existing Connection Request, Different Peer RPA',
+            {},
+        ),
+    },
+)
+
+# Verify that an initiator sends no second connection request to an already connected
+# peer after learning its IRK and observing a different RPA, while maintaining the
+# original ACL.
+PROCEDURES |= procedure_cases(
+    privacy_duplicate_initiator,
+    {
+        'LL/SEC/INI/BI-01-C': ('Duplicate Connection Request, Different Peer RPA', {}),
+    },
+)
+
+# Verify active scanning with a Host-assigned random address and rejection of Set
+# Random Address while scanning. The selected LE Encrypt variant also checks the
+# address hash.
+PROCEDURES |= procedure_cases(
+    privacy_random_address_scanning,
+    {
+        'LL/SEC/SCN/BV-01-C': (
+            'Random Address Scanning, LE Encryption',
+            {'encrypt': True},
+        ),
+        'LL/SEC/SCN/BV-02-C': (
+            'Random Address Scanning, No LE Encryption',
+            {'encrypt': False},
         ),
     },
 )

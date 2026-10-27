@@ -38,7 +38,8 @@ from typing import (
 )
 
 from bscontroller import serialization as utils
-from bscontroller.address import Address, AddressType
+from bscontroller.address import Address, AddressType, OwnAddressType
+from bscontroller.address import PrivacyMode as _PrivacyMode
 from bscontroller.colors import color
 from bscontroller.errors import ErrorCode as HCI_ErrorCode
 from bscontroller.errors import InvalidArgumentError, InvalidPacketError, ProtocolError
@@ -1461,14 +1462,6 @@ class HCI_Dataclass_Object(HCI_Object):
 
 
 # -----------------------------------------------------------------------------
-class OwnAddressType(SpecableEnum):
-    PUBLIC = 0
-    RANDOM = 1
-    RESOLVABLE_OR_PUBLIC = 2
-    RESOLVABLE_OR_RANDOM = 3
-
-
-# -----------------------------------------------------------------------------
 class CteType(SpecableEnum):
     AOA_CONSTANT_TONE_EXTENSION = 0x00
     AOD_CONSTANT_TONE_EXTENSION_1US = 0x01
@@ -2621,6 +2614,92 @@ class HCI_LE_Clear_Resolving_List_Command(HCI_SyncCommand[HCI_StatusReturnParame
     '''
 
 
+@HCI_SyncCommand.sync_command(HCI_StatusReturnParameters)
+@dataclasses.dataclass
+class HCI_LE_Remove_Device_From_Resolving_List_Command(
+    HCI_SyncCommand[HCI_StatusReturnParameters]
+):
+    """Core Vol 4, Part E, 7.8.39: identify a resolving record by address/type."""
+
+    peer_identity_address_type: int = field(metadata=metadata(1))
+    peer_identity_address: Address = field(
+        metadata=metadata(Address.parse_address_preceded_by_type)
+    )
+
+
+@dataclasses.dataclass
+class HCI_LE_Read_Peer_Resolvable_Address_ReturnParameters(HCI_StatusReturnParameters):
+    peer_resolvable_address: Address = field(
+        metadata=metadata(Address.parse_random_address)
+    )
+
+
+@HCI_SyncCommand.sync_command(HCI_LE_Read_Peer_Resolvable_Address_ReturnParameters)
+@dataclasses.dataclass
+class HCI_LE_Read_Peer_Resolvable_Address_Command(
+    HCI_SyncCommand[HCI_LE_Read_Peer_Resolvable_Address_ReturnParameters]
+):
+    """Core Vol 4, Part E, 7.8.42."""
+
+    peer_identity_address_type: int = field(metadata=metadata(1))
+    peer_identity_address: Address = field(
+        metadata=metadata(Address.parse_address_preceded_by_type)
+    )
+
+
+@dataclasses.dataclass
+class HCI_LE_Read_Local_Resolvable_Address_ReturnParameters(HCI_StatusReturnParameters):
+    local_resolvable_address: Address = field(
+        metadata=metadata(Address.parse_random_address)
+    )
+
+
+@HCI_SyncCommand.sync_command(HCI_LE_Read_Local_Resolvable_Address_ReturnParameters)
+@dataclasses.dataclass
+class HCI_LE_Read_Local_Resolvable_Address_Command(
+    HCI_SyncCommand[HCI_LE_Read_Local_Resolvable_Address_ReturnParameters]
+):
+    """Core Vol 4, Part E, 7.8.43."""
+
+    peer_identity_address_type: int = field(metadata=metadata(1))
+    peer_identity_address: Address = field(
+        metadata=metadata(Address.parse_address_preceded_by_type)
+    )
+
+
+@HCI_SyncCommand.sync_command(HCI_StatusReturnParameters)
+@dataclasses.dataclass
+class HCI_LE_Set_Resolvable_Private_Address_Timeout_V2_Command(
+    HCI_SyncCommand[HCI_StatusReturnParameters]
+):
+    """Core Vol 4, Part E: independently bound each RPA generation period."""
+
+    rpa_timeout_min: int = field(metadata=metadata(2))
+    rpa_timeout_max: int = field(metadata=metadata(2))
+
+
+@HCI_SyncCommand.sync_command(HCI_StatusReturnParameters)
+@dataclasses.dataclass
+class HCI_LE_Set_Decision_Data_Command(HCI_SyncCommand[HCI_StatusReturnParameters]):
+    """Core Vol 4, Part E, 7.8.144: one decision payload, at most eight octets."""
+
+    advertising_handle: int = field(metadata=metadata(1))
+    decision_type_flags: int = field(metadata=metadata(1))
+    decision_data: bytes = field(metadata=metadata('v'))
+
+
+@HCI_SyncCommand.sync_command(HCI_StatusReturnParameters)
+@dataclasses.dataclass
+class HCI_LE_Set_Decision_Instructions_Command(
+    HCI_SyncCommand[HCI_StatusReturnParameters]
+):
+    """Core Vol 4, Part E, 7.8.145: atomically replace grouped decision tests."""
+
+    test_flags: Sequence[int] = field(metadata=metadata(1, list_begin=True))
+    test_fields: Sequence[int] = field(metadata=metadata(1))
+    test_parameters: Sequence[bytes] = field(metadata=metadata(16, list_end=True))
+
+
 # -----------------------------------------------------------------------------
 @dataclasses.dataclass
 class HCI_LE_Read_Resolving_List_Size_ReturnParameters(HCI_StatusReturnParameters):
@@ -3442,9 +3521,7 @@ class HCI_LE_Set_Privacy_Mode_Command(HCI_SyncCommand[HCI_StatusReturnParameters
     See Bluetooth spec @ 7.8.77 LE Set Privacy Mode Command
     '''
 
-    class PrivacyMode(SpecableEnum):
-        NETWORK_PRIVACY_MODE = 0x00
-        DEVICE_PRIVACY_MODE = 0x01
+    PrivacyMode = _PrivacyMode
 
     peer_identity_address_type: int = field(
         metadata=metadata(Address.ADDRESS_TYPE_SPEC)
@@ -4594,6 +4671,30 @@ class HCI_LE_Advertising_Report_Event(HCI_LE_Meta_Event):
             metadata=metadata(Address.parse_address_preceded_by_type)
         )
         data: bytes = field(metadata=metadata('v'))
+        rssi: int = field(metadata=metadata(-1))
+
+    reports: Sequence[Report] = field(
+        metadata=metadata(Report.parse_from_bytes, list_begin=True, list_end=True)
+    )
+
+
+# -----------------------------------------------------------------------------
+@HCI_LE_Meta_Event.event
+@dataclasses.dataclass
+class HCI_LE_Directed_Advertising_Report_Event(HCI_LE_Meta_Event):
+    """Unresolved TargetA under extended legacy scan filtering (7.7.65.11)."""
+
+    @dataclasses.dataclass
+    class Report(HCI_Dataclass_Object):
+        event_type: int = field(metadata=metadata(1))
+        address_type: int = field(metadata=metadata(Address.ADDRESS_TYPE_SPEC))
+        address: Address = field(
+            metadata=metadata(Address.parse_address_preceded_by_type)
+        )
+        direct_address_type: int = field(metadata=metadata(Address.ADDRESS_TYPE_SPEC))
+        direct_address: Address = field(
+            metadata=metadata(Address.parse_address_preceded_by_type)
+        )
         rssi: int = field(metadata=metadata(-1))
 
     reports: Sequence[Report] = field(

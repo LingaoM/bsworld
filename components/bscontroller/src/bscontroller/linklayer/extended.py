@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from bscontroller.address import Address, AddressType
+from bscontroller.address import Address, AddressType, OwnAddressType
 from bscontroller.capabilities import (
     CONTROLLER_ADV_DATA_SIZE_MAX,
 )
@@ -50,6 +50,12 @@ from bscontroller.linklayer.advertising import (
     align_offset_us,
     scan_request,
 )
+from bscontroller.linklayer.filtering import (
+    DecisionMode,
+    InitiatorFilterPolicy,
+    ScanningFilterPolicy,
+    scanning_decision_mode,
+)
 from bscontroller.linklayer.parameters import Parameters
 from bscontroller.linklayer.results import ConnectionAccepted, SyncInfoReceived
 from bscontroller.linklayer.state import (
@@ -67,6 +73,7 @@ if TYPE_CHECKING:
     from bscontroller.linklayer.discovery import Advertising
     from bscontroller.linklayer.link import RadioLink
     from bscontroller.radio.base import Received
+
 
 # Auxiliary scheduling policy: preferred start-to-start offset, not a Core minimum.
 # Actual offsets also include packet airtime plus LL_MAFS_US and offset rounding.
@@ -150,14 +157,37 @@ def periodic_time_us(item: Advertising) -> int:
     )
 
 
+def primary_pdu(item: Advertising, pointer: AuxPtr) -> ExtendedPdu:
+    """Build primary CEAP fields, keeping decision data separate from AdvData."""
+    return ExtendedPdu(
+        mode=item.mode,
+        kind=AdvertisingPduType.ADV_DECISION_IND
+        if item.decision
+        else AdvertisingPduType.ADV_EXT_IND,
+        address=bytes(item.address)
+        if item.decision and item.decision_address
+        else None,
+        random_address=bool(
+            item.decision and item.decision_address and item.address.is_random
+        ),
+        adi=(item.sid << PDU_ADV_ADI_DID_BITS | item.did)
+        if not item.decision or item.decision_adi
+        else None,
+        aux_ptr=pointer,
+        data=item.decision_data if item.decision else b'',
+        decision_flags=item.decision_flags if item.decision else 0,
+        tx_power=item.tx_power_dbm
+        if item.decision and item.include_tx_power and item.primary_phy == Phy.LE_1M
+        else None,
+    )
+
+
 def primary_offset_us(item: Advertising) -> int:
     """AuxPtr offset from the first ADV_EXT_IND to the shared AUX_ADV_IND, at least
     T_MAFS (Core Vol 6, Part B, 4.1.2, 4.4.2.2.2).
     """
-    primary = ExtendedPdu(
-        mode=item.mode,
-        adi=item.sid << PDU_ADV_ADI_DID_BITS | item.did,
-        aux_ptr=AuxPtr(0, RADIO_AUX_OFFSET_DEFAULT_US, item.secondary_phy),
+    primary = primary_pdu(
+        item, AuxPtr(0, RADIO_AUX_OFFSET_DEFAULT_US, item.secondary_phy)
     ).encode()
     return align_offset_us(
         max(
@@ -353,11 +383,7 @@ class ExtendedProcedures:
                 // PDU_ADV_OFFSET_UNIT_30_US
                 * PDU_ADV_OFFSET_UNIT_30_US
             )
-            primary = ExtendedPdu(
-                mode=item.mode,
-                adi=item.sid << PDU_ADV_ADI_DID_BITS | item.did,
-                aux_ptr=AuxPtr(aux_channel, offset, item.secondary_phy),
-            )
+            primary = primary_pdu(item, AuxPtr(aux_channel, offset, item.secondary_phy))
             await link._transmit(
                 channel,
                 primary.encode(),
@@ -387,8 +413,13 @@ class ExtendedProcedures:
         Part B, 4.4.2.5.2, 4.4.2.7, 4.4.4.2).
         """
         link, pdu = self.link, packet.pdu
-        peer = advertising_request_peer(pdu, item.address, item.target)
+        peer = advertising_request_peer(pdu, item.address, None)
         if peer is None:
+            return False
+        identity = link.privacy.identity(peer)
+        if identity is None or (
+            item.target is not None and identity != link.privacy.identity(item.target)
+        ):
             return False
         if (
             item.mode == AdvertisingMode.SCANNABLE
@@ -397,11 +428,11 @@ class ExtendedProcedures:
         ):
             if (
                 item.filter_policy & LL_ADV_FILTER_SCAN_MASK
-                and peer not in link.accept_list
+                and identity not in link.accept_list
             ):
                 return False
             if item.notify_scan_request:
-                link.listener.on_scan_request(item, peer)
+                link.listener.on_scan_request(item, identity)
             await self.transmit_chain(
                 channel,
                 ExtendedPdu(
@@ -423,7 +454,7 @@ class ExtendedProcedures:
             if (
                 item.target is None
                 and item.filter_policy & LL_ADV_FILTER_CONNECT_MASK
-                and peer not in link.accept_list
+                and identity not in link.accept_list
             ):
                 return False
             try:
@@ -454,6 +485,7 @@ class ExtendedProcedures:
                     packet.end_us,
                     csa2=True,
                     self_address=item.address,
+                    local_rpa=item.local_rpa,
                     advertiser=item,
                     window_delay_us=(
                         LL_CONN_AUX_WINDOW_DELAY_CODED_US
@@ -472,10 +504,49 @@ class ExtendedProcedures:
         """
         link = self.link
         # Primary SyncInfo,CTEInfo,ACAD and AdvData are context-reserved CEAP fields.
-        primary = replace(
-            ExtendedPdu.decode(packet.pdu), sync_info=None, cte=None, acad=b'', data=b''
+        primary = ExtendedPdu.decode(packet.pdu)
+        decision = primary.kind == AdvertisingPduType.ADV_DECISION_IND
+        local = link.initiating if initiating else link.scan
+        if local is None and decision:
+            return
+        mode = (
+            InitiatorFilterPolicy(local.filter_policy).decision_mode
+            if initiating
+            else scanning_decision_mode(local.filter_policy)
+            if local is not None
+            else DecisionMode.IGNORE_DECISION_PDUS
         )
-        if primary.kind != AdvertisingPduType.ADV_EXT_IND:
+        if (
+            decision
+            and (
+                mode == DecisionMode.IGNORE_DECISION_PDUS
+                or not link.decision.accepts(primary, packet.rssi)
+            )
+        ) or (not decision and mode == DecisionMode.DECISION_PDUS_ONLY):
+            return
+        if decision and (
+            primary.aux_ptr is None
+            or primary.target is not None
+            or primary.sync_info is not None
+            or primary.cte is not None
+            or primary.acad
+        ):
+            return
+        # Core Vol 6, Part B, 2.3.1.5, Table 2.4: without AuxPtr, ADI is
+        # reserved too. Ignore it before deriving SID or duplicate identity;
+        # its physical presence must not manufacture a Host advertising SID.
+        primary = replace(
+            primary,
+            adi=primary.adi if primary.aux_ptr is not None else None,
+            sync_info=None,
+            cte=None,
+            acad=b'',
+            data=b'',
+        )
+        if primary.kind not in (
+            AdvertisingPduType.ADV_EXT_IND,
+            AdvertisingPduType.ADV_DECISION_IND,
+        ):
             return
         ext, received, channel = primary, packet, None
         if primary.aux_ptr:
@@ -491,7 +562,9 @@ class ExtendedProcedures:
             ):
                 return
             # Table 2.5 C.1/C.2: repeated auxiliary addresses are RFU.
-            primary_addresses_valid = not primary.mode and packet.phy == Phy.LE_1M
+            primary_addresses_valid = decision or (
+                not primary.mode and packet.phy == Phy.LE_1M
+            )
             if primary_addresses_valid and primary.address is not None:
                 ext = replace(
                     ext,
@@ -520,11 +593,28 @@ class ExtendedProcedures:
             if ext.address is not None
             else Address(bytes(PDU_ADV_ADDRESS_SIZE), AddressType.ANONYMOUS)
         )
+        identity = link.privacy.identity(address)
+        if identity is None:
+            return
         target = (
             Address(ext.target, AddressType(ext.random_target)) if ext.target else None
         )
         local = link.initiating if initiating else link.scan
-        if target is not None and (local is None or target != local.address):
+        target_matches = target is None or (
+            local is not None
+            and link.privacy.accept_target(target, local.address, address)
+        )
+        if (
+            target is not None
+            and not target_matches
+            and (
+                local is None
+                or initiating
+                or not local.filter_policy
+                & ScanningFilterPolicy.ACCEPT_ALL_DIRECTED_RPAS
+                or not target.is_resolvable
+            )
+        ):
             return
         if initiating:
             # Initiation consumes only eligible connectable auxiliary events;
@@ -532,10 +622,25 @@ class ExtendedProcedures:
             item = link.initiating
             if item is None:
                 return
+            if (
+                target is not None
+                and OwnAddressType(item.own_address_type).uses_resolvable_address
+                and not target.is_resolvable
+            ):
+                return
+            policy = InitiatorFilterPolicy(item.filter_policy)
             accepted = (
-                address in link.accept_list
-                if item.filter_policy
-                else address == item.peer
+                (
+                    identity in link.accept_list
+                    if policy.filters_non_decision_pdus
+                    else identity == item.peer
+                )
+                if not decision
+                else (
+                    identity in link.accept_list
+                    if policy == InitiatorFilterPolicy.FILTER_ACCEPT_LIST_ALL_PDUS
+                    else True
+                )
             )
             if (
                 ext.mode == AdvertisingMode.CONNECTABLE
@@ -548,14 +653,22 @@ class ExtendedProcedures:
         info = ext.sync_info
         if info is not None and sid is not None:
             link.roles.synchronization.acquired(
-                SyncInfoReceived(address, sid, info, received)
+                SyncInfoReceived(identity, sid, info, received)
             )
-        if link.scan and link.scan.filter_policy and address not in link.accept_list:
+        if (
+            link.scan
+            and link.scan.filter_policy & ScanningFilterPolicy.FILTER_ACCEPT_LIST
+            and identity not in link.accept_list
+        ):
             return
         data, status, tx_power = await self.collect(received, ext)
+        if target is not None:
+            target = link.privacy.report_target(
+                target, local.identity_address or local.address, address
+            )
         flags = ext.mode | (AdvertisingProperties.DIRECTED_ADVERTISING if target else 0)
         link.listener.on_advertisement(
-            address,
+            identity,
             data,
             received.rssi,
             AdvertisingReport(AdvertisingProperties(flags), status),
@@ -570,11 +683,15 @@ class ExtendedProcedures:
             link.scan
             and link.scan.active
             and ext.mode == AdvertisingMode.SCANNABLE
+            and target_matches
             and channel is not None
             and not ext.aux_ptr
             and link.scan.backoff.permit()
         ):
             scan = link.scan
+            scan.address = link.privacy.local_address(
+                scan.own_address_type, scan.identity_address or scan.address, identity
+            )
             request = scan_request(scan.address, address)
             end_us = await link._transmit(
                 channel, request, start_us=received.end_us + LL_IFS_US, phy=received.phy
@@ -599,7 +716,7 @@ class ExtendedProcedures:
                     scan.backoff.complete(True, link.random)
                     data, status, tx_power = await self.collect(response, rsp)
                     link.listener.on_advertisement(
-                        address,
+                        identity,
                         data,
                         response.rssi,
                         AdvertisingReport(
@@ -625,6 +742,15 @@ class ExtendedProcedures:
         assert item is not None
         if not link.roles.connections.can_accept(address):
             return
+        # 4.4.4.2 reuses the scanner backoff after an unanswered AUX_CONNECT_REQ.
+        if not item.backoff.permit():
+            return
+        item.address, generated = link.privacy.select_local_address(
+            item.own_address_type,
+            item.identity_address or item.address,
+            link.privacy.identity(address),
+        )
+        local_rpa = item.address if generated else None
         # Core Vol 4, Part E, 7.8.66 permits a supplied PHY's parameters as fallback.
         parameters = (item.phy_parameters or {}).get(packet.phy, item.parameters)
         window_delay = (
@@ -661,28 +787,54 @@ class ExtendedProcedures:
             channel, request, start_us=packet.end_us + LL_IFS_US, phy=packet.phy
         )
         response = await link.receive_response(channel, request_end, packet.phy)
-        if response is None:
+        if link.initiating is not item:
             return
-        rsp = ExtendedPdu.decode(response.pdu)
+        if response is None:
+            item.backoff.complete(False, link.random)
+            return
+        try:
+            rsp = ExtendedPdu.decode(response.pdu)
+        except ValueError:
+            item.backoff.complete(False, link.random)
+            return
+        response_address = (
+            Address(rsp.address, AddressType(rsp.random_address))
+            if rsp.address is not None
+            else None
+        )
+        # Device privacy permits a peer to rotate its RPA before responding.
+        # Bind a changed AdvA to the same resolving record, then retain the most
+        # recent wire address for Enhanced Connection Complete (7.7.65.10).
+        same_peer = response_address == address or (
+            link.privacy.enabled
+            and response_address is not None
+            and response_address.is_resolvable
+            and (resolved := link.privacy.identity(response_address)) is not None
+            and resolved.address_type
+            in (AddressType.PUBLIC_IDENTITY, AddressType.RANDOM_IDENTITY)
+            and resolved == link.privacy.identity(address)
+        )
         if (
             rsp.kind != AdvertisingPduType.AUX_CONNECT_RSP
             or rsp.mode
-            or rsp.address != ext.address
+            or not same_peer
             or rsp.target != bytes(item.address)
-            or rsp.random_address != ext.random_address
             or rsp.random_target != item.address.is_random
         ):
+            item.backoff.complete(False, link.random)
             return
         # Keep the attempt pending on a missing or mismatched response. Only the
         # confirmed AUX_CONNECT_RSP lets us commit this connection.
+        item.backoff.complete(True, link.random)
         link.roles.connections.accepted(
             ConnectionAccepted(
                 parameters,
-                address,
+                response_address,
                 Role.CENTRAL,
                 request_end,
                 csa2=True,
                 self_address=item.address,
+                local_rpa=local_rpa,
                 window_delay_us=window_delay,
                 phy=packet.phy,
                 initiator=item,

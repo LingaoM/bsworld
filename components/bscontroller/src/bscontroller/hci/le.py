@@ -11,7 +11,8 @@ from bscontroller.hci import (
 )
 from bscontroller.hci.advertising import LeAdvertisingCommands
 from bscontroller.hci.connection import LeConnectionCommands
-from bscontroller.hci.context import DISALLOWED, SUCCESS
+from bscontroller.hci.context import SUCCESS
+from bscontroller.hci.privacy import LePrivacyCommands
 from bscontroller.hci.records import LegacyAdvertiser
 from bscontroller.hci.scanning import LeScanningCommands
 
@@ -61,7 +62,7 @@ EXTENDED_ADVERTISING_COMMANDS = frozenset(
 
 
 class LeControllerProcedures(
-    LeAdvertisingCommands, LeScanningCommands, LeConnectionCommands
+    LeAdvertisingCommands, LeScanningCommands, LeConnectionCommands, LePrivacyCommands
 ):
     """One command endpoint, grouped by the LE procedures each command configures."""
 
@@ -101,7 +102,7 @@ class LeControllerProcedures(
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.4 LE Set Random Address Command
         '''
-        if self.ll.initiating_enabled:
-            return hci.HCI_StatusReturnParameters(DISALLOWED)
-        self.controller.random_address = command.random_address
-        return hci.HCI_StatusReturnParameters(SUCCESS)
+        status = self.ll.set_random_address(command.random_address)
+        if status == SUCCESS:
+            self.controller.random_address = command.random_address
+        return hci.HCI_StatusReturnParameters(status)

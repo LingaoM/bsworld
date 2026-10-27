@@ -1,69 +1,79 @@
-# RadioController Protocol Tests
+# BSController Protocol Tests
 
 English | [简体中文](PROTOCOL.zh-CN.md)
 
-The suite is organized by the actual HCI and LL test-suite chapters. These tests do not imply Bluetooth SIG qualification or certification.
+This suite validates BSController HCI commands, events and Link Layer behavior against HCI.TS.p39, LL.TS.p28 and the Bluetooth Core Specification. Its results support development verification and do not constitute Bluetooth SIG qualification.
 
-## Chapter Layout
+## Coverage
 
-The suite contains 17 primary test files: nine HCI chapters and eight LL chapters. Each source procedure has one test method; its case variants are parameters of that method. A printed page label is not a section number.
+The suite selects 612 protocol cases: 133 HCI and 479 LL cases across 17 test files. Coverage includes discovery, advertising, connections, timing, packet encoding, frequency hopping, security and data transfer, including privacy and Decision-Based Advertising Filtering (DBAF).
+
+Cases retain their specification identifiers for lookup and selection. The chapter numbers below refer to the test specifications.
 
 | Directory | Source Chapter | Test File | Selected Cases |
 |---|---|---|---:|
-| `hci/` | 4.3 Generic Events | `generic_events_test.py` | 5 |
-| `hci/` | 4.4 Device Setup | `device_setup_test.py` | 5 |
-| `hci/` | 4.5 Controller Flow Control | `controller_flow_control_test.py` | 1 |
-| `hci/` | 4.6 Controller Information | `controller_information_test.py` | 5 |
-| `hci/` | 4.7 Device Discovery | `device_discovery_test.py` | 68 |
-| `hci/` | 4.8 Host Flow Control | `host_flow_control_test.py` | 1 |
-| `hci/` | 4.10 Controller Configuration | `controller_configuration_test.py` | 13 |
-| `hci/` | 4.13 LE Connection Management | `connection_management_test.py` | 6 |
-| `hci/` | 4.17 Event Versioning | `event_versioning_test.py` | 5 |
-| `ll/` | 4.2 Device Discovery | `device_discovery_test.py` | 113 |
-| `ll/` | 4.3 Connection | `connection_test.py` | 197 |
-| `ll/` | 4.4 Timing | `timing_test.py` | 21 |
-| `ll/` | 4.5 Encoding | `encoding_test.py` | 7 |
-| `ll/` | 4.6 Frequency Hopping | `frequency_hopping_test.py` | 6 |
-| `ll/` | 4.7 Packet Handling | `packet_handling_test.py` | 6 |
-| `ll/` | 4.8 Security | `security_test.py` | 38 |
-| `ll/` | 4.9 Data Flow | `data_flow_test.py` | 4 |
+| `hci/` | 4.3 Generic Events | [generic_events_test.py](hci/generic_events_test.py) | 5 |
+| `hci/` | 4.4 Device Setup | [device_setup_test.py](hci/device_setup_test.py) | 5 |
+| `hci/` | 4.5 Controller Flow Control | [controller_flow_control_test.py](hci/controller_flow_control_test.py) | 1 |
+| `hci/` | 4.6 Controller Information | [controller_information_test.py](hci/controller_information_test.py) | 5 |
+| `hci/` | 4.7 Device Discovery | [device_discovery_test.py](hci/device_discovery_test.py) | 72 |
+| `hci/` | 4.8 Host Flow Control | [host_flow_control_test.py](hci/host_flow_control_test.py) | 1 |
+| `hci/` | 4.10 Controller Configuration | [controller_configuration_test.py](hci/controller_configuration_test.py) | 32 |
+| `hci/` | 4.13 LE Connection Management | [connection_management_test.py](hci/connection_management_test.py) | 7 |
+| `hci/` | 4.17 Event Versioning | [event_versioning_test.py](hci/event_versioning_test.py) | 5 |
+| `ll/` | 4.2 Device Discovery | [device_discovery_test.py](ll/device_discovery_test.py) | 149 |
+| `ll/` | 4.3 Connection | [connection_test.py](ll/connection_test.py) | 219 |
+| `ll/` | 4.4 Timing | [timing_test.py](ll/timing_test.py) | 21 |
+| `ll/` | 4.5 Encoding | [encoding_test.py](ll/encoding_test.py) | 7 |
+| `ll/` | 4.6 Frequency Hopping | [frequency_hopping_test.py](ll/frequency_hopping_test.py) | 6 |
+| `ll/` | 4.7 Packet Handling | [packet_handling_test.py](ll/packet_handling_test.py) | 6 |
+| `ll/` | 4.8 Security | [security_test.py](ll/security_test.py) | 67 |
+| `ll/` | 4.9 Data Flow | [data_flow_test.py](ll/data_flow_test.py) | 4 |
 
-The chapter counts total 109 HCI and 392 LL cases, 501 selected cases in all. Additional regression cases do not increase coverage of these selected cases.
+Coverage is limited to these selected cases and does not imply complete HCI.TS, LL.TS or Core coverage. The cases that can run also depend on Controller capabilities and the test environment.
 
-## Result Meaning
+## Running tests
 
-An unlabelled procedure that completes its assertions produces a protocol `PASS`. Two independent pytest markers describe execution limits and map to a `PARTIAL` verdict:
-
-- `limited` is reserved for sub-microsecond stimulus or measurement precision. These cases execute all available checks at 1-us resolution, using documented integer-us approximations. Timing precision alone never permits a skip; the executor rejects skips from timing-only limited procedures.
-- `source_conflict` identifies an unresolved source procedure, branch, or verdict requirement. It permits skipping the unresolved source path and does not imply a Controller capability gap.
-
-A case may carry both markers; a mixed case can skip for its independent source question. A successful labelled execution produces a pytest pass and a protocol `PARTIAL` verdict, preserving the precision or source qualification boundary. An approximate execution is never represented as an exact fractional-time measurement.
-
-A case without an executable procedure has an explicit pytest skip reason. `not_applicable` is distinct from `unsupported`: the former means the case's applicability conditions are false for this Controller. For example, `HCI/DDI/BI-03-C` requires a Controller without LE Set Periodic Advertising Receive Enable support, which this Controller provides, so the case is not applicable.
-
-These independently implemented tests do not imply complete LL.TS/HCI.TS coverage.
-
-## Run
+Prepare the environment as described in the [test README](../README.md#run). Run these commands from `components/bscontroller`; RF cases require a working BabbleSim PHY.
 
 ```sh
-export BSIM_OUT_PATH=/path/to/bsim/build
+# Run all protocol cases.
 python -m pytest tests/qualification -n auto --dist worksteal -v -rs
 
-# Protocol tests and implementation unit tests.
-python -m pytest tests/ -n auto --dist worksteal -v -rs
+# Run HCI protocol cases only.
+python -m pytest tests/qualification/hci -n auto --dist worksteal -v -rs
 
-# Precision-only cases must execute when the native PHY is available.
-python -m pytest tests/qualification -m 'limited and not source_conflict' -v
-
-# Includes source-only and mixed cases; unresolved source paths may skip.
-python -m pytest tests/qualification -m source_conflict -v -rs
+# Select one case by its specification identifier.
+python -m pytest tests/qualification -k 'LL/DDI/SCN/BV-88-C' -v -rs
 ```
 
-## Limits
+Use `-n 4` to select a fixed worker count. Environment setup and parallel execution guidance are in the [test README](../README.md#parallel-execution).
 
-`BSIM_SCAN_MAX_CODED_RANGE_M` declares the simulated `TSPX_scan_max_coded_range` in meters for the Coded latest-scanner case. Its default is 0 for colocated simulated endpoints. The stimulus applies the source's half-us range-delay floor before rounding the combined response delay to whole microseconds, and records the declaration in the protocol log.
+## Interpreting results
 
-Parallel cases have independent PHY processes, simulation IDs, FIFOs and log directories, so identical channels in different simulations cannot interfere. Workers share host resources; some source procedures remain long because they require repeated complete packet observations or simulated silence windows. Parallel scheduling leaves each case's steps, simulation timing and verdict requirements unchanged. See [parallel execution](../README.md#parallel-execution) for installation and worker selection.
+A pytest `passed` result means the executed assertions passed. Consult the case's `protocol.log` for its protocol verdict and any limitations.
+
+| Result | Meaning |
+|---|---|
+| `PASS` | The checks passed without a declared timing-precision or source-description limitation. |
+| `PARTIAL` | The executed checks passed with a timing-precision or source-description limitation; assess the result alongside the case description. |
+| `FAILED` | Execution or a check failed; inspect the assertion, protocol log and relevant packets. |
+| `SKIPPED` | The case did not run or complete and cannot count as a protocol pass; consult the pytest skip reason. |
+
+`PARTIAL` corresponds to the following markers; a case can have both:
+
+- `limited`: a requirement involves sub-microsecond timing, while the test uses 1-us timestamp resolution.
+- `source_conflict`: interpretation of the source steps, branches or expected outcome remains limited; see the case description for its effect.
+
+A `Not applicable` skip means the current Controller does not meet the case's applicability conditions. RF cases also skip when BabbleSim is not configured, so check both the execution count and skip reasons.
+
+## Logs and limitations
+
+Each case's pytest temporary directory contains `protocol.log`, recording its identifier, description, parameters and protocol verdict. RF cases also provide an HCI capture and Controller/PHY logs. Use pytest's `--basetemp` option to select an output directory.
+
+For a failed or partial result, locate the log by case identifier, then consult the case's steps, expected outcome and `Reference`. Necessary specification interpretations are recorded in `Source Correction`.
+
+RF cases run in the BabbleSim simulation environment. Interpret timing results at the precision declared in the case description.
 
 ## License
 

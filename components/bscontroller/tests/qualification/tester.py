@@ -76,6 +76,7 @@ from bscontroller.radio.base import (
     PHY_OCTET_BITS,
     Phy,
 )
+from bscontroller.radio.packet import crc24
 
 AdvType = hci.HCI_LE_Set_Advertising_Parameters_Command.AdvertisingType
 TX_POWER_NO_PREFERENCE = (
@@ -264,6 +265,7 @@ class AirTester(HciProbe):
         crc_init=PDU_ADV_CRC_INIT,
         phy=Phy.LE_1M,
         coding=PHY_CODED_S8_FACTOR,
+        power_dbm=0,
     ):
         start_us = self.radio.now_us + 100 if start_us is None else start_us
         self.output.write(f'TX {channel} {start_us} {pdu.hex()} crc_bad={bad_crc}\n')
@@ -278,13 +280,13 @@ class AirTester(HciProbe):
                     crc_init=crc_init,
                     phy=phy,
                     coding=coding,
+                    power_dbm=power_dbm,
                 ),
                 5,
             )
             await self.wait(0)
             return end
         # Fault injection changes the on-air CRC, not the DUT's receive result.
-        from bscontroller.radio.packet import crc24
 
         crc = crc24(pdu, crc_init)
         # LL.TS common invalid-CRC data inverts all 24 checksum bits.
@@ -511,7 +513,18 @@ def ext_pdu(
         if flags or acad
         else b''
     )
-    body = bytes([len(header) | mode << PDU_ADV_EXT_HEADER_LENGTH_BITS]) + header + data
+    if kind == AdvertisingPduType.ADV_DECISION_IND:
+        body = (
+            bytes([data[0] | mode << PDU_ADV_EXT_HEADER_LENGTH_BITS])
+            + header
+            + data[1:]
+        )
+    else:
+        body = (
+            bytes([len(header) | mode << PDU_ADV_EXT_HEADER_LENGTH_BITS])
+            + header
+            + data
+        )
     return (
         bytes(
             [
@@ -536,10 +549,25 @@ def ext_pdu(
 def decode_extended(pdu):
     assert (
         pdu[0] & PDU_ADV_TYPE_MASK
-        in (AdvertisingPduType.ADV_EXT_IND, AdvertisingPduType.AUX_CONNECT_RSP)
+        in (
+            AdvertisingPduType.ADV_EXT_IND,
+            AdvertisingPduType.ADV_DECISION_IND,
+            AdvertisingPduType.AUX_CONNECT_RSP,
+        )
         and pdu[1] == len(pdu) - PDU_HEADER_SIZE
     )
-    length = pdu[PDU_HEADER_SIZE] & PDU_ADV_EXT_HEADER_SIZE_MAX
+    decision = pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_DECISION_IND
+    if decision:
+        flags = pdu[PDU_ADV_EXT_HEADER_OFFSET]
+        assert flags & 0x10 and not flags & ~0x59
+        length = (
+            4
+            + (6 if flags & 1 else 0)
+            + (2 if flags & 8 else 0)
+            + (1 if flags & 64 else 0)
+        )
+    else:
+        length = pdu[PDU_HEADER_SIZE] & PDU_ADV_EXT_HEADER_SIZE_MAX
     end = PDU_ADV_EXT_HEADER_OFFSET + length
     assert end <= len(pdu)
     fields, offset = {}, PDU_ADV_EXT_FIELDS_OFFSET
@@ -560,7 +588,9 @@ def decode_extended(pdu):
                 offset += size
         if offset < end:
             fields['acad'] = pdu[offset:end]
-    fields['data'] = pdu[end:]
+    fields['data'] = (bytes([pdu[PDU_HEADER_SIZE] & 0x3F]) if decision else b'') + pdu[
+        end:
+    ]
     return fields
 
 

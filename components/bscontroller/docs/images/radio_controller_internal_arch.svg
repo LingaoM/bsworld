@@ -3,7 +3,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2000" viewBox="0 0 1600 2000" role="img" aria-labelledby="title description">
   <title id="title">BSController internal architecture</title>
-  <desc id="description">A detailed view of one Controller. HCI submits decoded configuration through LinkLayerService and reads frozen snapshots. LL role managers own active contexts, connection handles, and lifetime transitions. RadioLink drives their activities through the shared resource manager. Each connection has lifetime state, an LLCP coordinator with procedure contexts, packet security, and an event executor that owns ARQ and retransmission snapshots. RF executors submit validated outcomes to role managers. A NotificationAdapter converts committed LL state to frozen upper-layer notifications. Runtime composes the objects, drives LL time, gates PHY requests and manages the external PHY process.</desc>
+  <desc id="description">A detailed view of one Controller. HCI submits decoded configuration through LinkLayerService and reads frozen snapshots. LL role managers own active contexts, connection handles, and lifetime transitions. Shared LL Privacy owns resolving records and RPA lifetimes; DecisionProgram owns immutable reception tests, with protocol values in filtering.py. RadioLink drives their activities through the shared resource manager. Each connection has lifetime state, an LLCP coordinator with procedure contexts, packet security, and an event executor that owns ARQ and retransmission snapshots. RF executors submit validated outcomes to role managers. A NotificationAdapter converts committed LL state to frozen upper-layer notifications. Runtime composes the objects, drives LL time, gates PHY requests and manages the external PHY process.</desc>
   <defs>
     <marker id="call-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9 Z" fill="#333333"/></marker>
     <marker id="event-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9 Z" fill="#398152"/></marker>
@@ -75,9 +75,10 @@
       <text class="small" x="435" y="331">decode · dispatch · send</text>
     </g>
     <g id="hci-command-groups">
-      <rect class="layer hci" x="585" y="280" width="310" height="70" rx="9"/>
+      <rect class="layer hci" x="585" y="280" width="310" height="90" rx="9"/>
       <text class="name" x="740" y="306">LeControllerProcedures</text>
-      <text class="small" x="740" y="331">advertising.py · scanning.py · connection.py</text>
+      <text class="small" x="740" y="329">advertising.py · scanning.py</text>
+      <text class="small" x="740" y="351">connection.py · privacy.py</text>
     </g>
     <g id="hci-events">
       <rect class="layer hci" x="935" y="280" width="310" height="70" rx="9"/>
@@ -101,7 +102,7 @@
       <text class="detail" x="665" y="582">api.py · service.py · decoded configuration / commands / frozen queries · no active contexts cross HCI</text>
       <text class="small" x="665" y="607">AdvertisingConfig excludes event state · PreparedProcedure.start() follows HCI Command Status</text>
     </g>
-    <path class="query" d="M 740 350 V 530"/>
+    <path class="query" d="M 740 370 V 530"/>
     <rect class="white" x="590" y="448" width="300" height="24"/>
     <text class="detail" x="740" y="466">decoded operations / status</text>
     <path class="notify" d="M 1275 670 H 1288 V 320 H 1245"/>
@@ -112,6 +113,13 @@
       <text class="heading start" x="95" y="721">RadioLink</text>
       <text class="small" x="480" y="719">link.py · composition and dispatch</text>
       <text class="small" x="480" y="743">drive role activities · advance_to_us()</text>
+
+      <g id="shared-privacy-decision">
+        <rect class="layer service" x="780" y="696" width="210" height="54" rx="8"/>
+        <text class="small-name" x="885" y="713">Privacy / DecisionProgram</text>
+        <text class="small" x="885" y="730">privacy.py · decision.py</text>
+        <text class="small" x="885" y="746">filtering.py · protocol values</text>
+      </g>
 
       <g id="connectionless-contexts">
         <rect class="layer context" x="90" y="785" width="315" height="285" rx="10"/>

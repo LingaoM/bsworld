@@ -7,6 +7,7 @@ import pytest
 
 from bscontroller import hci
 from bscontroller.linklayer import (
+    LL_ADV_DELAY_MAX_US,
     LL_ADV_PRIMARY_CHANNEL_MAP_ALL,
     LL_CHANNEL_MAP_SIZE,
     LL_CONN_ESTABLISHMENT_EVENTS,
@@ -45,9 +46,11 @@ from tests.qualification.tester import (
     LOWER_DATA_ACCESS_ADDRESS,
     LOWER_PERIPHERAL_PUBLIC_ADDRESS,
     LinkParameters,
+    adv_pdu,
     check_access_address,
     legacy_parameters,
     request_pdu,
+    scan_parameters,
 )
 
 # LL.TS.p28 Section 4.5: forty single-bit faults, bits 1..20 then 31..12.
@@ -452,6 +455,85 @@ async def central_packets_invalid_address(tester):
     await _invalid_connection_address(tester, central=False, established=False)
 
 
+async def _invalid_advertising_address(tester, *, active):
+    """Score forty AA faults, then finish the source's longer observation window.
+
+    Keep a positive control before the scored phase so an inactive scanner
+    cannot pass solely by producing no reports. Core Vol 6, Part B, 2.1.2
+    defines the advertising AA; LL.TS 4.5.3 supplies the single-bit faults.
+    """
+    advertising_interval_us = 20_000
+    mean_interval_us = advertising_interval_us + LL_ADV_DELAY_MAX_US // 2
+    scan_interval_us = 3 * mean_interval_us
+    scan_interval = scan_interval_us // hci.HCI_LE_SCAN_INTERVAL_UNIT_US
+    peer = LOWER_PERIPHERAL_PUBLIC_ADDRESS
+    kind = AdvertisingPduType.ADV_IND if active else AdvertisingPduType.ADV_NONCONN_IND
+    await tester.command(
+        hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(peer.address_type, peer)
+    )
+    await tester.command(
+        scan_parameters(
+            le_scan_type=int(active),
+            le_scan_interval=scan_interval,
+            le_scan_window=scan_interval,
+        )
+    )
+    await tester.command(hci.HCI_LE_Set_Scan_Enable_Command(1, 0))
+    for _ in range(20):
+        await tester.transmit(37, adv_pdu(kind, address=peer, data=b'control'))
+        await tester.receive(37, duration_us=1000)
+        await tester.wait(1000)
+        reports = [
+            report
+            for event in tester.events
+            if isinstance(event, hci.HCI_LE_Advertising_Report_Event)
+            for report in event.reports
+        ]
+        if reports:
+            assert all(
+                report.address == peer and report.data == b'control'
+                for report in reports
+            )
+            break
+        await tester.wait(advertising_interval_us)
+    else:
+        raise AssertionError(
+            'valid advertising AA was not detected before fault trials'
+        )
+    tester.events.clear()
+    first = start = tester.radio.now_us + 100
+    for index, bit in enumerate(ADDRESS_BITS):
+        # Alternating 0/10-ms AdvDelay gives the exact 5-ms mean used above.
+        await tester.transmit(
+            37,
+            adv_pdu(kind, address=peer, data=bytes([index])),
+            access_address=PDU_ADV_ACCESS_ADDRESS ^ (1 << bit),
+            start_us=start,
+        )
+        assert await tester.receive(37, duration_us=1000) is None, (
+            'SCAN_REQ for invalid AA'
+        )
+        start += advertising_interval_us + (LL_ADV_DELAY_MAX_US if index % 2 else 0)
+    deadline = first + 41 * scan_interval_us
+    await tester.wait(max(0, deadline - tester.radio.now_us))
+    reports = [
+        report
+        for event in tester.events
+        if isinstance(event, hci.HCI_LE_Advertising_Report_Event)
+        for report in event.reports
+    ]
+    assert len(reports) <= len(ADDRESS_BITS) - MINIMUM_QUALIFYING_TRIALS
+    assert all(
+        report.address == peer and report.data in [bytes([i]) for i in range(40)]
+        for report in reports
+    )
+    tester.output.write(
+        f'AA FAULTS sent={len(ADDRESS_BITS)} reports={len(reports)} '
+        f'observation_us={deadline - first}\n'
+    )
+    await tester.command(hci.HCI_LE_Set_Scan_Enable_Command(0, 0))
+
+
 async def passive_scanning_invalid_address(tester):
     """Passive Scanning Invalid Address.
 
@@ -489,30 +571,26 @@ async def passive_scanning_invalid_address(tester):
         scanner listening on the selected channel in this calculation and
         refers to LL/ENC/PER/BI-01-C for the statistical derivation.
 
-    Source Conflict:
-        At the required 3:1 scan/mean-advertising interval ratio, forty
-        advertising packets span only about thirteen scan intervals. The
-        procedure also requires more than forty scan intervals, but defines
-        only forty bit faults and a forty-packet verdict. Neither repeating
-        the bit sequence with per-batch verdicts nor adding a silent tail is
-        prescribed. Amber could not uniquely resolve the count/time conflict.
-        The minimum scan interval is also ambiguous if the absolute supported
-        minimum cannot satisfy the 3:1 ratio with legal advertising intervals.
-
-    Review State:
-        Skip this procedure until those source constraints are resolved.
-        No repeated-batch or silent-tail stimulus is inferred.
+    Source Correction:
+        The bit sequence and statistical verdict specify forty injected packets,
+        while the observation lasts more than forty scan intervals. Interpret
+        these as separate stimulus and observation bounds: transmit each of the
+        forty faults once at the 3:1 scan/mean-advertising interval ratio, then
+        continue observing without additional scored packets for 41 intervals.
+        This preserves both bounds instead of inventing extra fault rounds.
+        The absolute minimum scan interval cannot satisfy the stated ratio with
+        legal advertising intervals. Use the shortest compatible continuous
+        scan timing, 75 ms for 20-ms base advertising plus 5-ms mean AdvDelay.
+        Core Vol 6, Part B, 2.1.2 and 4.4.3 require AA recognition regardless
+        of this observation extension. This is a local clarification, not an
+        adopted SIG erratum. A valid-AA control precedes the scored phase.
 
     Reference:
         LL.TS.p28.pdf, standalone LL/ENC/SCN/BI-01-C in Section 4.5.3,
         Figure 4.5-3; all Steps 1-6, Test Condition, pass verdict and Notes;
         PDF 1144-1146, printed 4.5-6..8. References [3] 2.1.2, 4.4.3.1, 3.1.
     """
-    pytest.skip(
-        'Source conflict: LL/ENC/SCN/BI-01-C defines 40 packets but requires '
-        'more than 40 scan intervals at a 3:1 scan/advertising ratio; '
-        'Amber cannot resolve the intended count or minimum scan interval'
-    )
+    await _invalid_advertising_address(tester, active=False)
 
 
 async def active_scanning_invalid_address(tester):
@@ -549,28 +627,26 @@ async def active_scanning_invalid_address(tester):
     Notes:
         Bit zero is the first Access Address bit transmitted over the air.
 
-    Source Conflict:
-        The required scan/mean-advertising interval ratio is 3:1. Forty
-        advertising packets therefore occupy only about thirteen scan intervals,
-        while Step 6 requires more than forty scan intervals. The bit sequence
-        and pass verdict define only forty packets. Amber confirms that the
-        source does not uniquely authorize repeated forty-packet batches or
-        a silent observation tail.
-
-    Review State:
-        Skip until the packet-count/time conflict is resolved. No per-batch
-        report or SCAN_REQ threshold is inferred.
+    Source Correction:
+        The bit sequence and statistical verdict specify forty injected packets,
+        while the observation lasts more than forty scan intervals. Interpret
+        these as separate stimulus and observation bounds: transmit each of the
+        forty faults once at the 3:1 scan/mean-advertising interval ratio, then
+        continue observing without additional scored packets for 41 intervals.
+        This preserves both bounds instead of inventing extra fault rounds.
+        The absolute minimum scan interval cannot satisfy the stated ratio with
+        legal advertising intervals. Use the shortest compatible continuous
+        scan timing, 75 ms for 20-ms base advertising plus 5-ms mean AdvDelay.
+        Core Vol 6, Part B, 2.1.2 and 4.4.3 require AA recognition regardless
+        of this observation extension. This is a local clarification, not an
+        adopted SIG erratum. A valid-AA control precedes the scored phase.
 
     Reference:
         LL.TS.p28.pdf, standalone LL/ENC/SCN/BI-02-C in Section 4.5.3,
         Figure 4.5-4; all Steps 1-7, Test Condition, pass verdict and Notes;
         PDF 1146-1147, printed 4.5-8..9. References [3] 2.1.2, 4.4.3.2, 3.1.
     """
-    pytest.skip(
-        'Source conflict: LL/ENC/SCN/BI-02-C defines 40 packets but requires '
-        'more than 40 scan intervals at a 3:1 scan/advertising ratio; '
-        'Amber cannot resolve the intended count'
-    )
+    await _invalid_advertising_address(tester, active=True)
 
 
 async def peripheral_packets_invalid_address(tester):
@@ -825,13 +901,7 @@ PROCEDURES |= procedure_cases(
 PROCEDURES |= procedure_cases(
     passive_scanning_invalid_address,
     {
-        'LL/ENC/SCN/BI-01-C': pytest.param(
-            'Passive Scanning Invalid Address',
-            {},
-            marks=[
-                pytest.mark.source_conflict,
-            ],
-        ),
+        'LL/ENC/SCN/BI-01-C': ('Passive Scanning Invalid Address', {}),
     },
 )
 
@@ -840,13 +910,7 @@ PROCEDURES |= procedure_cases(
 PROCEDURES |= procedure_cases(
     active_scanning_invalid_address,
     {
-        'LL/ENC/SCN/BI-02-C': pytest.param(
-            'Active Scanning Invalid Address',
-            {},
-            marks=[
-                pytest.mark.source_conflict,
-            ],
-        ),
+        'LL/ENC/SCN/BI-02-C': ('Active Scanning Invalid Address', {}),
     },
 )
 

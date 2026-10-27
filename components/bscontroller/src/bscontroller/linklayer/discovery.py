@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field, replace
 
-from bscontroller.address import Address
+from bscontroller.address import Address, OwnAddressType
 from bscontroller.linklayer import (
     LL_ADV_PRIMARY_CHANNEL_MAP_ALL,
     LL_CHANNEL_MAP_SIZE,
@@ -75,6 +75,16 @@ class Advertising:
     anonymous: bool = False
     tx_power_dbm: int = 0
     include_tx_power: bool = False
+    own_address_type: int = OwnAddressType.PUBLIC
+    identity_address: Address | None = None
+    local_rpa: Address | None = None
+    identity_target: Address | None = None
+    privacy_peer: Address | None = None
+    decision: bool = False
+    decision_address: bool = False
+    decision_adi: bool = False
+    decision_flags: int = 0
+    decision_data: bytes = b''
 
     def __post_init__(self) -> None:
         # Public HCI records and RF procedures share mutable advertising buffers.
@@ -168,6 +178,9 @@ class Scanning:
     deadline_us: int = 0
     filter_policy: int = 0
     backoff: ScanBackoff = field(default_factory=ScanBackoff)
+    own_address_type: int = OwnAddressType.PUBLIC
+    identity_address: Address | None = None
+    extended: bool = False
 
 
 @dataclass
@@ -181,6 +194,10 @@ class Initiating:
     windows: tuple[ScanWindow, ...] = ()
     phy_parameters: dict[Phy, Parameters] | None = None
     filter_policy: int = 0
+    own_address_type: int = OwnAddressType.PUBLIC
+    identity_address: Address | None = None
+    local_rpa: Address | None = None
+    backoff: ScanBackoff = field(default_factory=ScanBackoff)
 
 
 @dataclass

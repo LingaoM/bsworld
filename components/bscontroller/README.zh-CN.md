@@ -101,9 +101,9 @@ Host 有两种接入方式：
 
 | JSON 键 | 默认值 | 范围 | 规范章节（Vol 4, Part E） |
 |---|---|---|---|
-| `hciVersion` | `0x09` (5.0) | `0x06`–`0x10` | 7.4.1 |
+| `hciVersion` | `0x0F` (6.1) | `0x06`–`0x10` | 7.4.1 |
 | `hciRevision` | `0` | `0`–`0xFFFF` | 7.4.1 |
-| `lmpVersion` | `0x09` (5.0) | `0x06`–`0x10` | 7.4.1 |
+| `lmpVersion` | `0x0F` (6.1) | `0x06`–`0x10` | 7.4.1 |
 | `lmpSubversion` | `0` | `0`–`0xFFFF` | 7.4.1 |
 | `manufacturer` | `0xFFFF` | `0`–`0xFFFF` | 7.4.1 |
 | `aclPacketCount` | `8` | `1`–`255` | 7.8.2 |
@@ -115,6 +115,7 @@ Host 有两种接入方式：
 | `advertisingSetCount` | `16` | `1`–`240` | 7.8.58 |
 | `maxAdvertisingDataLength` | `1650` | `31`–`1650` | 7.8.57 |
 | `filterAcceptListSize` | `16` | `1`–`255` | 7.8.14 |
+| `resolvingListSize` | `16` | `1`–`255` | 7.8.41 |
 | `periodicAdvertiserListSize` | `8` | `1`–`255` | 7.8.73 |
 | `maxConnections` | `64` | `1`–`3839` | 5.3.1 |
 | `maxPeriodicSyncs` | `16` | `1`–`3839` | 5.3.1 |
@@ -151,7 +152,7 @@ other = RadioController("x", "F0:F1:F2:F3:F4:03", config=ControllerConfig(max_co
 
 ## 支持的特性
 
-下表按首次引入的版本，列出蓝牙 Core 规范中的 Link Layer 特性。标 `*` 的是 BSController 已实现、并在 LE FeatureSet（[Vol 6, Part B, 4.6](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/low-energy-controller/link-layer-specification.html#UUID-56ada5ed-4ae3-acee-198f-27ead57d86f1)）中声明的特性。Core 4.0 的传统广播、扫描、发起连接和 ACL 连接同样支持。不支持经典蓝牙（BR/EDR）。
+下表按首次引入的版本，列出蓝牙 Core 规范中的 Link Layer 特性。`*` 标记已实现的特性。有已分配 Link Layer 特性位的能力会在 LE FeatureSet（[Vol 6, Part B, 4.6](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/low-energy-controller/link-layer-specification.html#UUID-56ada5ed-4ae3-acee-198f-27ead57d86f1)）中声明。不支持经典蓝牙（BR/EDR）。
 
 | Core 规范版本 | Link Layer 特性 | 支持 |
 |---|---|:---:|
@@ -161,7 +162,8 @@ other = RadioController("x", "F0:F1:F2:F3:F4:03", config=ControllerConfig(max_co
 | 4.1 | Peripheral-initiated Features Exchange | * |
 | 4.1 | LE Ping Procedure | * |
 | 4.2 | LE Data Packet Length Extension | * |
-| 4.2 | LL Privacy |  |
+| 4.2 | LL Privacy | * |
+| 4.2 | Extended Scanner Filter Policies | * |
 | 5.0 | LE 2M PHY | * |
 | 5.0 | LE Coded PHY | * |
 | 5.0 | Channel Selection Algorithm #2 | * |
@@ -183,10 +185,10 @@ other = RadioController("x", "F0:F1:F2:F3:F4:03", config=ControllerConfig(max_co
 | 5.3 | Connection Subrating |  |
 | 5.4 | Periodic Advertising with Responses |  |
 | 6.0 | Channel Sounding |  |
-| 6.0 | Decision-Based Advertising Filtering |  |
+| 6.0 | Decision-Based Advertising Filtering | * |
 | 6.0 | Monitoring Advertisers |  |
 | 6.0 | Frame Space Update |  |
-| 6.1 | Randomized RPA Updates |  |
+| 6.1 | Randomized RPA Updates | * |
 | 6.2 | Shorter Connection Intervals |  |
 | 6.2 | Channel Sounding Amplitude-based Attack Resilience |  |
 | 6.3 | Channel Sounding Inline Phase Correction Term Transfer |  |
@@ -201,7 +203,7 @@ other = RadioController("x", "F0:F1:F2:F3:F4:03", config=ControllerConfig(max_co
 
 ![单个 Controller 的内部模块、状态归属与交互路径](docs/images/radio_controller_internal_arch.svg)
 
-*图 2：单个 Controller 内部结构。[打开 SVG 查看细节](docs/images/radio_controller_internal_arch.svg)。嵌套框表示归属关系；黑色箭头是调用，绿色虚线是回调，橙色是调度，蓝色是 PDU 和射频结果，灰色点线是运行时的组装关系。*
+*图 2：单个 Controller 内部结构。嵌套框表示归属关系；黑色箭头是调用，绿色虚线是回调，橙色是调度，蓝色是 PDU 和射频结果，灰色点线是运行时的组装关系。*
 
 **线程与时间。** 每个 `RadioController` 运行在独立线程中，有自己的事件循环和 PHY 连接。Host 线程和 Controller 线程之间不共享任何状态，只传递不可变的 H4 报文。射频时间以整数微秒计。每个 Controller，以及可选的 Host 时钟，都要先与 PHY 同步，仿真时间才会推进，所以时序与机器快慢无关。
 
@@ -230,6 +232,6 @@ python -m pytest tests/qualification -n auto -v -rs     # 几分钟，需要 BSI
 python -m build                                         # 在 dist/ 生成 sdist 和 wheel
 ```
 
-qualification 测试从蓝牙测试规范中选取了 501 个 HCI 和 Link Layer 用例，由独立实现的 Lower Tester 执行。通过这些用例不代表 BSController 已通过蓝牙认证。测试范围见 [tests/README.zh-CN.md](tests/README.zh-CN.md)。
+qualification 测试从蓝牙测试规范中选取了 612 个 HCI 和 Link Layer 用例，由独立实现的 Lower Tester 执行。通过这些用例不代表 BSController 已通过蓝牙认证。测试范围见 [tests/README.zh-CN.md](tests/README.zh-CN.md)。
 
 许可证和第三方声明见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。

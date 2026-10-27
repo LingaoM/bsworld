@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import fields, replace
 from typing import TYPE_CHECKING
 
+from bscontroller.address import OwnAddressType
 from bscontroller.capabilities import (
     CONTROLLER_SUPPORTED_PHY_MASK,
 )
@@ -24,6 +25,9 @@ from bscontroller.linklayer import (
     LL_MAFS_US,
     LL_PERIODIC_INTERVAL_UNIT_US,
     PDU_ADV_ADI_DID_MASK,
+    PDU_ADV_DECISION_DATA_SIZE_MAX,
+    PDU_ADV_DECISION_RESOLVABLE_TAG_MASK,
+    PDU_ADV_DECISION_RESOLVABLE_TAG_SIZE,
     PDU_ADV_LEGACY_DATA_SIZE_MAX,
     AdvertisingMode,
 )
@@ -84,6 +88,19 @@ class AdvertisingService:
     def any_enabled(self) -> bool:
         return any(item.enabled for item in self.link.advertisers.values())
 
+    def set_decision_data(self, handle: int, flags: int, data: bytes) -> int:
+        """Commit decision bytes independently of AdvData (Vol 4, Part E, 7.8.144)."""
+        item = self.link.advertisers.get(handle)
+        if item is None:
+            return UNKNOWN_ADV
+        if len(data) > PDU_ADV_DECISION_DATA_SIZE_MAX or (
+            flags & PDU_ADV_DECISION_RESOLVABLE_TAG_MASK
+            and len(data) < PDU_ADV_DECISION_RESOLVABLE_TAG_SIZE
+        ):
+            return INVALID
+        item.decision_flags, item.decision_data = flags, bytes(data)
+        return SUCCESS
+
     def has_extended_sets(self) -> bool:
         return any(handle != -1 for handle in self.link.advertisers)
 
@@ -93,7 +110,9 @@ class AdvertisingService:
         original = self.link.advertisers.get(handle)
         values = {field.name: getattr(config, field.name) for field in fields(config)}
         if original is None:
-            return Advertising(**values)
+            return Advertising(
+                **values, identity_address=config.address, identity_target=config.target
+            )
         if original.random_address is not None and config.address.is_random:
             values['address'] = original.random_address
         # Keep counters, deadlines, periodic identity and payloads in LL. Upper
@@ -104,6 +123,8 @@ class AdvertisingService:
             data=bytes(original.data),
             scan_response=bytes(original.scan_response),
             periodic_data=bytes(original.periodic_data),
+            identity_address=values['address'],
+            identity_target=config.target,
         )
 
     def configure_legacy(self, config: AdvertisingConfig) -> None:
@@ -116,6 +137,8 @@ class AdvertisingService:
             # by that event executor; only LL applies the decoded configuration.
             for field in fields(config):
                 setattr(current, field.name, getattr(candidate, field.name))
+            current.identity_address = candidate.identity_address
+            current.identity_target = candidate.identity_target
 
     def configuration_status(self, handle: int, incompatible_periodic: bool) -> int:
         item = self.link.advertisers.get(handle)
@@ -179,7 +202,8 @@ class AdvertisingService:
             return DISALLOWED
         address = AddressSnapshot(address)
         item.random_address = address
-        if item.address.is_random:
+        if OwnAddressType(item.own_address_type).uses_random_fallback:
+            item.identity_address = address
             item.address = address
         return SUCCESS
 
@@ -239,6 +263,8 @@ class AdvertisingService:
 
     def enable_legacy(self, enable: bool) -> int:
         item = self.link.advertisers[-1]
+        if enable and not self._address_available(item):
+            return INVALID
         item.enabled = enable
         item.next_us = self.link.now_us + 1
         item.events = 0
@@ -248,6 +274,15 @@ class AdvertisingService:
             else 0
         )
         return SUCCESS
+
+    def _address_available(self, item: Advertising) -> bool:
+        # Enable validates all sets atomically. Only the RF event owner selects
+        # an RPA, so re-enabling cannot change an in-flight request's address.
+        return item.anonymous or self.link.privacy.address_available(
+            item.own_address_type,
+            item.identity_address or item.address,
+            item.privacy_peer,
+        )
 
     def enable(
         self,
@@ -265,6 +300,8 @@ class AdvertisingService:
         if enable:
             for handle in handles:
                 item = self.link.advertisers[handle]
+                if not self._address_available(item):
+                    return INVALID
                 if (
                     item.extended
                     and item.mode == AdvertisingMode.SCANNABLE
@@ -370,6 +407,8 @@ class LinkLayerService:
     ):
         self.link = link
         self.advertising = AdvertisingService(link)
+        self.privacy = link.privacy
+        self.decision = link.decision
         self._default_scan = (scan_interval_us, scan_window_us)
         self.reset_configuration(address)
 
@@ -405,6 +444,8 @@ class LinkLayerService:
                 scan.backoff.successes,
                 scan.backoff.failures,
             ),
+            scan.own_address_type,
+            scan.extended,
         )
 
     def configure_scanning(
@@ -414,6 +455,9 @@ class LinkLayerService:
         window_us: int,
         active: bool,
         policy: int,
+        *,
+        own_address_type: int = OwnAddressType.PUBLIC,
+        extended: bool = False,
     ) -> int:
         if self.link.scan is not None:
             return DISALLOWED
@@ -423,7 +467,31 @@ class LinkLayerService:
             window_us,
             active,
             filter_policy=policy,
+            own_address_type=own_address_type,
+            identity_address=AddressSnapshot(address),
+            extended=extended,
         )
+        return SUCCESS
+
+    def set_random_address(self, address: Address) -> int:
+        """Apply the global random fallback while discovery roles are idle.
+
+        Core Vol 4, Part E, 7.8.4 excludes legacy advertising, scanning and
+        initiation. Extended sets use their separate per-set addresses.
+        Refresh configured scanning too: address assignment may follow the scan
+        parameter command and must take effect on its next enable.
+        """
+        legacy = self.link.advertisers.get(-1)
+        if (
+            legacy is not None
+            and legacy.enabled
+            or self.link.scan is not None
+            or self.link.initiating is not None
+        ):
+            return DISALLOWED
+        if OwnAddressType(self._scan_parameters.own_address_type).uses_random_fallback:
+            self._scan_parameters.identity_address = AddressSnapshot(address)
+            self._scan_parameters.address = AddressSnapshot(address)
         return SUCCESS
 
     def configure_scan_windows(self, windows: tuple[ScanWindowConfig, ...]) -> None:
@@ -432,11 +500,19 @@ class LinkLayerService:
             for item in windows
         )
 
-    def enable_scanning(self, enable: bool) -> None:
+    def enable_scanning(self, enable: bool) -> int:
         scan = self._scan_parameters
+        if enable:
+            fallback = scan.identity_address or scan.address
+            # 7.8.11/65: own 0x01/0x03 need the random address regardless of
+            # the resolving list.
+            if not self.privacy.address_available(scan.own_address_type, fallback):
+                return INVALID
+            scan.address = self.privacy.local_address(scan.own_address_type, fallback)
         scan.start_us = self.link.now_us
         scan.backoff = ScanBackoff()
         self.link.roles.scanning.enable(scan if enable else None)
+        return SUCCESS
 
     def set_scan_period(self, duration_us: int, period_us: int) -> None:
         scan = self._scan_parameters
@@ -457,6 +533,15 @@ class LinkLayerService:
     def start_initiating(self, config: InitiatingConfig) -> int:
         status = self.initiating_status(config.peer, bool(config.filter_policy))
         if status == SUCCESS:
+            address = config.address
+            # 7.8.12/66: only policy 0x00 has a peer whose resolving-list entry
+            # can replace an unset random fallback.
+            if not self.privacy.address_available(
+                config.own_address_type,
+                address,
+                config.peer if not config.filter_policy else None,
+            ):
+                return INVALID
             windows = tuple(
                 ScanWindow(item.phy, item.interval_us, item.window_us, item.active)
                 for item in config.windows
@@ -464,7 +549,7 @@ class LinkLayerService:
             parameters = dict(config.phy_parameters)
             first = windows[0]
             item = Initiating(
-                config.address,
+                address,
                 config.peer,
                 first.interval_us,
                 first.window_us,
@@ -473,6 +558,8 @@ class LinkLayerService:
                 windows=windows,
                 phy_parameters=parameters,
                 filter_policy=config.filter_policy,
+                own_address_type=config.own_address_type,
+                identity_address=config.address,
             )
             self.link.roles.scanning.start_initiating(item)
         return status

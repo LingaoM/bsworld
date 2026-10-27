@@ -72,12 +72,14 @@ from bscontroller.radio.base import (
     PHY_TIME_UNITS_PER_SECOND,
     Phy,
 )
+from tests.qualification import privacy as privacy_peer
 from tests.qualification.cases import (
     ProcedureMap,
     collect_cases,
     procedure_cases,
     verify_case,
 )
+from tests.qualification.decision import TAG_KEY, address_parameters, flag_vectors
 from tests.qualification.link import (
     ADVERTISING_SID,
     AUXILIARY_CHANNEL,
@@ -4751,7 +4753,9 @@ def _packets(
                     37,
                     primary_phy,
                     0,
-                    ext_pdu(address=peer, target=round_.target, adi=adi),
+                    # Core Vol 6, Part B, Table 2.4: primary-only events
+                    # have no meaningful ADI. RFU injection is tested separately.
+                    ext_pdu(address=peer, target=round_.target),
                 )
             ],
             (),
@@ -5754,7 +5758,8 @@ async def extended_scanning_passive(tester, *, primary_phy, secondary_phy):
             Undirected advertisements and those directed at the IUT produce LE
             Extended Advertising Report events with the correct properties,
             public advertiser identity, PHYs, SID, and directed-address fields.
-            SID matches ADI when present and is 0xFF otherwise. Without Host
+            SID matches meaningful ADI in auxiliary events and is 0xFF for
+            primary-only or legacy events. Without Host
             coding-selection support, Coded PHY is reported as 0x03 for both
             S=2 and S=8. Advertisements directed elsewhere produce no reports.
 
@@ -5973,8 +5978,9 @@ async def extended_scanning_active(tester, *, primary_phy, secondary_phy):
 
     Source Correction:
         Step 7 names legacy LE Set Scan Enable after extended scan configuration;
-        use LE Set Extended Scan Enable. Core Vol 4, Part E, 7.8.65 defines
-        extended scan disable and 7.8.11 is legacy-only. Amber corroborates this
+        use LE Set Extended Scan Enable. Core Vol 4, Part E, 3.1.1 returns
+        Command Disallowed for a legacy command after extended ones, and 7.8.65
+        defines extended scan disable. Amber corroborates this
         command-family correction. This is a local correction, not an adopted
         SIG erratum. Table ScanData describes response contents, not data to
         insert into the scannable AUX_ADV_IND.
@@ -7275,10 +7281,13 @@ async def first_aux_sync_ind_never_received(tester):
     Source Correction:
         Final SID references mean the report in Step 5 and advertisement in
         Step 4, not the nonexistent report/advertisement in Steps 4/3. These
-        are local reference corrections, not adopted SIG errata. The test owner
-        clarified Step 6 as six omitted AUX_SYNC_IND opportunities followed by
-        transmission starting at the seventh event. This resolves the local
-        counting interpretation; it is not an outstanding source conflict.
+        are local reference corrections, not adopted SIG errata. Step 6
+        literally starts AUX_SYNC_IND at the sixth event, inside the acquisition
+        window: Core Vol 6, Part B, 4.4.5.1 fails synchronization only if none
+        is received within 6 periodic advertising events. Omit six AUX_SYNC_IND
+        opportunities and transmit from the seventh event, so the expected 0x3E
+        (Vol 4, Part E, 7.8.67) is the only valid outcome. This resolves the
+        local counting interpretation; it is not an outstanding source conflict.
 
     Reference:
         LL.TS.p28.pdf, standalone LL/DDI/SCN/BV-37-C; PDF pages 355-357,
@@ -8238,19 +8247,23 @@ async def extended_scanning_properly_ignore_rfu_fields_extended_advertising(test
         would exclude undirected scannable rounds 10/12/14 despite their required
         ScanData. Scope that skip to directed events targeting another device.
         Its AUX_ADV_IND cross-reference is Step 3, not Step 4. The source
-        tables, Core event semantics and Amber support the first two readings;
-        the cross-reference is resolved by the explicit PDU in Step 3.
+        tables and Core Vol 6, Part B, 2.3.1.5/6 and 4.4.3.5 support these
+        readings; the explicit PDU in Step 3 resolves the cross-reference.
         These are local corrections, not adopted SIG errata.
 
-    Source Conflict:
-        Rounds 3/6 require valid data in all X/RFU CEAP fields while retaining a
-        primary event without auxiliary packets. In the Core CEAP table, AuxPtr
-        is X for that event; setting a valid AuxPtr instead defines an event
-        with auxiliary packets. TargetA similarly makes an undirected event
-        directed. Amber could not uniquely resolve the intended exhaustive field
-        set while preserving the table's event types. No exception for these
-        discriminator fields is assumed. Skip this case until clarified rather
-        than count a subset of filled fields as complete RFU coverage.
+        In rounds 3/6, "all X fields" is qualified by Step 3's explicit
+        event identity. Keep AuxPtr absent for the no-auxiliary rounds, and
+        TargetA absent for undirected rounds. Core Vol 6, Part B, 2.3.1.5
+        defines those fields' presence as event discriminators, so filling
+        them would test a different CEAP row rather than RFU handling.
+        Populate all other context-reserved fields and applicable header bits.
+        Preserve mandatory ADI and valid links in auxiliary/chain rounds.
+        For directed nonscannable nonconnectable auxiliary rounds put the real
+        target in the primary and a different target in the auxiliary field.
+        Table 2.5 C.2
+        makes that repeated field RFU. In response/chain contexts fill all
+        reserved address, CTEInfo, SyncInfo and ACAD fields as applicable.
+        This is a local correction, not an adopted SIG erratum.
 
     Reference:
         LL.TS.p28, Section 4.2.4.24, LL/DDI/SCN/BV-88-C; PDF 392-396,
@@ -8259,12 +8272,216 @@ async def extended_scanning_properly_ignore_rfu_fields_extended_advertising(test
         CEAP field presence: Section 2.3.1.5, event reports: Vol 4 Part E
         Section 7.7.65.13.
     """
-    pytest.skip(
-        'Source conflict: LL.TS.p28 4.2.4.24 rounds 3/6 require all X/RFU '
-        'CEAP fields while preserving no-auxiliary event types; a valid '
-        'AuxPtr changes that event type and TargetA changes directedness. '
-        'Amber cannot uniquely resolve the intended exhaustive field set'
-    )
+    peer = LOWER_PERIPHERAL_PUBLIC_ADDRESS
+    generator = random.Random(88)
+    ignored_target = LOWER_CENTRAL_PUBLIC_ADDRESS
+    for number in range(1, 16):
+        directed = number in (6, 7, 9, 11, 13, 15)
+        auxiliary = number not in (1, 2, 3, 6)
+        mode = (
+            AdvertisingMode.SCANNABLE
+            if number >= 10
+            else AdvertisingMode.CONNECTABLE
+            if number in (8, 9)
+            else AdvertisingMode.NONCONNECTABLE_NONSCANNABLE
+        )
+        scan_length = (
+            1
+            if number in (10, 11)
+            else 191
+            if number in (12, 13)
+            else 382
+            if number in (14, 15)
+            else 0
+        )
+        scan_data = bytes(generator.randint(1, 255) for _ in range(scan_length))
+        adi = ADVERTISING_SID << PDU_ADV_ADI_DID_BITS | number
+        await tester.command(
+            scan_parameters(
+                extended=True,
+                scan_types=[1],
+                scan_intervals=[0x10],
+                scan_windows=[0x10],
+            )
+        )
+        await tester.command(hci.HCI_LE_Set_Extended_Scan_Enable_Command(1, 0, 0, 0))
+        seen = responses = 0
+        adv_pending, response_pending = bytearray(), bytearray()
+        start = tester.radio.now_us + 100
+        tester.output.write(
+            f'RFU ROUND {number} directed={directed} mode={mode} '
+            f'scan_data={scan_length}\n'
+        )
+        for _ in range(20):
+            primary_fields = dict(
+                address=None if auxiliary else peer,
+                target=DUT_ADDRESS
+                if directed and mode == AdvertisingMode.NONCONNECTABLE_NONSCANNABLE
+                else None,
+                adi=adi if auxiliary else None,
+                mode=mode,
+            )
+            if auxiliary:
+                primary_fields['aux'] = aux_pointer(
+                    AUXILIARY_CHANNEL, AUXILIARY_OFFSET_US
+                )
+            elif number in (3, 6):
+                # Keep the source's explicit undirected/no-auxiliary identity.
+                # AuxPtr/TargetA presence would select a different CEAP row.
+                primary_fields |= dict(
+                    cte=2,
+                    adi=adi,
+                    sync=PeriodicTrain(30000).sync_info(0),
+                    acad=b'\x02\xffZ',
+                    data=b'ignored',
+                )
+            primary = ext_pdu(**primary_fields)
+            if number == 1:
+                primary = _rfu_fields(primary, header=True, extended=False)
+            elif number == 2:
+                primary = _rfu_fields(primary, header=False, extended=True)
+            elif number in (3, 6):
+                primary = _rfu_fields(primary)
+            await tester.transmit(37, primary, start_us=start)
+            channel = 37
+            if auxiliary:
+                channel = AUXILIARY_CHANNEL
+                auxiliary_start = start + AUXILIARY_OFFSET_US
+                fields = dict(
+                    address=peer,
+                    adi=adi,
+                    mode=mode,
+                    data=b'' if scan_length else b'payload',
+                )
+                if directed:
+                    # Table 2.5 C.2 reserves a repeated TargetA when a mode-0
+                    # primary owns it. Other modes need the real auxiliary target.
+                    fields['target'] = (
+                        ignored_target
+                        if mode == AdvertisingMode.NONCONNECTABLE_NONSCANNABLE
+                        else DUT_ADDRESS
+                    )
+                if number == 5:
+                    fields['aux'] = aux_pointer(channel, AUXILIARY_OFFSET_US)
+                wire = ext_pdu(**fields)
+                if number in (4, 7):
+                    wire = _rfu_fields(ext_pdu(**fields | {'cte': 2}))
+                elif number in (8, 9):
+                    wire = _rfu_fields(wire, context='connectable')
+                elif number == 5:
+                    # RFU fields belong to the last listed PDU, the chain.
+                    wire = ext_pdu(**fields)
+                else:
+                    # ScanData rounds put RFU fields only in the final response.
+                    wire = ext_pdu(
+                        **fields | ({'target': DUT_ADDRESS} if directed else {})
+                    )
+                end = await tester.transmit(channel, wire, start_us=auxiliary_start)
+            else:
+                end = tester.radio.now_us + 1
+            request = await tester.receive(channel, duration_us=1000)
+            if request is not None:
+                assert scan_length and request.valid_crc
+                assert request.pdu == request_pdu(
+                    AdvertisingPduType.SCAN_REQ, advertiser=peer, scanner=DUT_ADDRESS
+                )
+                assert (
+                    abs(request.start_us - end - LL_IFS_US) <= RESPONSE_IFS_TOLERANCE_US
+                )
+                response_start = request.end_us + LL_IFS_US
+                first = scan_data[:191]
+                if len(scan_data) > len(first):
+                    await tester.transmit(
+                        channel,
+                        ext_pdu(
+                            address=peer,
+                            adi=adi,
+                            aux=aux_pointer(channel, AUXILIARY_OFFSET_US),
+                            data=first,
+                        ),
+                        start_us=response_start,
+                    )
+                    tail = _rfu_fields(
+                        ext_pdu(adi=adi, data=scan_data[len(first) :]), context='chain'
+                    )
+                    await tester.transmit(
+                        channel, tail, start_us=response_start + AUXILIARY_OFFSET_US
+                    )
+                else:
+                    response = _rfu_fields(
+                        ext_pdu(address=peer, adi=adi, data=scan_data),
+                        context='response',
+                    )
+                    await tester.transmit(channel, response, start_us=response_start)
+            if number == 5:
+                await tester.transmit(
+                    channel,
+                    _rfu_fields(ext_pdu(adi=adi, data=b'chain'), context='chain'),
+                    start_us=auxiliary_start + AUXILIARY_OFFSET_US,
+                )
+            await tester.wait(REPORT_DELIVERY_US)
+            while event := tester.take(lambda event: isinstance(event, Report)):
+                for report in event.reports:
+                    assert (
+                        report.address == peer
+                        and report.address_type == hci.AddressType.PUBLIC_DEVICE
+                    )
+                    assert report.primary_phy == Phy.LE_1M
+                    assert report.secondary_phy == (Phy.LE_1M if auxiliary else 0)
+                    assert report.advertising_sid == (
+                        ADVERTISING_SID if auxiliary else 0xFF
+                    )
+                    assert report.periodic_advertising_interval == 0
+                    assert (
+                        bool(
+                            report.event_type
+                            & _scan_compatibility_Flags.DIRECTED_ADVERTISING
+                        )
+                        == directed
+                    )
+                    if directed:
+                        assert report.direct_address == DUT_ADDRESS
+                        assert (
+                            report.direct_address_type == hci.AddressType.PUBLIC_DEVICE
+                        )
+                    is_response = bool(
+                        report.event_type & _scan_compatibility_Flags.SCAN_RESPONSE
+                    )
+                    pending = response_pending if is_response else adv_pending
+                    pending.extend(report.data)
+                    status = (
+                        report.event_type >> hci.HCI_LE_EXT_ADV_REPORT_DATA_STATUS_SHIFT
+                        & hci.HCI_LE_EXT_ADV_REPORT_DATA_STATUS_VALUE_MASK
+                    )
+                    assert status in (
+                        Report.DATA_COMPLETE,
+                        Report.DATA_INCOMPLETE_MORE_TO_COME,
+                    ), 'RFU fields caused truncated advertising data'
+                    if status == Report.DATA_COMPLETE:
+                        expected = (
+                            scan_data
+                            if is_response
+                            else b''
+                            if scan_length or not auxiliary
+                            else b'payloadchain'
+                            if number == 5
+                            else b'payload'
+                        )
+                        assert bytes(pending) == expected
+                        pending.clear()
+                        if is_response:
+                            assert request is not None
+                            responses += 1
+                        else:
+                            seen += 1
+            if responses:
+                break
+            start += SCANNING_ADVERTISING_INTERVAL_US + generator.randrange(
+                LL_ADV_DELAY_MAX_US + 1
+            )
+        assert seen and (responses if scan_length else not responses)
+        assert not adv_pending and not response_pending
+        await tester.command(hci.HCI_LE_Set_Extended_Scan_Enable_Command(0, 0, 0, 0))
 
 
 async def extended_scanning_periodic_advertising_properly_ignore_rfu_fields(tester):
@@ -8732,7 +8949,6 @@ async def decision_based_advertisements_ignored_legacy_scanning(tester):
     """Decision-Based Advertisements Ignored, Legacy Scanning.
 
     Initial Condition:
-        The IUT does not advertise Decision-Based Advertising Filtering support.
         Use public, accept-all, passive legacy scanning with interval/window
         0x0010. The independent Lower Tester can send a valid ADV_DECISION_IND
         with Decision Type Flags bit 0 set, a six-octet Resolvable Tag, and an
@@ -8771,10 +8987,17 @@ async def decision_based_advertisements_ignored_legacy_scanning(tester):
 
     Source Correction:
         Source Step 1 calls the primary PDU AUX_DECISION_IND. Core Vol 6,
-        Part B, Section 2.3.1.11 defines ADV_DECISION_IND (type 0x09), whose
-        auxiliary PDU is AUX_ADV_IND. Use those defined PDU types; this naming
+        Part B, Section 2.3, Table 2.3 defines ADV_DECISION_IND (type 0b1001),
+        and Section 2.3.1.11 requires its auxiliary PDU to be AUX_ADV_IND. Use
+        those defined PDU types; this naming
         correction does not change the test's legacy-scanning verdict. Amber
         corroborated the defined names; this is not adopted SIG errata.
+        The source purpose restricts applicability to unsupported controllers,
+        although the title and numbered procedure test legacy scanning. Execute
+        that procedure on this capable IUT: legacy Scanning_Filter_Policy values
+        0x00-0x03 (Vol 4, Part E, 7.8.10) keep the "No decisions" mode of Core
+        Vol 6, Part B, 4.3.3.2, and Vol 4, Part E, 7.8.11 issues no reports for
+        extended advertising PDUs.
 
     Reference:
         LL.TS.p28.pdf, LL/DDI/SCN/BV-104-C, unnumbered procedure following
@@ -8784,11 +9007,6 @@ async def decision_based_advertisements_ignored_legacy_scanning(tester):
         Section 2.3.1.11, Figures 2.10-2.12 and Tables 2.10-2.11 define the
         Decision PDU, permitted extended fields, flags, and Resolvable Tag.
     """
-    features = await tester.command(hci.HCI_LE_Read_Local_Supported_Features_Command())
-    assert not (
-        int.from_bytes(features.le_features, 'little')
-        & hci.LeFeatureMask.DECISION_BASED_ADVERTISING_FILTERING
-    ), 'this procedure requires a scanner without Decision-Based Advertising Filtering'
     decision = (
         bytes([PDU_ADV_DECISION_RESOLVABLE_TAG_MASK, PDU_ADV_EXT_AUX_PTR_MASK])
         + aux_pointer(AUXILIARY_CHANNEL, AUXILIARY_OFFSET_US)
@@ -8886,9 +9104,8 @@ async def active_scanning_duplicate_filtering(tester):
         7. Receive SCAN_REQ in response to Step 5. Verify CRC, public IUT ScanA,
            public Lower Tester AdvA and T_IFS within the two-microsecond tolerance.
         8. Withhold SCAN_RSP.
-        9. The source requires no HCI LE Advertising Report with the Lower
-           Tester address after the unanswered request. This requirement is
-           unresolved; see Source Conflict rather than narrow its meaning.
+        9. Require no scan-response report before any SCAN_RSP is transmitted.
+           Additional advertising reports are warnings, as in Steps 6 and 12.C.
         10. After ten complete scan intervals from the first unanswered request,
             respond to the next SCAN_REQ at T_IFS with SCAN_RSP AdvData='A'.
         11. Require at least one Advertising Report with Event_Type=0x04,
@@ -8912,26 +9129,22 @@ async def active_scanning_duplicate_filtering(tester):
             report is accepted before an actual response is transmitted. The
             scanner retries after the unanswered phase despite duplicate
             filtering. Duplicate reports are recorded as warnings.
-            No complete Pass verdict is awarded while Step 9 remains unresolved.
 
     Source Correction:
         Source Step 6 says Event_Type 0x01, but ADV_IND is reported as 0x00,
         consistent with the source Expected Outcome and HCI LE Advertising
         Report. The filtered initial condition does not override the explicit
         policy 0x00 in Step 3. Provision the initial list, then use that policy.
-        Amber corroborates the ADV_IND event value and current policy semantics;
+        Core Vol 4, Part E, 7.7.65.2 and 7.8.10 define these values;
         these are local interpretations, not adopted SIG errata.
 
-    Source Conflict:
-        Step 9 forbids an Advertising Report with the Lower Tester address
-        during unanswered requests, without distinguishing advertising data
-        from scan-response reports. Steps 6/11/12.C only warn about duplicates.
-        Core Vol 6 Part B 4.4.3.5 permits duplicate reports even when duplicate
-        filtering is enabled and processes advertising/scan data separately.
-        Amber could not establish an unambiguous literal verdict for Step 9.
-        The driver checks response provenance, timing and duplicate warnings,
-        but that does not implement the source's blanket negative requirement.
-        Skip the complete verdict after these checks until the source is clarified.
+        Step 9's blanket report prohibition is a local wording correction:
+        apply it to scan-response reports during the unanswered-request phase.
+        Core Vol 6, Part B, 4.4.3.5 requires separate duplicate handling for
+        advertising and scan-response reports and explicitly permits duplicates.
+        This also agrees with the source's warning-only duplicate checks.
+        Require an actual transmitted scan response before accepting its report;
+        do not turn this correction into a suppression of advertising reports.
 
     Reference:
         LL.TS.p28.pdf, LL/DDI/SCN/BV-127-C, unnumbered procedure following
@@ -8942,11 +9155,6 @@ async def active_scanning_duplicate_filtering(tester):
         filter policy, and duplicate filtering.
     """
     await _duplicate_active_scanning(tester, extended=False)
-    pytest.skip(
-        'Source conflict: LL/DDI/SCN/BV-127-C Step 9 forbids all Lower Tester '
-        'reports during unanswered requests, while duplicate reports are '
-        'warnings and Core 4.4.3.5 permits them; full verdict awaits clarification'
-    )
 
 
 async def extended_scanning_active_duplicate_filtering(tester):
@@ -8974,9 +9182,8 @@ async def extended_scanning_active_duplicate_filtering(tester):
         5. Receive AUX_SCAN_REQ for the undirected advertisements from Step 3.
            Verify CRC, exact public ScanA/AdvA and T_IFS timing.
         6. Withhold AUX_SCAN_RSP.
-        7. The source requires no HCI LE Extended Advertising Report with the
-           Lower Tester address after the unanswered request. Its scope is
-           unresolved; see Source Conflict rather than narrow this requirement.
+        7. Require no scan-response report before any AUX_SCAN_RSP is sent.
+           Additional advertising reports are warnings, as in Steps 4 and 11C.
         8. Repeat Steps 5-7 for five actual advertising intervals after the
            first unanswered request, including AdvDelay in the interval count.
         9. Respond to the next valid AUX_SCAN_REQ at T_IFS with AUX_SCAN_RSP,
@@ -9003,24 +9210,21 @@ async def extended_scanning_active_duplicate_filtering(tester):
             accepted before transmission of a real response. Duplicate
             filtering does not prevent retries after unanswered requests;
             additional duplicate reports are warnings, not automatic failures.
-            No complete Pass verdict is awarded while Step 7 remains unresolved.
 
     Source Correction:
         The source Expected Outcome says 0x03, but Step 4 and the scannable,
         nonconnectable event require 0x02. Source Steps 9 and 11B say AdvA='A';
         preserve the six-octet advertiser address and put 'A' in AdvData, as
-        required by Step 10. Amber corroborates these local corrections;
-        they are not adopted SIG errata.
+        required by Step 10 and Core Vol 6, Part B, 2.3.2.3. These are local
+        corrections, not adopted SIG errata.
 
-    Source Conflict:
-        Step 7 forbids an Extended Advertising Report with the Lower Tester
-        address during unanswered requests, without separating advertising
-        data from scan-response reports. Steps 4/10/11C only warn for duplicate
-        reports. Core Vol 6 Part B 4.4.3.5 permits duplicates and treats
-        advertising/scan data separately. Amber could not uniquely resolve
-        this negative requirement. The driver verifies retry timing, response
-        provenance and duplicate warnings, not the blanket source prohibition;
-        skip the complete verdict after those checks until clarified.
+        Step 7's blanket report prohibition is a local wording correction:
+        apply it to scan-response reports during the unanswered-request phase.
+        Core Vol 6, Part B, 4.4.3.5 requires separate duplicate handling for
+        advertising and scan-response reports and explicitly permits duplicates.
+        This also agrees with the source's warning-only duplicate checks.
+        Require an actual transmitted scan response before accepting its report;
+        do not turn this correction into a suppression of advertising reports.
 
     Reference:
         LL.TS.p28.pdf, LL/DDI/SCN/BV-128-C, unnumbered procedure following
@@ -9031,11 +9235,6 @@ async def extended_scanning_active_duplicate_filtering(tester):
         extended scanning; Vol 6, Part B, Section 2.3.2.3 defines AUX_SCAN_RSP.
     """
     await _duplicate_active_scanning(tester, extended=True)
-    pytest.skip(
-        'Source conflict: LL/DDI/SCN/BV-128-C Step 7 forbids all Lower Tester '
-        'reports during unanswered requests, while duplicate reports are '
-        'warnings and Core 4.4.3.5 permits them; full verdict awaits clarification'
-    )
 
 
 async def extended_scanning_passive_periodic_advertising_report_window_widening(tester):
@@ -9128,8 +9327,9 @@ async def extended_scanning_passive_periodic_advertising_report_window_widening(
     Reference:
         LL.TS.p28.pdf, Section 4.2.4.31, LL/DDI/SCN/BV-131-C; PDF pages 468-473,
         printed pages 4.2-375 through 4.2-380. Steps 1-16 and Expected Outcome.
-        Core Vol 6, Part B, Sections 4.4.2.13.1 and 4.4.3.4 define the receive
-        windows; Vol 4, Part E, Section 7.7.65.15 defines v1 periodic reports.
+        Core Vol 6, Part B, Sections 4.2.4 (window widening), 4.4.3.4 and
+        4.4.5.1 define the receive windows; Vol 4, Part E, Section 7.7.65.15
+        defines v1 periodic reports.
     """
     await tester.command(
         scan_parameters(
@@ -9298,6 +9498,974 @@ async def extended_scanning_passive_periodic_advertising_report_window_widening(
             hci.HCI_LE_Periodic_Advertising_Terminate_Sync_Command(handle)
         )
     await tester.command(hci.HCI_LE_Set_Extended_Scan_Enable_Command(0, 0, 0, 0))
+
+
+async def _decision_advertisement(tester, *, phy, mode, with_address, with_adi, data):
+    primary = await tester.expect_pdu(
+        kind=AdvertisingPduType.ADV_DECISION_IND, phy=phy, duration_us=100_000
+    )
+    fields = decode_extended(primary.pdu)
+    assert primary.pdu[2] >> 6 == mode
+    assert fields['data'] == data and 'aux' in fields
+    assert ('address' in fields) == with_address
+    assert ('adi' in fields) == with_adi
+    assert not {'target', 'sync', 'cte', 'acad'} & fields.keys()
+    if with_address:
+        assert fields['address'] == bytes(DUT_ADDRESS)
+    channel, auxiliary, auxiliary_fields = await follow_auxiliary(
+        tester, primary, fields
+    )
+    assert auxiliary.phy == phy and auxiliary.pdu[2] >> 6 == mode
+    if with_adi:
+        assert fields['adi'] == auxiliary_fields['adi']
+    return channel, auxiliary, auxiliary_fields
+
+
+async def decision_advertising_data_updates(
+    tester, *, phy, mode, with_address=False, with_adi=False
+):
+    """Decision-Based Advertisements, Set Before and After Extended Advertising Enabled.
+
+    Initial Condition:
+        Standby; select one primary channel and a supported public own address.
+
+    Test Steps:
+        Repeat steps 1-8 for all five Table 4.2-47 rounds:
+        1. Set extended parameters with the PHY/properties in Table 4.2-46.
+        2. Set Decision Type Flags/Data (tag with six/seven octets, arbitrary
+           five/eight octets, and no data).
+        3-4. Enable advertising and check ADV_DECISION_IND plus its AUX_ADV_IND.
+        5-6. Update decision data while enabled to one arbitrary octet and check
+             the very next decision PDU and its auxiliary event.
+        7-8. Disable advertising and observe silence on the selected channel.
+
+    Expected Outcome:
+        Every primary PDU has the required AdvMode, AuxPtr, optional AdvA/ADI,
+        flags and data. Live updates appear in the first subsequent primary PDU.
+
+    Source Correction:
+        Step 8 names AUX_DECISION_IND, which Core does not define. Observe the
+        cessation of ADV_DECISION_IND, the PDU named in steps 4 and 6 and Core
+        Vol 6, Part B, 2.3.1.11. This is a local name correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.2.3.19, PDF pages 259-261 (printed 4.2-166-168),
+        Tables 4.2-46/47, Figure 4.2-72; Core Vol 4, Part E, 7.8.144.
+    """
+    generator = random.Random(92)
+    properties = (
+        0x80 | mode | (0x100 if with_address else 0) | (0x200 if with_adi else 0)
+    )
+    for flags, size in [(1, 6), (1, 7), (0, 5), (0, 8), (0, 0)]:
+        await tester.command(
+            extended_parameters(
+                advertising_event_properties=properties,
+                primary_advertising_phy=phy,
+                secondary_advertising_phy=phy,
+            )
+        )
+        if mode == AdvertisingMode.SCANNABLE:
+            await set_extended_data(tester, b'\x01', response=True)
+        data = generator.randbytes(size)
+        await tester.command(hci.HCI_LE_Set_Decision_Data_Command(0, flags, data))
+        await tester.command(extended_enable())
+        await _decision_advertisement(
+            tester,
+            phy=phy,
+            mode=mode,
+            with_address=with_address,
+            with_adi=with_adi,
+            data=bytes([flags]) + data,
+        )
+        updated = generator.randbytes(1)
+        await tester.command(hci.HCI_LE_Set_Decision_Data_Command(0, 0, updated))
+        await _decision_advertisement(
+            tester,
+            phy=phy,
+            mode=mode,
+            with_address=with_address,
+            with_adi=with_adi,
+            data=b'\0' + updated,
+        )
+        await tester.command(extended_enable(0))
+        assert await tester.receive(37, phy=phy, duration_us=40_000) is None
+
+
+async def decision_scannable_advertising(tester):
+    """Decision-Based Advertisements, Scannable.
+
+    Initial Condition:
+        The IUT supports scannable extended advertising and uses one primary channel.
+
+    Test Steps:
+        1. Configure properties 0x0082 and one primary channel.
+        2. Set complete scan response data to the single octet 0x01.
+        3. Set decision data to eight random octets.
+        4-6. Enable, receive ADV_DECISION_IND with AdvMode 2 and AuxPtr, and
+             follow that pointer to AUX_ADV_IND on the secondary channel.
+        7. Send AUX_SCAN_REQ T_IFS after the auxiliary advertisement.
+        8. Receive AUX_SCAN_RSP T_IFS later containing the configured response.
+
+    Expected Outcome:
+        The decision PDU carries all eight decision octets, and the scan response
+        carries 0x01 with the expected advertiser address and timing.
+
+    Reference:
+        LL.TS.p28, DDI/ADV/BV-104-C, PDF pages 261-263, Figure 4.2-73;
+        Core Vol 6, Part B, 2.3.1.11 and 4.4.2.5.
+    """
+    data = random.Random(104).randbytes(8)
+    await tester.command(extended_parameters(advertising_event_properties=0x82))
+    await set_extended_data(tester, b'\x01', response=True)
+    await tester.command(hci.HCI_LE_Set_Decision_Data_Command(0, 0, data))
+    await tester.command(extended_enable())
+    channel, auxiliary, fields = await _decision_advertisement(
+        tester,
+        phy=Phy.LE_1M,
+        mode=2,
+        with_address=False,
+        with_adi=False,
+        data=b'\0' + data,
+    )
+    address = hci.Address(fields['address'], 0)
+    end = await tester.transmit(
+        channel,
+        request_pdu(AdvertisingPduType.SCAN_REQ, advertiser=address),
+        start_us=auxiliary.end_us + LL_IFS_US,
+    )
+    response = await tester.expect_pdu(channel, duration_us=1000)
+    assert abs(response.start_us - end - LL_IFS_US) <= 2
+    assert decode_extended(response.pdu)['data'] == b'\x01'
+    assert decode_extended(response.pdu)['address'] == fields['address']
+
+
+async def decision_advertising_default_data(tester):
+    """Decision-Based Advertisements With No Data, Enable Extended Advertisement.
+
+    Initial Condition:
+        No decision data has been provided for a new advertising set.
+
+    Test Steps:
+        1. Set extended advertising parameters with bit 7 and a supported event type.
+        2. Enable extended advertising and receive successful Command Complete.
+        3. Receive an ADV_DECISION_IND with no Decision Data.
+
+    Expected Outcome:
+        The decision payload contains only the default zero Decision Type Flags.
+
+    Reference:
+        LL.TS.p28, DDI/ADV/BV-105-C, PDF pages 263-264, Figure 4.2-74;
+        Core Vol 6, Part B, 2.3.1.11; Vol 4, Part E, 7.8.144.
+    """
+    await tester.command(extended_parameters(advertising_event_properties=0x80))
+    await tester.command(extended_enable())
+    await _decision_advertisement(
+        tester,
+        phy=Phy.LE_1M,
+        mode=0,
+        with_address=False,
+        with_adi=False,
+        data=b'\0',
+    )
+
+
+async def privacy_passive_scanning(tester, *, identity_only=False, device=False):
+    """Passive scanning resolves RPAs and applies network/device privacy mode.
+
+    Initial Condition:
+        Standby IUT uses a private fallback, an entry with the peer IRK, and
+        unfiltered passive scanning. Device mode is selected only for BV-28.
+
+    Test Steps:
+        BV-13 (steps 1-11): add the identity/IRK and enable resolution, advertise
+        an RPA for at least 20 advertising intervals, verify resolved reports,
+        stop scanning, disable resolution, repeat and verify raw RPA reports.
+        BV-26/28 (steps 1-6): populate the resolver, scan, advertise the identity
+        for at least 20 intervals, check absence/presence according to Table
+        4.2-66, and stop scanning.
+
+    Expected Outcome:
+        BV-13 reports the identity with resolution enabled and raw RPA when
+        disabled. Network mode rejects identities; device mode accepts them.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-13-C, PDF pages 285-288, Figure 4.2-84;
+        Section 4.2.4.12, PDF pages 332-334, Table 4.2-66, Figure 4.2-99;
+        Core Vol 6, Part B, 4.7 and 6.3.
+    """
+    await tester.command(hci.HCI_LE_Set_Random_Address_Command(privacy_peer.FALLBACK))
+    await privacy_peer.add_peer(tester, device=device)
+    address = (
+        PEER_ADDRESS
+        if identity_only
+        else privacy_peer.private_address(privacy_peer.PEER_IRK)
+    )
+    for resolved in (True,) if identity_only else (True, False):
+        if not resolved:
+            await tester.command(hci.HCI_LE_Set_Address_Resolution_Enable_Command(0))
+        await privacy_peer.scanning(tester, own_type=3)
+        reports, requests = await privacy_peer.observe_advertising(
+            tester,
+            address=address,
+            duration_us=400_000,
+        )
+        assert not requests
+        if identity_only and not device:
+            assert not reports
+        else:
+            assert reports
+            assert all(
+                report.address == (PEER_ADDRESS if resolved else address)
+                for report in reports
+            )
+            expected_type = 3 if resolved and not identity_only else 1
+            assert all(report.address_type == expected_type for report in reports)
+        await privacy_peer.scan_enable(tester, False)
+
+
+async def privacy_active_scanning(tester, *, local_irk, peer_irk, renew=False):
+    """Network Privacy: active scanning with zero/nonzero local and peer IRKs.
+
+    Initial Condition:
+        Standby; configure a private fallback and the Lower Tester's resolving record.
+
+    Test Steps:
+        For BV-15/17/18, perform steps 1-8 of Section 4.2.4.3: configure the
+        advertiser and own address, add IRKs, enable resolution and active
+        scanning with own type 3, send advertising events until SCAN_REQ,
+        answer at T_IFS, and verify advertising/response reports.
+        BV-16 performs steps 1-10 on pages 293-294: use the identity advertiser,
+        local IRK and zero peer IRK; restart scanning, wait for address expiry,
+        repeat the exchange and verify a new local RPA before disabling.
+
+    Expected Outcome:
+        Requests use a valid local RPA when Local IRK is nonzero and the configured
+        private fallback otherwise. AdvA remains the received over-air address;
+        resolved reports identify the peer. BV-16 renews ScanA after timeout.
+
+    Source Correction:
+        Table 4.2-50 names AUX_SCAN_IND for BV-15, a PDU absent from Core; use
+        ADV_SCAN_IND. Its common steps prescribe zero IRKs and a static AdvA
+        for every case, contradicting the Peer IRK/local RPA variants. Apply
+        the per-case IRKs and RPA requirements in the titles/table and Core
+        Vol 6, Part B, 6.3. These are local corrections, not SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.2.4.3 and DDI/SCN/BV-16-C, PDF pages 290-294,
+        Table 4.2-50, Figures 4.2-86/87; Core Vol 6, Part B, 6.3 and 6.5.
+    """
+    await tester.command(hci.HCI_LE_Set_Random_Address_Command(privacy_peer.FALLBACK))
+    await tester.command(hci.HCI_LE_Set_Resolvable_Private_Address_Timeout_Command(1))
+    await privacy_peer.add_peer(
+        tester,
+        peer_irk=privacy_peer.PEER_IRK if peer_irk else bytes(16),
+        local_irk=privacy_peer.LOCAL_IRK if local_irk else bytes(16),
+    )
+    address = (
+        privacy_peer.private_address(privacy_peer.PEER_IRK)
+        if peer_irk
+        else PEER_ADDRESS
+    )
+    old = None
+    for repeat in range(2 if renew else 1):
+        if repeat:
+            await tester.wait(1_000_001)
+        await privacy_peer.scanning(tester, active=True, own_type=3)
+        reports, requests = await privacy_peer.observe_advertising(
+            tester,
+            address=address,
+            active=True,
+            duration_us=400_000,
+        )
+        assert requests and reports
+        sources = [hci.Address(packet.pdu[2:8]) for packet in requests]
+        for source in sources:
+            if local_irk:
+                privacy_peer.check_private_address(source, privacy_peer.LOCAL_IRK)
+            else:
+                assert source == privacy_peer.FALLBACK
+        if old is not None:
+            assert sources[0] != old
+        old = sources[-1]
+        assert any(report.event_type == 4 for report in reports)
+        assert all(report.address == PEER_ADDRESS for report in reports)
+        await privacy_peer.scan_enable(tester, False)
+
+
+async def privacy_scan_response_address(tester):
+    """Privacy: Active Scanning, Wrong AdvA in Response.
+
+    Initial Condition:
+        An active scanner uses local/peer IRKs and a Filter Accept List identity.
+
+    Test Steps:
+        1-4. Configure the RPA advertiser, resolving record and accept list, and
+             enable active scanning with filtering policy 1.
+        5-6. Advertise on a primary channel until SCAN_REQ with a local RPA.
+        7-9. Respond at T_IFS with a different AdvA generated from another IRK;
+             check that only the original advertising data reaches the Host.
+        10. Disable scanning.
+
+    Expected Outcome:
+        The peer RPA resolves, ScanA resolves with Local IRK, and the wrong-address
+        SCAN_RSP is never reported, even though advertising reports are delivered.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BI-03-C, PDF pages 365-367, Figure 4.2-110;
+        Core Vol 6, Part B, 4.4.3.2 and 6.3.
+    """
+    await privacy_peer.add_peer(tester)
+    await tester.command(
+        hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(1, PEER_ADDRESS)
+    )
+    await privacy_peer.scanning(tester, active=True, own_type=2, policy=1)
+    reports, requests = await privacy_peer.observe_advertising(
+        tester,
+        address=privacy_peer.private_address(privacy_peer.PEER_IRK),
+        response_address=privacy_peer.private_address(bytes(range(16))),
+        active=True,
+        duration_us=400_000,
+    )
+    assert requests and reports
+    for request in requests:
+        privacy_peer.check_private_address(
+            hci.Address(request.pdu[2:8]), privacy_peer.LOCAL_IRK
+        )
+    assert all(
+        report.event_type != 4 and report.address == PEER_ADDRESS for report in reports
+    )
+    await privacy_peer.scan_enable(tester, False)
+
+
+async def privacy_extended_active_scanning(tester):
+    """Privacy: Extended Scanning, Active, Core 5.1.
+
+    Initial Condition:
+        The scanner and advertiser share IRKs; use accept-list filtering and
+        public fallback with own type 2.
+
+    Test Steps:
+        1-4. Populate accept/resolving lists and enable extended active scanning.
+        5-7. Send scannable AUX_ADV_IND with a TargetA generated from a wrong IRK
+             for twenty advertising intervals; expect neither report nor request.
+        8-13. Repeat with TargetA generated from Local IRK, receive AUX_SCAN_REQ,
+              answer at T_IFS, and verify both directed advertising/response reports.
+        14. Disable extended scanning.
+
+    Expected Outcome:
+        Only correctly directed events reach the Host or trigger AUX_SCAN_REQ;
+        reports contain the peer identity, SID 3, interval zero, and directed/
+        scannable bits. The response additionally sets bit 3 and complete data.
+
+    Source Correction:
+        Step 14 names legacy Set Scan Enable after extended configuration. Use
+        Set Extended Scan Enable as required by Core Vol 4, Part E, 3.1.1 and
+        7.8.65. This is a local command-family correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.2.4.16, PDF pages 342-345, Table 4.2-72;
+        Core Vol 6, Part B, 6.3 and 4.4.2.8.
+    """
+    peer = LOWER_PERIPHERAL_PUBLIC_ADDRESS
+    await privacy_peer.add_peer(tester, identity=peer)
+    await tester.command(hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(0, peer))
+    await privacy_peer.scanning(
+        tester, active=True, extended=True, policy=1, own_type=2
+    )
+    for valid in (False, True):
+        reports, requests = await privacy_peer.observe_advertising(
+            tester,
+            address=privacy_peer.private_address(privacy_peer.PEER_IRK),
+            extended=True,
+            active=True,
+            mode=2,
+            duration_us=400_000,
+            target=privacy_peer.private_address(
+                privacy_peer.LOCAL_IRK if valid else bytes(range(16))
+            ),
+        )
+        if not valid:
+            assert not reports and not requests
+        else:
+            assert reports and requests
+            assert all(
+                report.address == peer
+                and report.address_type == 2
+                and report.event_type & 6 == 6
+                and report.advertising_sid == 3
+                and report.periodic_advertising_interval == 0
+                for report in reports
+            )
+            assert any(report.event_type & 8 for report in reports)
+    await privacy_peer.scan_enable(tester, False, extended=True)
+
+
+async def _decision_instructions(tester, flags, fields, parameters):
+    await tester.command(
+        hci.HCI_LE_Set_Decision_Instructions_Command(flags, fields, parameters)
+    )
+
+
+async def _decision_observation(tester, expected, *, active=False, **parameters):
+    reports, requests = await privacy_peer.observe_advertising(
+        tester,
+        extended=True,
+        decision=True,
+        active=active,
+        **parameters,
+    )
+    assert bool(reports) == expected, (expected, parameters, reports)
+    if not expected:
+        assert not requests, 'a failed decision must not trigger AUX_SCAN_REQ'
+    elif active and parameters.get('mode') == 2:
+        assert requests and any(report.event_type & 8 for report in reports)
+    return reports
+
+
+async def decision_scanning_test_flags(tester, *, active=False, rpa=False):
+    """Decision-Based Advertisements, Test Flags.
+
+    Initial Condition:
+        The static peer identity is the sole Filter Accept List entry. For the
+        RPA variant, install separate IRKs for public/random identities.
+
+    Test Steps:
+        1-2. Enable continuous extended scanning, interval/window 0x10, policy 4,
+             with Scan_Type from Table 4.2-88 and duplicate filtering disabled.
+        3-6. Execute every applicable Table 4.2-90 outer round. Ten deterministically
+             selected outer rounds exercise all eight Table 4.2-89 inner rounds;
+             the others exercise inner rounds 2, 3 and 5. Install one instruction
+             per inner round and advertise for ten scanner intervals. Answer
+             AUX_SCAN_REQ at T_IFS in active/scannable passing rounds.
+
+    Expected Outcome:
+        Reports and scan requests agree with the independent P/F/A column and
+        the corresponding match/nonmatch/absent Test_Flags bit for every round.
+
+    Source Correction:
+        Table 4.2-90 places the RPA rounds at 51-62 and Table 4.2-88 assigns
+        them to the RPA variant, but the initial condition cites obsolete
+        ranges: the shared key for rounds 56-67 and the Filter Accept List
+        static identity for rounds 50-55 and 62-67. Follow Table 4.2-90: the
+        key resolves rounds 51-62 and the listed static identity is used in
+        rounds 44-49 and 57-62.
+        Core Vol 4, Part E, 7.8.145 defines the same three flag outcomes.
+        This is a local range clarification, not adopted SIG errata.
+
+    Reference:
+        LL.TS.p28, Section 4.2.4.27, PDF pages 426-433,
+        Tables 4.2-88/89/90, Figure 4.2-137;
+        Core Vol 6, Part B, 4.4.3.6; Vol 4, Part E, 7.8.145.
+    """
+    await tester.command(
+        hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(1, PEER_ADDRESS)
+    )
+    if rpa:
+        await privacy_peer.add_peer(
+            tester, identity=LOWER_PERIPHERAL_PUBLIC_ADDRESS, enabled=False
+        )
+        await privacy_peer.add_peer(tester, peer_irk=privacy_peer.LOCAL_IRK)
+    await privacy_peer.scanning(tester, extended=True, active=active, policy=4)
+    vectors = [vector for vector in flag_vectors() if (vector.number > 50) == rpa]
+    full = set(random.Random(101).sample([vector.number for vector in vectors], 10))
+    for vector in vectors:
+        inner = range(8) if vector.number in full else (1, 2, 4)
+        for bits in inner:
+            flags = 1 | bits << 1
+            await _decision_instructions(
+                tester, [flags], [vector.field], [vector.parameters]
+            )
+            expected = bool(flags & {'P': 2, 'F': 4, 'A': 8}[vector.result])
+            tester.output.write(
+                f'OUTER {vector.number} FLAGS {flags} EXPECT {expected}\n'
+            )
+            await _decision_observation(
+                tester,
+                expected,
+                active=active and vector.mode == 2,
+                primary_address=vector.address,
+                mode=vector.mode,
+                decision_data=vector.data,
+            )
+
+
+async def decision_scanning_signal_tests(tester):
+    """Decision-Based Advertisements, RSSI and Path Loss.
+
+    Initial Condition:
+        Unfiltered passive extended scanning with no duplicate filtering.
+
+    Test Steps:
+        1-4. Configure interval/window 0x10 and an all-outcomes instruction;
+             advertise at known Default_Power and save reported Default_RSSI.
+        5-7. Execute all six Table 4.2-91 rounds for ten scanner intervals each,
+             varying the physical transmit power by 0, -20 or -40 dB. Advertise
+             TxPower 5 dBm and install the specified RSSI/path-loss thresholds.
+
+    Expected Outcome:
+        Only RSSI round 3 and path-loss round 6 produce reports.
+
+    Observation Setup:
+        Default_Power is +20 dBm, so the table's -40 dB change remains within
+        the simulated transmitter's supported -20 to +20 dBm range. Both
+        primary and auxiliary packets use the selected physical power.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-102-C, PDF pages 433-436, Table 4.2-91,
+        Figure 4.2-138; Core Vol 4, Part E, 7.8.145.
+    """
+    await _decision_instructions(tester, [15], [0], [bytes(16)])
+    await privacy_peer.scanning(tester, extended=True, policy=4)
+    reports = await _decision_observation(tester, True, power_dbm=20)
+    baseline = reports[-1].rssi
+    for field in (7, 8):
+        low, high = (
+            (baseline - 30, baseline - 10)
+            if field == 7
+            else (5 - baseline + 10, 5 - baseline + 30)
+        )
+        parameters = bytes([low & 255, high & 255]) + bytes(14)
+        await _decision_instructions(tester, [3], [field], [parameters])
+        for delta in (40, 0, 20) if field == 7 else (0, 40, 20):
+            await _decision_observation(
+                tester, delta == 20, power_dbm=20 - delta, tx_power=5
+            )
+
+
+async def decision_scanning_groups(tester):
+    """Decision-Based Advertisements, Test Groups.
+
+    Initial Condition:
+        Passive continuous scanning, with a shared resolvable-tag key.
+
+    Test Steps:
+        1-2. Enable extended scanning with policy 4.
+        3-6. Execute all sixteen Table 4.2-92 instruction / 4.2-93 payload rounds,
+             observing ten scanner intervals per round.
+        7-8. Disable, switch to decision-only policy 12, and repeat all rounds.
+
+    Expected Outcome:
+        Rounds 1-3, 5, 11 and 12 report advertisements; all others remain silent.
+        AND is applied within each group and OR between groups.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-103-C, PDF pages 436-439,
+        Tables 4.2-92/93, Figure 4.2-139;
+        Core Vol 4, Part E, 7.8.145; Vol 6, Part B, 4.4.3.6.
+    """
+    tag = bytes(privacy_peer.private_address(TAG_KEY))
+    bad_tag = bytes(privacy_peer.private_address(bytes(range(16))))
+    for policy in (4, 12):
+        await privacy_peer.scanning(tester, extended=True, policy=policy)
+        for number in range(1, 17):
+            if number <= 4:
+                mode = (0, 1, 2, 0)[number - 1]
+                flags, fields = [3, 2], [0, 6]
+                parameters = [TAG_KEY, bytes([1 << mode]) + bytes(15)]
+                data = b'\1' + (tag if number < 4 else bad_tag)
+            else:
+                flags, fields = [9, 2, 2, 3, 2], [0, 6, 36, 0, 18]
+                parameters = [
+                    bytes(16),
+                    bytes([4]) + bytes(15),
+                    bytes.fromhex('ffffffff000000004142434400000000'),
+                    TAG_KEY,
+                    bytes.fromhex('dfdf0000000000004254000000000000'),
+                ]
+                mode = 2 if number <= 7 else 0
+                arbitrary = {
+                    5: b'ABCDEF',
+                    6: b'abcdef',
+                    7: b'',
+                    8: b'bT',
+                    9: b'bt',
+                    10: b'Tb',
+                    11: b'bT',
+                    12: b'bt',
+                    13: b'Tb',
+                    14: b'bT',
+                    15: b'bt',
+                    16: b'Tb',
+                }[number]
+                data = (
+                    b'\1' + (tag if number in (11, 12, 13) else bad_tag)
+                    if number == 7 or number >= 11
+                    else b'\0'
+                ) + arbitrary
+            await _decision_instructions(tester, flags, fields, parameters)
+            await _decision_observation(
+                tester,
+                number in (1, 2, 3, 5, 11, 12),
+                mode=mode,
+                decision_data=data,
+            )
+        await privacy_peer.scan_enable(tester, False, extended=True)
+
+
+async def decision_scanning_without_instructions(tester):
+    """Decision-Based Advertisements Ignored, No Instructions Set.
+
+    Initial Condition:
+        Passive scanning; no decision instructions have been provided.
+
+    Test Steps:
+        1-3. Advertise decision PDUs pointing to AUX_ADV_IND and enable extended
+             passive scanning with interval/window 0x10 and policy 4.
+        4. Continue advertising for ten seconds and observe no Host reports.
+
+    Expected Outcome:
+        No Extended Advertising Report is emitted throughout the observation.
+
+    Source Correction:
+        The source names AUX_DECISION_IND and sets the tag flag with zero data.
+        Core Vol 6, Part B, 2.3.1.11 defines ADV_DECISION_IND and requires at
+        least six octets for a tag. Send valid tagged PDUs so missing instructions
+        are the rejection reason; this is a local correction, not SIG errata.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-105-C, PDF pages 441-442, Figure 4.2-141;
+        Core Vol 6, Part B, 4.4.3.6.
+    """
+    await privacy_peer.scanning(tester, extended=True, policy=4)
+    await _decision_observation(
+        tester,
+        False,
+        duration_us=10_000_000,
+        decision_data=b'\1' + bytes(privacy_peer.private_address(TAG_KEY)),
+    )
+
+
+async def decision_scanning_disabled(tester):
+    """Decision-Based Advertisements Ignored, Disabled Scanning.
+
+    Initial Condition:
+        Passive extended scanning with all-outcomes instructions.
+
+    Test Steps:
+        1-4. Advertise valid tagged decision PDUs, set interval/window 0x10,
+             install an instruction accepting all outcomes and enable scanning.
+        5-6. Check reports for ten scanner intervals.
+        7-9. Disable scanning and advertise for another ten intervals.
+
+    Expected Outcome:
+        Reports are present while scanning and absent after disable.
+
+    Source Correction:
+        Step 2 omits a decision filter policy, whose reset value ignores decisions
+        (Core Vol 6, Part B, 4.3.3.2; Vol 4, Part E, 7.8.64 bits 2-3).
+        Select policy 4 to exercise the step 5 report required by the source.
+        Use ADV_DECISION_IND (Core Vol 6, Part B, 2.3.1.11) for the undefined
+        AUX_DECISION_IND name. These are local corrections, not SIG errata.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-106-C, PDF pages 442-444, Figure 4.2-142;
+        Core Vol 6, Part B, 4.4.3.6; Vol 4, Part E, 7.8.145.
+    """
+    await _decision_instructions(tester, [15], [0], [bytes(16)])
+    await privacy_peer.scanning(tester, extended=True, policy=4)
+    # Step 1: Decision Type Flags 0b00001 with a valid six-octet Resolvable Tag.
+    tagged = b'\1' + bytes(privacy_peer.private_address(TAG_KEY))
+    await _decision_observation(tester, True, decision_data=tagged)
+    await privacy_peer.scan_enable(tester, False, extended=True)
+    await _decision_observation(tester, False, decision_data=tagged)
+
+
+async def decision_scanning_filter_policy(tester):
+    """Decision-Based Advertisements, Ignore Non-Decision PDUs.
+
+    Initial Condition:
+        One advertiser identity in the Filter Accept List.
+
+    Test Steps:
+        1-2. Start ordinary and decision advertising sets and add their address
+             to the accept list.
+        3-8. For all Table 4.2-94 policies (3, 7, 15), configure scan interval/
+             window 0x10, accept-all instructions, enable scanning, advertise
+             both sets for ten intervals, verify the selected PDU classes, disable.
+
+    Expected Outcome:
+        Policy 3 reports ordinary events, 7 reports both, 15 reports decisions.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-107-C, PDF pages 444-446, Table 4.2-94;
+        Core Vol 6, Part B, 4.3.3.2 and 4.4.3.6; Vol 4, Part E, 7.8.64.
+    """
+    await tester.command(
+        hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(1, PEER_ADDRESS)
+    )
+    for policy in (3, 7, 15):
+        await _decision_instructions(tester, [15], [0], [bytes(16)])
+        await privacy_peer.scanning(tester, extended=True, policy=policy)
+        for decision in (False, True):
+            reports, requests = await privacy_peer.observe_advertising(
+                tester,
+                extended=True,
+                decision=decision,
+                primary_address=PEER_ADDRESS,
+            )
+            assert not requests
+            assert bool(reports) == (policy == 7 or decision == (policy == 15))
+        await privacy_peer.scan_enable(tester, False, extended=True)
+
+
+async def decision_scanning_arbitrary_lengths(tester):
+    """Decision-Based Advertisements, Arbitrary Data Test Flags.
+
+    Initial Condition:
+        Passive continuous extended scanning, policy 4, no duplicate filtering.
+
+    Test Steps:
+        1-3. Enable scanning and advertise each Table 4.2-95 data layout.
+        4-7. Test all 24 field values (17-24, 33-40, 49-56), flags 7 and zero
+             parameters, observing reports for ten scanner intervals each.
+        8. Repeat with flags 9 and invert the expected field-presence outcome.
+
+    Expected Outcome:
+        Reports agree with every field-presence set explicitly listed in the table;
+        tag bytes do not count as arbitrary data and empty arbitrary data is absent.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-108-C, PDF pages 446-448, Table 4.2-95;
+        Core Vol 4, Part E, 7.8.145; Vol 6, Part B, 4.4.3.6.
+    """
+    await privacy_peer.scanning(tester, extended=True, policy=4)
+    tag = bytes(privacy_peer.private_address(TAG_KEY))
+    for data, present in [
+        (b'\0abc', {19, 33, 34, 35, *range(51, 57)}),
+        (b'\1' + tag + b'a', {17, 33, *range(49, 57)}),
+        (b'\1' + tag, set()),
+    ]:
+        for flags in (7, 9):
+            for field in (*range(17, 25), *range(33, 41), *range(49, 57)):
+                await _decision_instructions(tester, [flags], [field], [bytes(16)])
+                await _decision_observation(
+                    tester,
+                    (field in present) == (flags == 7),
+                    decision_data=data,
+                )
+
+
+async def decision_scanning_primary_address(tester):
+    """Decision-Based Advertisements, AdvA in Decision PDU.
+
+    Initial Condition:
+        Two public advertiser addresses; extended passive scanning.
+
+    Test Steps:
+        1-3. Install a field-9 check accepting either address, flags 3; enable
+             policy 4 scanning with interval/window 0x10.
+        4-7. Advertise with primary AdvA then without it; check presence/absence
+             of reports and the first address reported.
+        8-12. Replace flags with 9 (pass when absent), repeat both layouts and
+              verify that only the no-primary-address event reports its AUX AdvA.
+
+    Expected Outcome:
+        Field presence is tested on the decision PDU. Primary AdvA, when present,
+        supplies the report address; otherwise the auxiliary address supplies it.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-109-C, PDF pages 448-451, Figures 4.2-145/146;
+        Core Vol 4, Part E, 7.8.145; Vol 6, Part B, 2.3.1.11 and 4.4.3.6.
+    """
+    first, second = LOWER_PERIPHERAL_PUBLIC_ADDRESS, LOWER_CENTRAL_PUBLIC_ADDRESS
+    parameters = address_parameters(2, first, second)
+    await _decision_instructions(tester, [3], [9], [parameters])
+    await privacy_peer.scanning(tester, extended=True, policy=4)
+    for flags in (3, 9):
+        await _decision_instructions(tester, [flags], [9], [parameters])
+        for primary in (first, None):
+            expected = (primary is not None) == (flags == 3)
+            reports = await _decision_observation(
+                tester,
+                expected,
+                address=second,
+                primary_address=primary,
+                decision_data=b'\1' + bytes(privacy_peer.private_address(TAG_KEY)),
+            )
+            if expected:
+                assert all(report.address == (primary or second) for report in reports)
+
+
+async def privacy_directed_scanning_policies(tester):
+    """Extended Scanning, Passive, Scanning Filter Policy, Resolvable Private Addresses.
+
+    Initial Condition:
+        Public IUT address supported; use continuous passive extended scanning.
+
+    Test Steps:
+        Repeat all ten source steps for each of the 25 Table 4.2-76 rounds:
+        set a random address, clear/populate the resolving list as specified,
+        enable resolution, select own address and filtering policy, advertise
+        directed nonconnectable primary-only ADV_EXT_IND for at least twenty
+        advertising intervals, check reports and Direct Address fields, disable.
+
+    Expected Outcome:
+        Rounds 18, 20 and 24 produce no reports. Other rounds report TargetA
+        directly, the resolved local identity, or unresolved type 0xFE exactly
+        as permitted by the table. Periodic interval is zero and the directed
+        event bit is set; no scan requests are sent.
+
+    Source Correction:
+        Step 10 names legacy Set Scan Enable after extended configuration; use
+        Set Extended Scan Enable (Core Vol 4, Part E, 3.1.1 and 7.8.65).
+        This is a local command-family correction, not adopted SIG errata.
+
+    Reference:
+        LL.TS.p28, DDI/SCN/BV-71-C, PDF pages 380-384, Table 4.2-76,
+        Figure 4.2-118; Core Vol 6, Part B, 6.3 and 4.3.3;
+        Vol 4, Part E, 7.7.65.13.
+    """
+    random_own = hci.Address('C1:23:45:67:89:AB')
+    peer = LOWER_PERIPHERAL_PUBLIC_ADDRESS
+    # Table order: own type, filter policy, TargetA class, resolving record,
+    # accept-list membership. Rounds 20/25 differ only in own address type.
+    rounds = [
+        (0, 2, 'public', False, False),
+        (1, 2, 'random', False, False),
+        (1, 2, 'rpa', True, False),
+        (2, 2, 'rpa', True, False),
+        (3, 2, 'rpa', True, False),
+        (0, 2, 'rpa', False, False),
+        (0, 3, 'public', False, True),
+        (1, 3, 'random', False, True),
+        (1, 3, 'rpa', True, True),
+        (2, 3, 'rpa', True, True),
+        (3, 3, 'rpa', True, True),
+        (0, 3, 'rpa', False, True),
+        (0, 0, 'public', False, False),
+        (1, 0, 'random', False, True),
+        (1, 0, 'rpa', True, False),
+        (2, 0, 'rpa', True, False),
+        (3, 0, 'rpa', True, False),
+        (0, 0, 'rpa', False, False),
+        (0, 1, 'public', False, True),
+        (0, 1, 'random', False, True),
+        (1, 1, 'rpa', True, True),
+        (2, 1, 'rpa', True, True),
+        (3, 1, 'rpa', True, True),
+        (0, 1, 'rpa', False, True),
+        (1, 1, 'random', False, True),
+    ]
+    for number, (own, policy, kind, resolving, listed) in enumerate(rounds, 1):
+        await tester.command(hci.HCI_LE_Set_Random_Address_Command(random_own))
+        await tester.command(hci.HCI_LE_Clear_Resolving_List_Command())
+        await tester.command(hci.HCI_LE_Clear_Filter_Accept_List_Command())
+        if resolving:
+            await privacy_peer.add_peer(
+                tester, identity=peer, peer_irk=bytes(16), enabled=False
+            )
+        await tester.command(hci.HCI_LE_Set_Address_Resolution_Enable_Command(1))
+        if listed:
+            await tester.command(
+                hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(0, peer)
+            )
+        target = (
+            DUT_ADDRESS
+            if kind == 'public'
+            else random_own
+            if kind == 'random'
+            else privacy_peer.private_address(privacy_peer.LOCAL_IRK)
+        )
+        await privacy_peer.scanning(tester, extended=True, own_type=own, policy=policy)
+        deadline = tester.radio.now_us + 400_000
+        index = 0
+        while tester.radio.now_us < deadline:
+            await tester.transmit(37 + index % 3, ext_pdu(address=peer, target=target))
+            await tester.wait(20_000)
+            index += 1
+        reports = privacy_peer.reports(tester)
+        assert bool(reports) == (number not in (18, 20, 24)), number
+        for report in reports:
+            assert report.address == peer and report.periodic_advertising_interval == 0
+            assert report.event_type & 4
+            if kind == 'rpa':
+                expected_type = 2 + (own & 1) if resolving else 0xFE
+                assert report.direct_address_type == expected_type, number
+                assert report.direct_address in (
+                    target,
+                    random_own if own & 1 else DUT_ADDRESS,
+                )
+            else:
+                assert report.direct_address_type == target.address_type
+                assert report.direct_address == target
+        await privacy_peer.scan_enable(tester, False, extended=True)
+
+
+async def privacy_periodic_reception(tester, *, random_identity):
+    """Extended Scanning, Periodic Advertising Reception, Privacy.
+
+    Initial Condition:
+        Passive extended scanning; the advertiser uses a peer-IRK-generated RPA.
+
+    Test Steps:
+        1-5. Populate resolver and accept list with the public/random identity,
+             enable resolution and passive scanning with accept-list policy 1.
+        6-8. Send ADV_EXT_IND/AUX_ADV_IND announcing a periodic train and verify
+             nonzero interval, identity address and type 2/3 in the Host report.
+        9. Create synchronization by identity/SID with no list, Skip zero, timeout
+           three periodic intervals converted to the command's 10-ms units.
+        10. Continue announcements and CSA#2 AUX_SYNC_IND; receive successful
+            Sync Established matching the train and receive its periodic data.
+
+    Expected Outcome:
+        RPA resolution supplies the advertised identity to the Host and allows
+        identity-based periodic acquisition; the train's CSA#2 data is reported.
+
+    Reference:
+        LL.TS.p28, Section 4.2.4.21, PDF pages 384-386, Table 4.2-77,
+        Figure 4.2-119; Core Vol 6, Part B, 4.4.3.4 and 6.6.1.
+    """
+    identity = PEER_ADDRESS if random_identity else LOWER_PERIPHERAL_PUBLIC_ADDRESS
+    await privacy_peer.add_peer(tester, identity=identity)
+    await tester.command(
+        hci.HCI_LE_Add_Device_To_Filter_Accept_List_Command(
+            identity.address_type,
+            identity,
+        )
+    )
+    await privacy_peer.scanning(tester, extended=True, policy=1)
+    train = PeriodicTrain(tester.radio.now_us + 100_000)
+    rpa = privacy_peer.private_address(privacy_peer.PEER_IRK)
+    for attempt in range(20):
+        await train.announce(tester, address=rpa, primary_channel=37 + attempt % 3)
+        await tester.wait(1000)
+        reports = privacy_peer.reports(tester)
+        if reports:
+            break
+    assert reports
+    assert all(
+        report.address == identity
+        and report.address_type == 2 + random_identity
+        and report.periodic_advertising_interval == train.interval
+        for report in reports
+    )
+    await tester.command(
+        create_sync(
+            advertiser_address_type=identity.address_type,
+            advertiser_address=identity,
+            sync_timeout=30,
+            advertising_sid=3,
+        )
+    )
+    advertiser = PeriodicAdvertiser(
+        train, tester.radio.now_us + 1100, 20_003, address=rpa
+    )
+    for _ in range(3):
+        await advertiser.transmit(tester, b'private periodic')
+    event = await tester.event(hci.HCI_LE_Periodic_Advertising_Sync_Established_Event)
+    assert event.status == 0 and event.advertiser_address == identity
+    assert (
+        event.advertising_sid == 3
+        and event.periodic_advertising_interval == train.interval
+    )
+    report = await tester.event(hci.HCI_LE_Periodic_Advertising_Report_Event)
+    assert (
+        report.sync_handle == event.sync_handle and report.data == b'private periodic'
+    )
+    await tester.command(
+        hci.HCI_LE_Periodic_Advertising_Terminate_Sync_Command(event.sync_handle)
+    )
+    await privacy_peer.scan_enable(tester, False, extended=True)
 
 
 PROCEDURES: ProcedureMap = {}
@@ -10241,12 +11409,9 @@ PROCEDURES |= procedure_cases(
 PROCEDURES |= procedure_cases(
     extended_scanning_properly_ignore_rfu_fields_extended_advertising,
     {
-        'LL/DDI/SCN/BV-88-C': pytest.param(
+        'LL/DDI/SCN/BV-88-C': (
             'Extended Scanning, Active, Properly Ignore RFU Fields',
             {},
-            marks=[
-                pytest.mark.source_conflict,
-            ],
         ),
     },
 )
@@ -10326,13 +11491,7 @@ PROCEDURES |= procedure_cases(
 PROCEDURES |= procedure_cases(
     active_scanning_duplicate_filtering,
     {
-        'LL/DDI/SCN/BV-127-C': pytest.param(
-            'Active Scanning, Duplicate Filtering',
-            {},
-            marks=[
-                pytest.mark.source_conflict,
-            ],
-        ),
+        'LL/DDI/SCN/BV-127-C': ('Active Scanning, Duplicate Filtering', {}),
     },
 )
 
@@ -10342,13 +11501,7 @@ PROCEDURES |= procedure_cases(
 PROCEDURES |= procedure_cases(
     extended_scanning_active_duplicate_filtering,
     {
-        'LL/DDI/SCN/BV-128-C': pytest.param(
-            'Extended Scanning, Active, Duplicate Filtering',
-            {},
-            marks=[
-                pytest.mark.source_conflict,
-            ],
-        ),
+        'LL/DDI/SCN/BV-128-C': ('Extended Scanning, Active, Duplicate Filtering', {}),
     },
 )
 
@@ -10379,6 +11532,245 @@ PROCEDURES |= procedure_cases(
         'LL/DDI/SCN/BV-12-C': (
             'Passive Scanning: Discoverable Events',
             {},
+        ),
+    },
+)
+
+
+# Verify decision-PDU contents when decision data is set before and after extended
+# advertising is enabled, across the selected flags, address and PHY variants.
+PROCEDURES |= procedure_cases(
+    decision_advertising_data_updates,
+    {
+        f'LL/DDI/ADV/BV-{number}-C': (
+            'Decision-Based Advertisements, Set Before and After '
+            'Extended Advertising Enabled',
+            {'phy': phy, 'mode': mode, 'with_address': address, 'with_adi': adi},
+        )
+        for number, phy, mode, address, adi in [
+            (92, Phy.LE_1M, 1, False, False),
+            (93, Phy.LE_1M, 0, False, False),
+            (94, Phy.LE_1M, 2, False, False),
+            (95, Phy.LE_CODED, 1, False, False),
+            (96, Phy.LE_CODED, 0, False, False),
+            (97, Phy.LE_CODED, 2, False, False),
+            (98, Phy.LE_1M, 1, True, False),
+            (99, Phy.LE_1M, 0, True, False),
+            (100, Phy.LE_1M, 2, True, False),
+            (101, Phy.LE_1M, 1, False, True),
+            (102, Phy.LE_1M, 0, False, True),
+            (103, Phy.LE_1M, 2, False, True),
+        ]
+    },
+)
+
+# Verify that scannable decision advertising leads to a scan-request exchange and the
+# expected scan response on the secondary channel.
+PROCEDURES |= procedure_cases(
+    decision_scannable_advertising,
+    {
+        'LL/DDI/ADV/BV-104-C': ('Decision-Based Advertisements, Scannable', {}),
+    },
+)
+
+# Verify that enabling extended decision advertising without setting decision data
+# transmits decision PDUs with zero flags and an empty decision payload.
+PROCEDURES |= procedure_cases(
+    decision_advertising_default_data,
+    {
+        'LL/DDI/ADV/BV-105-C': (
+            'Decision-Based Advertisements With No Data, Enable Extended Advertisement',
+            {},
+        ),
+    },
+)
+
+
+# Verify passive reports with resolution enabled and disabled, and identity-address
+# rejection in network privacy versus acceptance in device privacy.
+PROCEDURES |= procedure_cases(
+    privacy_passive_scanning,
+    {
+        'LL/DDI/SCN/BV-13-C': ('Network Privacy – Passive Scanning, Peer IRK', {}),
+        'LL/DDI/SCN/BV-26-C': (
+            'Network Privacy – Passive Scanning, Peer IRK, Ignore Identity Address',
+            {'identity_only': True},
+        ),
+        'LL/DDI/SCN/BV-28-C': (
+            'Device Privacy – Passive Scanning, Peer IRK, Accept Identity Address',
+            {'identity_only': True, 'device': True},
+        ),
+    },
+)
+
+# Verify active scanning for the selected Local/Peer IRK combinations. The Lower Tester
+# checks ScanA, Host reports and local RPA renewal when required.
+PROCEDURES |= procedure_cases(
+    privacy_active_scanning,
+    {
+        f'LL/DDI/SCN/BV-{number}-C': (
+            'Network Privacy – Active Scanning, '
+            f'{"Local IRK" if local else "no Local IRK"}, '
+            f'{"Peer IRK" if peer else "no Peer IRK"}',
+            {'local_irk': local, 'peer_irk': peer, 'renew': number == 16},
+        )
+        for number, local, peer in [
+            (15, False, False),
+            (16, True, False),
+            (17, False, True),
+            (18, True, True),
+        ]
+    },
+)
+
+# Verify that active scanning ignores a SCAN_RSP whose AdvA differs from the address
+# used in SCAN_REQ.
+PROCEDURES |= procedure_cases(
+    privacy_scan_response_address,
+    {
+        'LL/DDI/SCN/BI-03-C': ('Privacy – Active Scanning, Wrong AdvA in Response', {}),
+    },
+)
+
+# Verify that extended active scanning reports and answers correctly directed scannable
+# advertising, while ignoring an unresolvable TargetA.
+PROCEDURES |= procedure_cases(
+    privacy_extended_active_scanning,
+    {
+        'LL/DDI/SCN/BV-63-C': ('Privacy - Extended Scanning, Active, Core 5.1', {}),
+    },
+)
+
+
+# Verify decision-test flag results for matching, nonmatching and absent fields across
+# the selected passive, active and RPA scanning variants.
+PROCEDURES |= procedure_cases(
+    decision_scanning_test_flags,
+    {
+        'LL/DDI/SCN/BV-101-C': (
+            'Decision-Based Advertisements, Test Flags – Passive, No RPA',
+            {},
+        ),
+        'LL/DDI/SCN/BV-129-C': (
+            'Decision-Based Advertisements, Test Flags – Active, No RPA',
+            {'active': True},
+        ),
+        'LL/DDI/SCN/BV-130-C': (
+            'Decision-Based Advertisements, Test Flags – Passive, RPA',
+            {'rpa': True},
+        ),
+    },
+)
+
+# Verify decision filtering against configured RSSI and path-loss ranges using the
+# Lower Tester's transmitted advertising PDUs.
+PROCEDURES |= procedure_cases(
+    decision_scanning_signal_tests,
+    {
+        'LL/DDI/SCN/BV-102-C': (
+            'Decision-Based Advertisements, RSSI and Path Loss',
+            {},
+        ),
+    },
+)
+
+# Verify acceptance when any decision-test group passes and rejection when no group
+# satisfies all of its tests.
+PROCEDURES |= procedure_cases(
+    decision_scanning_groups,
+    {
+        'LL/DDI/SCN/BV-103-C': ('Decision-Based Advertisements, Test Groups', {}),
+    },
+)
+
+# Verify that a scanner ignores decision PDUs when the Upper Tester has not configured
+# decision instructions.
+PROCEDURES |= procedure_cases(
+    decision_scanning_without_instructions,
+    {
+        'LL/DDI/SCN/BV-105-C': (
+            'Decision-Based Advertisements Ignored, No Instructions Set',
+            {},
+        ),
+    },
+)
+
+# Verify that decision PDUs produce no Host reports after the Upper Tester disables
+# scanning.
+PROCEDURES |= procedure_cases(
+    decision_scanning_disabled,
+    {
+        'LL/DDI/SCN/BV-106-C': (
+            'Decision-Based Advertisements Ignored, Disabled Scanning',
+            {},
+        ),
+    },
+)
+
+# Verify that the scanning decision filter policy accepts eligible decision PDUs and
+# ignores non-decision advertising.
+PROCEDURES |= procedure_cases(
+    decision_scanning_filter_policy,
+    {
+        'LL/DDI/SCN/BV-107-C': (
+            'Decision-Based Advertisements, Ignore Non-Decision PDUs',
+            {},
+        ),
+    },
+)
+
+# Verify arbitrary-data decision tests across the specified data lengths and flag
+# combinations, including fields treated as absent.
+PROCEDURES |= procedure_cases(
+    decision_scanning_arbitrary_lengths,
+    {
+        'LL/DDI/SCN/BV-108-C': (
+            'Decision-Based Advertisements, Arbitrary Data Test Flags',
+            {},
+        ),
+    },
+)
+
+# Verify decision-PDU processing when AdvA is present, including address checks and the
+# address reported to the Host.
+PROCEDURES |= procedure_cases(
+    decision_scanning_primary_address,
+    {
+        'LL/DDI/SCN/BV-109-C': (
+            'Decision-Based Advertisements, AdvA in Decision PDU',
+            {},
+        ),
+    },
+)
+
+
+# Verify directed advertising reports for the specified scanning policies and
+# resolving-list configurations, including Direct_Address and its address type.
+PROCEDURES |= procedure_cases(
+    privacy_directed_scanning_policies,
+    {
+        'LL/DDI/SCN/BV-71-C': (
+            'Extended Scanning, Passive, Scanning Filter Policy, '
+            'Resolvable Private Addresses, Public Address supported',
+            {},
+        ),
+    },
+)
+
+# Verify periodic synchronization with an advertiser using an RPA when the Host selects
+# its public or random identity address.
+PROCEDURES |= procedure_cases(
+    privacy_periodic_reception,
+    {
+        'LL/DDI/SCN/BV-72-C': (
+            'Extended Scanning, Periodic Advertising Reception – '
+            'Public Identity Address',
+            {'random_identity': False},
+        ),
+        'LL/DDI/SCN/BV-73-C': (
+            'Extended Scanning, Periodic Advertising Reception – '
+            'Random Identity Address',
+            {'random_identity': True},
         ),
     },
 )

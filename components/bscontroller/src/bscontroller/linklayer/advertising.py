@@ -28,12 +28,22 @@ from bscontroller.linklayer import (
     PDU_ADV_AUX_OFFSET_UNITS_MASK,
     PDU_ADV_AUX_PTR_SIZE,
     PDU_ADV_CTE_INFO_SIZE,
+    PDU_ADV_DECISION_DATA_SIZE_MAX,
+    PDU_ADV_DECISION_EXT_FLAGS_MASK,
+    PDU_ADV_DECISION_RESOLVABLE_TAG_MASK,
+    PDU_ADV_DECISION_RESOLVABLE_TAG_SIZE,
+    PDU_ADV_DECISION_TYPE_FLAGS_MASK,
+    PDU_ADV_EXT_ADI_MASK,
+    PDU_ADV_EXT_ADVA_MASK,
+    PDU_ADV_EXT_AUX_PTR_MASK,
     PDU_ADV_EXT_FIELDS_OFFSET,
+    PDU_ADV_EXT_FLAGS_SIZE,
     PDU_ADV_EXT_HEADER_LENGTH_BITS,
     PDU_ADV_EXT_HEADER_OFFSET,
     PDU_ADV_EXT_HEADER_SIZE_MAX,
     PDU_ADV_EXT_MODE_RESERVED,
     PDU_ADV_EXT_PAYLOAD_SIZE_MAX,
+    PDU_ADV_EXT_TX_POWER_MASK,
     PDU_ADV_OFFSET_30_RANGE_US,
     PDU_ADV_OFFSET_BITS,
     PDU_ADV_OFFSET_UNIT_30_US,
@@ -293,6 +303,7 @@ class ExtendedPdu:
     random_target: bool = False
     kind: int = AdvertisingPduType.ADV_EXT_IND
     acad: bytes = b''
+    decision_flags: int = 0
 
     def encode(self) -> bytes:
         fields = (
@@ -320,8 +331,31 @@ class ExtendedPdu:
             if flags or self.acad
             else b''
         )
+        decision = self.kind == AdvertisingPduType.ADV_DECISION_IND
+        if decision:
+            # Figure 2.10 (Vol 6, Part B, 2.3.1.11) puts six Decision Type
+            # Flags bits before AdvMode; there is no ExtHdrLen. The header's
+            # flags determine its size. Keep Decision Data separate in the model.
+            if (
+                not flags & PDU_ADV_EXT_AUX_PTR_MASK
+                or flags & ~PDU_ADV_DECISION_EXT_FLAGS_MASK
+                or self.acad
+                or len(self.data) > PDU_ADV_DECISION_DATA_SIZE_MAX
+                or self.decision_flags & PDU_ADV_DECISION_RESOLVABLE_TAG_MASK
+                and len(self.data) < PDU_ADV_DECISION_RESOLVABLE_TAG_SIZE
+            ):
+                raise ValueError('invalid decision advertising PDU')
         payload = (
-            bytes([len(header) | self.mode << PDU_ADV_EXT_HEADER_LENGTH_BITS])
+            bytes(
+                [
+                    (
+                        self.decision_flags & PDU_ADV_DECISION_TYPE_FLAGS_MASK
+                        if decision
+                        else len(header)
+                    )
+                    | self.mode << PDU_ADV_EXT_HEADER_LENGTH_BITS
+                ]
+            )
             + header
             + self.data
         )
@@ -333,6 +367,7 @@ class ExtendedPdu:
             raise ValueError('extended advertising PDU too large or invalid mode')
         if self.kind not in (
             AdvertisingPduType.ADV_EXT_IND,
+            AdvertisingPduType.ADV_DECISION_IND,
             AdvertisingPduType.AUX_CONNECT_RSP,
         ):
             raise ValueError('invalid extended PDU type')
@@ -349,6 +384,8 @@ class ExtendedPdu:
         )
 
     def data_capacity(self) -> int:
+        if self.kind == AdvertisingPduType.ADV_DECISION_IND:
+            return PDU_ADV_DECISION_DATA_SIZE_MAX
         return PDU_ADV_EXT_PAYLOAD_SIZE_MAX - (
             len(self.encode()) - PDU_HEADER_SIZE - len(self.data)
         )
@@ -358,14 +395,42 @@ class ExtendedPdu:
         if (
             len(pdu) < PDU_ADV_EXT_HEADER_OFFSET
             or pdu[0] & PDU_ADV_TYPE_MASK
-            not in (AdvertisingPduType.ADV_EXT_IND, AdvertisingPduType.AUX_CONNECT_RSP)
+            not in (
+                AdvertisingPduType.ADV_EXT_IND,
+                AdvertisingPduType.ADV_DECISION_IND,
+                AdvertisingPduType.AUX_CONNECT_RSP,
+            )
             or pdu[1] != len(pdu) - PDU_HEADER_SIZE
         ):
             raise ValueError('invalid extended advertising PDU')
-        size, mode = (
-            pdu[PDU_HEADER_SIZE] & PDU_ADV_EXT_HEADER_SIZE_MAX,
-            pdu[PDU_HEADER_SIZE] >> PDU_ADV_EXT_HEADER_LENGTH_BITS,
-        )
+        decision = pdu[0] & PDU_ADV_TYPE_MASK == AdvertisingPduType.ADV_DECISION_IND
+        mode = pdu[PDU_HEADER_SIZE] >> PDU_ADV_EXT_HEADER_LENGTH_BITS
+        if decision:
+            if len(pdu) < PDU_ADV_EXT_FIELDS_OFFSET:
+                raise ValueError('missing decision extended header')
+            flags = pdu[PDU_ADV_EXT_HEADER_OFFSET]
+            if (
+                not flags & PDU_ADV_EXT_AUX_PTR_MASK
+                or flags & ~PDU_ADV_DECISION_EXT_FLAGS_MASK
+            ):
+                raise ValueError('invalid decision extended fields')
+            size = (
+                PDU_ADV_EXT_FLAGS_SIZE
+                + PDU_ADV_AUX_PTR_SIZE
+                + (PDU_ADV_ADDRESS_SIZE if flags & PDU_ADV_EXT_ADVA_MASK else 0)
+                + (PDU_ADV_ADI_SIZE if flags & PDU_ADV_EXT_ADI_MASK else 0)
+                + (PDU_ADV_TX_POWER_SIZE if flags & PDU_ADV_EXT_TX_POWER_MASK else 0)
+            )
+            decision_flags = pdu[PDU_HEADER_SIZE] & PDU_ADV_DECISION_TYPE_FLAGS_MASK
+            data_size = len(pdu) - PDU_ADV_EXT_HEADER_OFFSET - size
+            if not 0 <= data_size <= PDU_ADV_DECISION_DATA_SIZE_MAX or (
+                decision_flags & PDU_ADV_DECISION_RESOLVABLE_TAG_MASK
+                and data_size < PDU_ADV_DECISION_RESOLVABLE_TAG_SIZE
+            ):
+                raise ValueError('invalid decision data length')
+        else:
+            size = pdu[PDU_HEADER_SIZE] & PDU_ADV_EXT_HEADER_SIZE_MAX
+            decision_flags = 0
         if mode == PDU_ADV_EXT_MODE_RESERVED or PDU_ADV_EXT_HEADER_OFFSET + size > len(
             pdu
         ):
@@ -417,4 +482,5 @@ class ExtendedPdu:
             random_target=bool(pdu[0] & PDU_ADV_RXADD_MASK),
             kind=pdu[0] & PDU_ADV_TYPE_MASK,
             acad=pdu[offset : PDU_ADV_EXT_HEADER_OFFSET + size],
+            decision_flags=decision_flags,
         )

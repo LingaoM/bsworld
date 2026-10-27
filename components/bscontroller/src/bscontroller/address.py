@@ -15,6 +15,42 @@ from bscontroller.errors import InvalidArgumentError
 from bscontroller.serialization import SpecableEnum
 
 
+class OwnAddressType(SpecableEnum):
+    """Own-address selection (Core Vol 4, Part E, 7.8.5/10/12/53/64/66)."""
+
+    PUBLIC = 0x00
+    RANDOM = 0x01
+    RESOLVABLE_OR_PUBLIC = 0x02
+    RESOLVABLE_OR_RANDOM = 0x03
+
+    @property
+    def uses_random_fallback(self) -> bool:
+        return self in (self.RANDOM, self.RESOLVABLE_OR_RANDOM)
+
+    @property
+    def uses_resolvable_address(self) -> bool:
+        return self in (self.RESOLVABLE_OR_PUBLIC, self.RESOLVABLE_OR_RANDOM)
+
+
+class PrivacyMode(SpecableEnum):
+    """Peer identity acceptance policy (Core Vol 6, Part B, 4.7)."""
+
+    NETWORK_PRIVACY_MODE = 0x00
+    DEVICE_PRIVACY_MODE = 0x01
+
+
+# Vol 6, Part B, 1.3.2.2: an RPA contains a 24-bit hash and 24-bit prand.
+RPA_HASH_SIZE = 3
+RPA_PRAND_SIZE = 3
+RPA_PRAND_RANDOM_BITS = 22
+RPA_PRAND_TYPE_TAG = 0b01
+RANDOM_ADDRESS_TYPE_SHIFT = 6
+# Vol 6, Part B, 1.3.2, Table 1.2: address[47:46] = 0b11 marks a static address.
+STATIC_ADDRESS_TYPE_TAG = 0b11
+RPA_PRAND_RESOLVABLE_MASK = RPA_PRAND_TYPE_TAG << RPA_PRAND_RANDOM_BITS
+IRK_SIZE = 16
+
+
 class AddressType(SpecableEnum):
     PUBLIC_DEVICE = 0x00
     RANDOM_DEVICE = 0x01
@@ -120,7 +156,14 @@ class Address:
     @property
     def is_resolvable(self) -> bool:
         return self.address_type == self.RANDOM_DEVICE_ADDRESS and (
-            self.address_bytes[5] >> 6 == 1
+            self.address_bytes[-1] >> RANDOM_ADDRESS_TYPE_SHIFT == RPA_PRAND_TYPE_TAG
+        )
+
+    @property
+    def is_static(self) -> bool:
+        return self.address_type == self.RANDOM_DEVICE_ADDRESS and (
+            self.address_bytes[-1] >> RANDOM_ADDRESS_TYPE_SHIFT
+            == STATIC_ADDRESS_TYPE_TAG
         )
 
     def to_string(self, with_type_qualifier: bool = True) -> str:

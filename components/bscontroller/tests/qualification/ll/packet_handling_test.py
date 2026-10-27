@@ -13,6 +13,8 @@ from bscontroller.linklayer import (
     LL_CHANNEL_MAP_SIZE,
     LL_CONN_WINDOW_SIZE_MIN,
     LL_DATA_CHANNEL_COUNT,
+    LL_DATA_CHANNEL_COUNT_MIN,
+    LL_DATA_CHANNEL_MAP_ALL,
     LL_EVENT_COUNTER_MASK,
     LL_INSTANT_MIN_LISTENING_EVENTS,
     LL_RESPONSE_TIMEOUT_US,
@@ -626,7 +628,14 @@ async def _packet_connection(tester, central):
             LOWER_PERIPHERAL_PUBLIC_ADDRESS if central else LOWER_CENTRAL_PUBLIC_ADDRESS
         ),
     )
-    assert link.parameters.channel_map == COMMON_CHANNEL_MAP
+    if central:
+        # The Central's map algorithm is vendor-specific and may ignore Host
+        # classification; require only a legal map (Core Vol 6, Part B, 4.5.8.1).
+        used = link.parameters.channel_map & LL_DATA_CHANNEL_MAP_ALL
+        assert used == link.parameters.channel_map
+        assert used.bit_count() >= LL_DATA_CHANNEL_COUNT_MIN
+    else:
+        assert link.parameters.channel_map == COMMON_CHANNEL_MAP
     await exchange_features(link, PEER_FEATURES)
     await link.exchange()
     return link
