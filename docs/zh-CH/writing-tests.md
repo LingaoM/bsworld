@@ -29,33 +29,17 @@
 
 ## 选择 Controller
 
-每个 Host 可以独立选择 `ZephyrController`（默认，原生进程）或 `BSController`（Python Controller，运行在自己的 worker 线程中）。二者都提供相同的 H:4 Unix socket；Controller 的选择与 Host 运行在 Python 还是外部进程无关。
+每个 Host 通过 `topo.add_controller()` 获得自己的虚拟 Controller，在 `topo.start()` 之后连接到它的 `hci_sock`：
 
 ```python
 from bsworld.devices import BSController
 
-python_ctl = topo.add_controller(
-    controller_type=BSController,
-    public_address="F0:F1:F2:F3:F4:01",
-)
-zephyr_ctl = topo.add_controller(
-    public_address="F0:F1:F2:F3:F4:02",
-)
+ctl = topo.add_controller(controller_type=BSController, public_address="F0:F1:F2:F3:F4:01")
 await topo.start()
-# 将 Host 分别连接到 python_ctl.hci_sock 和 zephyr_ctl.hci_sock。
+# 将 Host 连接到 ctl.hci_sock。
 ```
 
-每个 Python Controller 独立拥有 worker、无线端点和地址。省略 `max_step_us` 时沿用 bscontroller 的默认值，仅在需要覆盖 worker 步长时传入。两种实现使用共享 PHY 和框架时钟。拓扑中只有 Python Controller 时，无需配置 `BSWORLD_BT_VIRT_CONTROLLER_BIN`。
-
-如果同一套场景需要在两种实现上运行，设置拓扑默认值即可，无需在每次调用时传 `controller_type`。`topo` fixture 从可覆盖的 `bsworld_default_controller_type` fixture 读取该默认值；显式传入 `controller_type` 仍可构造混合拓扑：
-
-```python
-@pytest.fixture(params=[ZephyrController, BSController], ids=["zephyr", "bscontroller"])
-def bsworld_default_controller_type(request):
-    return request.param
-```
-
-两种 Controller 都生成各自的 `hciN.snoop`，共享 PHY 同时生成 `ellisys.bttrp`。
+默认使用 `ZephyrController`，`BSController` 是 Python 实现，同一拓扑可以混用两种。参见[虚拟 Controller](controllers.md)。
 
 ## 异步等待与仿真时间
 

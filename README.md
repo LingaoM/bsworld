@@ -90,7 +90,7 @@ pytest tests/integration -n auto
 
 ### Test Controller Variants
 
-Integration scenarios run with both the Zephyr Controller (`[zephyr]`) and Python BSController (`[bscontroller]`) by default. Select one implementation with its pytest parameter ID:
+Integration scenarios run with both the Zephyr Controller (`[zephyr]`) and Python BSController (`[bscontroller]`) by default; see [Virtual Controllers](docs/controllers.md). Select one implementation with its pytest parameter ID:
 
 ```sh
 pytest tests/integration -n auto -v -k '[zephyr]'
@@ -114,7 +114,7 @@ BSWorld keeps each Application and Host stack on its native interface. Every Hos
 
 <div align="center"><img src="docs/images/babblesim_arch.svg" alt="BSWorld participants connected through independent virtual Controllers to a shared BabbleSim PHY" width="80%"><br><em>Figure 1: BSWorld architecture</em><br><br></div>
 
-The virtual Controllers implement HCI commands, events, ACL data, Link Layer procedures, and radio transmission and reception. A topology can mix RTOS, Python, and QEMU-based Linux participants with either Controller implementation. See [Writing tests](docs/writing-tests.md#choosing-controllers) for Controller selection.
+The virtual Controllers implement HCI commands, events, ACL data, Link Layer procedures, and radio transmission and reception. A topology can mix RTOS, Python, and QEMU-based Linux participants with either Controller implementation. See [Virtual Controllers](docs/controllers.md) to choose and configure them.
 
 HCI traffic is saved as `hciN.snoop` for Wireshark or another BTSnoop-capable tool. Radio traffic is saved as `babblesim/ellisys.bttrp` for Ellisys. See [Logs, traces, and captures](docs/artifacts.md) for locations and a recommended investigation order.
 
@@ -132,6 +132,7 @@ Repeatability assumes identical binaries and inputs and controlled random source
 ## Documentation
 
 - [Writing tests and RF scenarios](docs/writing-tests.md): define topologies, integrate Applications, wait with asyncio, and configure RF conditions.
+- [Virtual Controllers](docs/controllers.md): choose between the Zephyr and Python Controllers, run a scenario against both, and configure BSController.
 - [Logs, traces, and captures](docs/artifacts.md): locate and analyze test artifacts.
 - [Development checks](docs/development.md): run unit tests, lint, and coverage.
 - [Docker guide](docker/README.md): run published images, select suites, and build local images.

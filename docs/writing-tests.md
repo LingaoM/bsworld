@@ -29,33 +29,17 @@ Every test receives its own simulation ID, Unix socket directory, and log direct
 
 ## Choosing Controllers
 
-Each Host can use either `ZephyrController` (the default native process) or `BSController` (a Python Controller running in its own worker thread). Both expose the same H:4 Unix socket. Controller choice is independent of whether the Host runs in Python or an external process.
+Each Host gets its own virtual Controller from `topo.add_controller()` and connects to its `hci_sock` after `topo.start()`:
 
 ```python
 from bsworld.devices import BSController
 
-python_ctl = topo.add_controller(
-    controller_type=BSController,
-    public_address="F0:F1:F2:F3:F4:01",
-)
-zephyr_ctl = topo.add_controller(
-    public_address="F0:F1:F2:F3:F4:02",
-)
+ctl = topo.add_controller(controller_type=BSController, public_address="F0:F1:F2:F3:F4:01")
 await topo.start()
-# Connect Hosts to python_ctl.hci_sock and zephyr_ctl.hci_sock.
+# Connect the Host to ctl.hci_sock.
 ```
 
-Each Python Controller owns its worker, radio endpoint and address. Omit `max_step_us` to use bscontroller's default; pass it only to override the worker's step size. Both implementations use the shared PHY and framework clock. A topology containing only Python Controllers does not require `BSWORLD_BT_VIRT_CONTROLLER_BIN`.
-
-To run one scenario against both implementations, set the topology default instead of passing `controller_type` at every call. The `topo` fixture reads it from the overridable `bsworld_default_controller_type` fixture, and an explicit `controller_type` argument still selects a mixed topology:
-
-```python
-@pytest.fixture(params=[ZephyrController, BSController], ids=["zephyr", "bscontroller"])
-def bsworld_default_controller_type(request):
-    return request.param
-```
-
-Both Controller implementations write their own `hciN.snoop` files; the shared PHY produces `ellisys.bttrp`.
+`ZephyrController` is the default and `BSController` is the Python alternative; one topology may mix both. See [Virtual Controllers](controllers.md).
 
 ## Async Waiting and Simulation Time
 

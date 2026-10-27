@@ -187,3 +187,34 @@ async def test_stop_releases_other_controllers_and_phy_after_worker_failure(
     with pytest.raises(RuntimeError, match="worker failed"):
         await topo.stop()
     assert events == ["python", "zephyr", "processes", "finish"]
+
+
+async def test_python_controller_passes_its_config_to_the_worker(tmp_path, worker):
+    """Each Controller's ``ControllerConfig`` reaches its own worker unchanged."""
+    from bscontroller import ControllerConfig
+
+    first = ControllerConfig(max_connections=1)
+    second = ControllerConfig(advertising_set_count=2)
+    controllers = [
+        _python_controller(tmp_path, config=first),
+        _python_controller(tmp_path, config=second),
+    ]
+    controllers[1].controller_dev_id = 1
+    try:
+        for ctl in controllers:
+            await ctl.start(ProcessManager(), SimpleNamespace(), log_dir=tmp_path)
+        assert [i.options["config"] for i in worker.instances] == [first, second]
+    finally:
+        for ctl in controllers:
+            await ctl.stop()
+
+
+@pytest.mark.parametrize(
+    "config",
+    [{"controllers": {"hci0": {"maxConnections": 1}}}, "controllers.json"],
+    ids=["mapping", "path"],
+)
+def test_python_controller_requires_a_controller_config(tmp_path, config):
+    """Only a ``ControllerConfig`` is accepted as ``config``."""
+    with pytest.raises(TypeError, match="ControllerConfig"):
+        _python_controller(tmp_path, config=config)
