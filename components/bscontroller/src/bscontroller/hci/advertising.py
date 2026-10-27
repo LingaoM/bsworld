@@ -5,9 +5,7 @@
 """Legacy, extended and periodic advertising HCI validation and data assembly."""
 
 from bscontroller import hci
-from bscontroller.capabilities import CONTROLLER_ADVERTISING_SET_COUNT
 from bscontroller.hci import (
-    HCI_LE_ADV_DATA_SIZE_MAX,
     HCI_LE_ADV_FILTER_CONNECT_MASK,
     HCI_LE_ADV_FILTER_POLICY_MASK,
     HCI_LE_ADV_FILTER_SCAN_MASK,
@@ -404,7 +402,9 @@ class LeAdvertisingCommands(LeControllerContext):
         # append advertising data to a scan-response or periodic-data sequence.
         key = (handle, field)
         maximum = (
-            HCI_LE_ADV_DATA_SIZE_MAX if item.extended else PDU_ADV_LEGACY_DATA_SIZE_MAX
+            self.controller.config.max_advertising_data_length
+            if item.extended
+            else PDU_ADV_LEGACY_DATA_SIZE_MAX
         )
         # Scannable extended events put their data in AUX_SCAN_RSP; other modes
         # cannot provide scan data (Vol 6, Part B, 4.4.2.11; Vol 4, Part E, 7.8.55).
@@ -565,7 +565,7 @@ class LeAdvertisingCommands(LeControllerContext):
         Length Command
         '''
         return hci.HCI_LE_Read_Maximum_Advertising_Data_Length_ReturnParameters(
-            0, HCI_LE_ADV_DATA_SIZE_MAX
+            0, self.controller.config.max_advertising_data_length
         )
 
     def on_hci_le_read_number_of_supported_advertising_sets_command(self, command):
@@ -574,7 +574,7 @@ class LeAdvertisingCommands(LeControllerContext):
         Advertising Sets Command
         '''
         return hci.HCI_LE_Read_Number_Of_Supported_Advertising_Sets_ReturnParameters(
-            SUCCESS, CONTROLLER_ADVERTISING_SET_COUNT
+            SUCCESS, self.controller.config.advertising_set_count
         )
 
     def on_hci_le_remove_advertising_set_command(self, command):

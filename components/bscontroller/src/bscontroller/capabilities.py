@@ -1,17 +1,13 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Controller resource capacities and supported PHYs; implementation limits."""
+"""Implementation capabilities fixed by this Controller (PHYs, codec limits).
+
+Values the specification lets an implementation choose, such as buffer and list
+sizes, are configurable through :class:`bscontroller.config.ControllerConfig`.
+"""
 
 CONTROLLER_SUPPORTED_PHY_MASK = 0b111
-
-CONTROLLER_ADVERTISING_SET_COUNT = 8
-
-CONTROLLER_PERIODIC_SYNC_COUNT = 8
-
-CONTROLLER_CONNECTION_COUNT = 8
-
-CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE = 8
 
 CONTROLLER_PRIMARY_SCAN_PHY_MASK = 0b101
 

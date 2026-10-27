@@ -82,8 +82,10 @@ class DataLengthProcedure:
         self.local = DataLengths(
             PDU_DATA_PAYLOAD_SIZE_MIN,
             initial_time,
-            connection.link.default_tx_octets,
-            max(initial_time, connection.link.default_tx_time),
+            *self._local_tx(
+                connection.link.default_tx_octets,
+                max(initial_time, connection.link.default_tx_time),
+            ),
         )
         self.remote = DataLengths(
             PDU_DATA_PAYLOAD_SIZE_MIN,
@@ -93,6 +95,11 @@ class DataLengthProcedure:
         )
         self.context: ProcedureContext | None = None
         self.reported = self.effective()
+
+    def _local_tx(self, octets: int, time_us: int) -> tuple[int, int]:
+        """Host-suggested TX limits capped by connMaxTx supported (4.5.10)."""
+        config = self.connection.link.config
+        return min(octets, config.max_tx_octets), min(time_us, config.max_tx_time)
 
     @property
     def pending(self) -> bool:
@@ -213,11 +220,11 @@ class DataLengthProcedure:
 
     def request(self, octets: int, time_us: int) -> None:
         """Start the Data Length Update procedure (Core Vol 6, Part B, 5.1.9)."""
+        config = self.connection.link.config
         self.local = DataLengths(
-            PDU_DATA_PAYLOAD_SIZE_MAX,
-            PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
-            octets,
-            time_us,
+            config.max_rx_octets,
+            config.max_rx_time,
+            *self._local_tx(octets, time_us),
         )
         self.context = ProcedureContext(
             Opcode.LL_LENGTH_REQ,
@@ -259,10 +266,11 @@ class DataLengthProcedure:
                 return True
             self.remote = DataLengths(rx, rx_time, tx, tx_time)
             if opcode == Opcode.LL_LENGTH_REQ:
+                config = self.connection.link.config
                 self.local = replace(
                     self.local,
-                    rx_octets=PDU_DATA_PAYLOAD_SIZE_MAX,
-                    rx_time=PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
+                    rx_octets=config.max_rx_octets,
+                    rx_time=config.max_rx_time,
                 )
                 self.enqueue(Opcode.LL_LENGTH_RSP)
             else:

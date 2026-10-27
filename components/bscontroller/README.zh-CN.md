@@ -2,150 +2,62 @@
 
 [English](README.md) | 简体中文
 
-BSController 是可独立安装、运行和发布的 Python Bluetooth LE Controller，Python 导入包为 `bscontroller`，命令行入口为 `bscontroller`。它向 Host 提供 H4 HCI 字节接口，在内部执行 LE 链路层过程，并通过 BabbleSim PHY 完成射频收发与离散时间同步。
+BSController 是用 Python 实现的低功耗蓝牙 Controller。你的 Host 协议栈通过标准 H4 HCI 和它通信，它通过模拟射频（[BabbleSim](https://babblesim.github.io/)）收发数据。同一模拟射频上的 Controller 之间可以互相通信。仿真时间是离散的，运行结果可复现。
 
-支持传统广播、主动及被动扫描、扩展广播、周期广播与同步、ACL 连接、链路层加密、数据长度协商、信道选择及 PHY 更新，覆盖 LE 1M、LE 2M 和 LE Coded PHY。当前不实现 Privacy、ISO、PAwR 和 Bluetooth Classic。
+## 快速开始
 
-## 安装与运行
-
-本模块依赖 Python 3.11 或更新版本，以及 [BabbleSim](https://babblesim.github.io/) 提供的射频仿真环境，运行于 Linux。以下以 Ubuntu 24.04 x86_64 为例，先安装构建工具：
+BSController 需要 Linux、Python 3.11 或更高版本，以及编译好的 BabbleSim。以 Ubuntu 24.04 x86_64 为例：
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y git repo build-essential gcc-multilib g++-multilib python3-venv
-```
 
-按 [BabbleSim 官方获取说明](https://babblesim.github.io/fetching.html) 下载源码，并编译本模块需要的 PHY、modem 和 channel：
-
-```sh
-mkdir -p "$HOME/bsim"
-cd "$HOME/bsim"
+# 获取并编译 BabbleSim 的 PHY、调制解调器和信道模型。
+mkdir -p "$HOME/bsim" && cd "$HOME/bsim"
 repo init -u https://github.com/BabbleSim/manifest.git -m everything.xml -b master
 repo sync
-
 export BSIM_OUT_PATH="$PWD/build"
 export BSIM_COMPONENTS_PATH="$PWD/components"
-
 make -j"$(nproc)" ext_2G4_phy_v1 ext_2G4_modem_BLE_simple ext_2G4_channel_multiatt
 ```
 
-构建产物位于 `$BSIM_OUT_PATH/bin/` 和 `$BSIM_OUT_PATH/lib/`。运行 BSController 时保留上述环境变量，命令行、示例和 RF 测试直接使用 `BSIM_OUT_PATH`。更多构建选项见 [BabbleSim 官方编译说明](https://babblesim.github.io/building.html)。
+运行 BSController 时需要保持 `BSIM_OUT_PATH` 环境变量。其他编译选项见 BabbleSim 的[获取](https://babblesim.github.io/fetching.html)和[编译](https://babblesim.github.io/building.html)指南。
 
-编译完成后，回到本模块的源码根目录安装 Python 包：
+然后在本目录下安装 BSController：
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install .
-bscontroller --help
 ```
 
-## 技术架构
+## 独立运行 Controller
 
-每个 Controller 实现 HCI、Link Layer 和射频适配。多个 Controller 连接同一个 BabbleSim PHY，在共享信道和共同的仿真时间线上进行射频交互。
-
-<div align="center"><img src="docs/images/radio_controller_arch.svg" alt="多个 Radio Controller 共享 BabbleSim PHY" width="80%"><br><em>图 1：Controller 协议架构与共享 PHY</em></div>
-
-### 内部框架
-
-下图展开一个 Controller 实例。LL 角色管理者持有活动上下文并管理其生命周期。每个 ACL 连接独立持有 LLCP、包安全状态和事件执行器；所有角色共用一个 RadioResourceManager。
-
-<div align="center"><img src="docs/images/radio_controller_internal_arch.svg" alt="单个 Controller 的内部模块、状态归属与主要交互路径" width="80%"><br><em>图 2：Controller 内部框架</em></div>
-
-嵌套框表示对象和状态归属；黑色箭头表示操作/控制，绿色虚线表示 Listener 回调，橙色表示活动选择和调度窗口，蓝色表示 PDU 与射频结果，灰色点线表示 Runtime 的组合、驱动和时钟关系。H4Parser/H4Server 对应 socket 路径，进程内 HCI 数据包直接进入 Controller。
-
-| 模块 | 职责与状态归属 |
-| --- | --- |
-| `hci/` | H4 分帧、命令解码与参数转换、命令族选择、未完成的 HCI 数据分片，以及事件掩码、重复过滤和报告编码 |
-| `linklayer/api.py`、`service.py` | 承接解码后的配置、只读查询和角色命令；HCI 提交的 `AdvertisingConfig` 不包含射频截止时间或事件计数 |
-| `linklayer/notifications.py`、`listener.py` | 将已提交的 LL 状态转换为冻结通知快照后交给 HCI，活动上下文保留在 LL 内部 |
-| `linklayer/roles.py`、`results.py` | 持有连接 handle、广播/扫描/发起连接/同步上下文，管理生命周期、下一活动和经校验的射频结果 |
-| `linklayer/connection.py` | `Connection` 管理连接生命周期、当前参数、锚点和监督超时 |
-| `linklayer/llcp.py`、`procedure.py` | `LlcpCoordinator` 管理控制请求准入、过程上下文与响应关联、逐包收发门禁、ACK 路由和响应定时器归属 |
-| `linklayer/control.py`、`phy.py`、`connection_parameters.py`、`encryption.py`、`data_length.py` | 各过程管理状态转换、碰撞规则、Instant 更新、密钥/模式切换和数据长度协商；PHY 与连接参数分别拥有独立处理器 |
-| `linklayer/connection_event.py`、`data_path.py` | `ConnectionEvent` 持有 TX 队列、SN/NESN、LL 分片和重传快照；通过包安全状态、生效限制和 RX 事实与 LLCP 交换信息 |
-| `linklayer/primary.py`、`extended.py`、`periodic.py` | 执行各角色的包校验和即时收发，将连接/同步结果交给角色管理者；活动上下文位于 `discovery.py` |
-| `linklayer/resource.py`、`scheduler.py` | `RadioResourceManager` 统一预约、优先级、冲突仲裁和活动窗口释放；调度辅助函数计算完整、非抢占的可用时隙 |
-| `radio/`、`runtime/` | Radio 提供收发、物理时间与 BabbleSim FIFO 适配；Runtime 组合线程、事件循环、会话与 PHY 进程生命周期 |
-
-控制请求通过 LL service 进入 LLCP 准入；异步过程返回 `PreparedProcedure`，HCI 发送 Command Status 后才调用 `start()`，因此命中缓存的立即完成也保持相同顺序。HCI 查询与通知返回分离的值，不返回活动的 Connection、Advertising 或 PeriodicSync。配置提交保留 LL 管理的事件时序和计数；读取广播发射功率不会创建或重新配置角色。
-
-角色管理者准备活动与预约，提交经校验的连接/同步结果，并在更新资源表后发布通知。RadioLink 驱动各管理者与共享调度器。包校验和 T_IFS 即时响应留在事件执行器中；跨角色生命周期变更交给相应管理者。
-
-Host ACL 数据通过 LL service 进入事件队列。RX 事实携带尚未提交的控制包 ACK；LLCP 完成认证和准入校验后，执行器才提交 ARQ 状态。生效数据长度限制与包安全模式独立于过程状态；发送和 ACK 回调仍可在同一个连接事件内切换加密模式。
-
-
-## 运行示例
-
-[examples/advertise_scan.py](examples/advertise_scan.py) 将扫描 Controller 暴露为标准 H4 HCI Unix socket，并实现一个仅通过 socket 收发 HCI 字节的 Mock Host。另一个 Controller 通过共享 PHY 发送广播，提供经过 PHY 传播的仿真射频输入。
-
-```sh
-python examples/advertise_scan.py
-```
-
-```mermaid
-sequenceDiagram
-    participant Host as Mock Host
-    participant H4 as H4 Unix socket
-    participant Scan as 扫描 Controller
-    participant PHY as BabbleSim PHY
-    participant Adv as 广播 Controller
-    Note over Scan,Adv: 两个 Controller 和一个 Host 时钟端点接入共享 PHY
-    Note over Adv: 示例预先通过 HCI 配置并开启广播
-    Host->>H4: HCI Reset / Set Event Mask / LE Set Event Mask
-    H4->>Scan: H4 命令字节
-    Scan-->>H4: Command Complete
-    H4-->>Host: H4 事件字节
-    Host->>H4: LE Set Scan Parameters / LE Set Scan Enable
-    H4->>Scan: H4 扫描命令
-    Scan-->>H4: Command Complete
-    H4-->>Host: H4 事件字节
-    Scan->>PHY: RX：扫描信道与接收窗口
-    Adv->>PHY: TX：广播 PDU
-    PHY-->>Scan: 接收结果、数据与时间戳
-    Scan-->>H4: LE Advertising Report
-    H4-->>Host: H4 事件字节
-    Note over Host: 校验广播地址和数据
-    Host->>H4: LE Set Scan Enable = 0
-    H4->>Scan: 停止扫描
-    Scan-->>H4: Command Complete
-    H4-->>Host: H4 事件字节
-```
-
-该示例同时验证 Host 的 H4 传输边界、HCI 命令处理以及 PHY 广播接收路径。更多说明见 [examples/README.zh-CN.md](examples/README.zh-CN.md)。
-
-向外部 Host 提供 H4 HCI 服务：
+启动一个 Controller，再让你的 Host 连接它的 socket：
 
 ```sh
 bscontroller serve --hci-socket /tmp/radio.sock --btsnoop-file /tmp/hci.snoop
 ```
 
-构造 `RadioController` 时使用 `hci_snoop_file=Path(...)`，或在 CLI 中使用 `--btsnoop-file`，可写入 BTSnoop v1 H4 抓包文件。worker 会在将输出交给 Host event loop 前，使用本地仿真时间戳记录完整的 HCI 报文。记录不经用户态缓冲直接写入；抓包不会推进仿真时间。BSWorld 会自动提供该路径。
+`serve` 会启动一个 BabbleSim PHY，并在 Unix socket 上提供 H4 HCI。它只接受一个 Host，Host 断开后退出；socket 路径不能已存在。`--btsnoop-file` 保存 HCI 报文，可用 Wireshark 打开。见 `bscontroller serve --help`。
 
-Host 通过 Unix socket 收发 H4 HCI 字节流。服务接受一个 Host，Host 断开后退出；socket 路径必须尚未被占用。更多选项见 `bscontroller serve --help`。
+Controller 按仿真时间运行，仿真时间会以机器允许的最快速度推进。使用墙钟时间的 Host 会看到 Controller 跑在前面，两边的定时器和超时对不上。
 
-## 线程、时钟与资源生命周期
+要得到可复现的结果，Host 需要接入同一个离散时间调度。如果只是手动快速测试，可以加上 BabbleSim 的刹车设备 handbrake，它让仿真时间与墙钟时间保持接近。先多分配一个设备启动 PHY，再让 BSController 加入：
 
-`RadioController` 需在 Host 的运行中事件循环内创建，它会在独立线程中运行 Controller。Host 与 worker 不共享可变协议状态，两侧以不可变 H4 字节包交换数据。
+```sh
+cd "$BSIM_OUT_PATH/bin"
+./bs_2G4_phy_v1 -s=demo -D=3 &           # 0：Controller，1：serve 时钟，2：handbrake
+./bs_device_handbrake -s=demo -d=2 -r=1 &  # -r：仿真时间与墙钟时间之比
+bscontroller serve --join --sim-id demo --dev-id 0 --clock-id 1 \
+  --hci-socket /tmp/radio.sock --btsnoop-file /tmp/hci.snoop
+```
 
-射频时间以整数微秒表示。每个 worker 维护自己的时钟端点，通过 PHY 同步到共同的仿真时间线。独立 Host 可以使用额外的时钟端点，其 PHY 设备编号需与所有 Controller 区分开。
+此时时序仍会受主机负载影响，只适合探索性测试。
 
-| 对象 | 管理的资源 |
-| --- | --- |
-| `RadioController` | 单个 worker 线程、Controller 事件循环及射频 FIFO 端点 |
-| `RadioSession` | worker 启停，以及可选的独立 Host 时钟连接和事件循环绑定 |
-| `H4Server` | Unix socket、单个 Host 连接、H4 分帧和有界输出队列 |
-| `PhyProcess` | BabbleSim PHY 子进程、日志及仿真目录清理 |
+## 在 Python 中使用
 
-`RadioSession` 连接已经启动的 PHY，不负责启动 PHY 进程。指定 `clock_dev_id` 时，Host 需要使用 `RadioEventLoop`；省略该参数时，由调用方提供已同步的时钟和事件循环，并负责设备编号、启动屏障及时间绑定。释放资源时先停止 worker，再关闭 Host 时钟和 PHY。命令行和示例已经组合这些生命周期。
-
-## Python 接入
-
-公开入口包括 `RadioController`、`RadioSession`、`RadioEventLoop`、`Radio`、`Phy`、`Received` 和 `hci`。直接接入时，调用 `controller.on_packet(packet)` 发送完整的 H4 包，并在启动 worker 之前使用 `controller.set_packet_sink(sink)` 注册输出接收器；接收器需实现 `on_packet(packet: bytes)`。
-
-外部 Host 接入时，向 `RadioController` 传入 `hci_socket`。worker 在 Controller 线程内完成 socket 读写、H4 解析与回复。启动在 socket 开始监听后返回；HCI 命令会等到零时刻的 PHY 同步完成并绑定时钟后才处理。socket 模式不使用跨线程报文队列和 HCI 轮询定时器。
-
-以下示例连接已由调用方启动的 PHY。PHY 使用相同的 `sim_id`，配置两个设备，设备编号 `0` 为 Controller，`1` 为 Host 时钟：
+`RadioController` 在独立的 worker 线程中运行一个 Controller，必须在正在运行的 asyncio 事件循环里创建它。`RadioSession` 把它接入一个已经启动的 PHY。下面的示例要求 PHY 已用相同的 `sim_id`（`example`）启动，并且有两个设备：设备 `0` 给 Controller，设备 `1` 给 Host 时钟。
 
 ```python
 import asyncio
@@ -166,25 +78,158 @@ with asyncio.Runner(loop_factory=RadioEventLoop) as runner:
     runner.run(main())
 ```
 
-## 目录与验证
+[examples/advertise_scan.py](examples/advertise_scan.py) 是基于这些接口的完整程序：用 `PhyProcess` 启动 PHY，在一个 `RadioSession` 中运行一个广播 Controller 和一个扫描 Controller，模拟 Host 通过扫描端的 socket 完成扫描。运行 `python examples/advertise_scan.py`，详见 [examples/README.zh-CN.md](examples/README.zh-CN.md)。
+
+Host 有两种接入方式：
+
+- **Socket 方式**：像上面的示例一样传入 `hci_socket`，任何支持基于 Unix socket 的 H4 的 Host 都能连接。socket 开始监听后启动就会返回，Controller 与 PHY 完成同步后才开始处理 HCI 命令。
+- **进程内方式**：不传 `hci_socket`。启动之前，先用 `controller.set_packet_sink(sink)` 注册一个实现了 `on_packet(packet: bytes)` 方法的对象，之后用 `controller.on_packet(packet)` 发送完整的 H4 报文。
+
+传入 `hci_snoop_file=Path(...)` 可以录制 BTSnoop 抓包，时间戳使用仿真时间。
+
+其他公开接口有：`ControllerConfig`（见[配置](#配置)）、`RadioEventLoop`、`Radio`、`Phy`、`Received` 和 `hci`（HCI 报文类）。
+
+自行管理运行时时：
+
+- `RadioSession` 不启动 PHY，可用 `bscontroller.runtime.PhyProcess` 启动。
+- 传入 `clock_dev_id` 时，Host 事件循环必须是 `RadioEventLoop`；不传时，需自行提供时钟，并为每个参与者分配不同的 PHY 设备编号。
+- 先停止 Controller，再关闭 Host 时钟和 PHY；`async with RadioSession(...)` 会按此顺序处理。
+
+## 配置
+
+蓝牙规范交由 Controller 决定的值组成一个 `ControllerConfig`，未设置的字段使用默认值。
+
+| JSON 键 | 默认值 | 范围 | 规范章节（Vol 4, Part E） |
+|---|---|---|---|
+| `hciVersion` | `0x09` (5.0) | `0x06`–`0x10` | 7.4.1 |
+| `hciRevision` | `0` | `0`–`0xFFFF` | 7.4.1 |
+| `lmpVersion` | `0x09` (5.0) | `0x06`–`0x10` | 7.4.1 |
+| `lmpSubversion` | `0` | `0`–`0xFFFF` | 7.4.1 |
+| `manufacturer` | `0xFFFF` | `0`–`0xFFFF` | 7.4.1 |
+| `aclPacketCount` | `8` | `1`–`255` | 7.8.2 |
+| `aclPacketLength` | `251` | `27`–`65535` | 7.8.2 |
+| `maxTxOctets` | `251` | `27`–`251` | 7.8.46 |
+| `maxTxTime` | `17040` | `328`–`17040` | 7.8.46 |
+| `maxRxOctets` | `251` | `27`–`251` | 7.8.46 |
+| `maxRxTime` | `17040` | `328`–`17040` | 7.8.46 |
+| `advertisingSetCount` | `16` | `1`–`240` | 7.8.58 |
+| `maxAdvertisingDataLength` | `1650` | `31`–`1650` | 7.8.57 |
+| `filterAcceptListSize` | `16` | `1`–`255` | 7.8.14 |
+| `periodicAdvertiserListSize` | `8` | `1`–`255` | 7.8.73 |
+| `maxConnections` | `64` | `1`–`3839` | 5.3.1 |
+| `maxPeriodicSyncs` | `16` | `1`–`3839` | 5.3.1 |
+
+配置文件包含两部分：`defaults` 对所有 Controller 生效；`controllers` 按 Controller 名称分别设置：
+
+```json
+{
+  "defaults": {"aclPacketCount": 16},
+  "controllers": {"hci0": {"maxConnections": 2}, "hci1": {"maxTxOctets": 27}}
+}
+```
+
+键名使用 camelCase，也接受 snake_case。同一个值按越具体越优先的顺序生效：内置默认值，然后是 `defaults`，然后是 `controllers.<name>`，最后是 Python 关键字参数。未知的键或超出范围的值会被跳过并输出 warning，该字段保持原来的值，文件中的其他设置照常生效。
+
+命令行用法：
+
+```sh
+bscontroller config > bsc.json        # 导出全部默认值，在此基础上修改
+bscontroller serve --hci-socket /tmp/radio.sock --config bsc.json --name hci0
+```
+
+Python 中，把配置文件（或同样结构的 dict）传给 `RadioController`，每个 Controller 会按自己的名字选用 `controllers` 中的条目：
+
+```python
+from bscontroller import ControllerConfig, RadioController
+
+central = RadioController("hci0", "F0:F1:F2:F3:F4:01", config="bsc.json")
+peripheral = RadioController("hci1", "F0:F1:F2:F3:F4:02", config="bsc.json")
+other = RadioController("x", "F0:F1:F2:F3:F4:03", config=ControllerConfig(max_connections=2))
+```
+
+`ControllerConfig(...)` 遇到非法值会抛出 `ValueError`。
+
+## 支持的特性
+
+下表按首次引入的版本，列出蓝牙 Core 规范中的 Link Layer 特性。标 `*` 的是 BSController 已实现、并在 LE FeatureSet（[Vol 6, Part B, 4.6](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/low-energy-controller/link-layer-specification.html#UUID-56ada5ed-4ae3-acee-198f-27ead57d86f1)）中声明的特性。Core 4.0 的传统广播、扫描、发起连接和 ACL 连接同样支持。不支持经典蓝牙（BR/EDR）。
+
+| Core 规范版本 | Link Layer 特性 | 支持 |
+|---|---|:---:|
+| 4.0 | LE Encryption | * |
+| 4.1 | Connection Parameters Request Procedure | * |
+| 4.1 | Extended Reject Indication | * |
+| 4.1 | Peripheral-initiated Features Exchange | * |
+| 4.1 | LE Ping Procedure | * |
+| 4.2 | LE Data Packet Length Extension | * |
+| 4.2 | LL Privacy |  |
+| 5.0 | LE 2M PHY | * |
+| 5.0 | LE Coded PHY | * |
+| 5.0 | Channel Selection Algorithm #2 | * |
+| 5.0 | Minimum Number of Used Channels Procedure | * |
+| 5.0 | Extended Advertising | * |
+| 5.0 | Periodic Advertising | * |
+| 5.1 | Connection CTE Request |  |
+| 5.1 | Connection CTE Response |  |
+| 5.1 | Connectionless CTE Transmitter |  |
+| 5.1 | Connectionless CTE Receiver |  |
+| 5.1 | Periodic Advertising Sync Transfer |  |
+| 5.1 | Initiating Periodic Advertising Sync Transfer for Local Periodic Advertising |  |
+| 5.1 | Initiating Periodic Advertising Sync Transfer for Remote Periodic Advertising |  |
+| 5.2 | Isochronous Broadcaster |  |
+| 5.2 | Synchronized Receiver |  |
+| 5.2 | Connected Isochronous Stream (CIS) |  |
+| 5.3 | Periodic Advertising ADI Support |  |
+| 5.3 | LE Channel Classification |  |
+| 5.3 | Connection Subrating |  |
+| 5.4 | Periodic Advertising with Responses |  |
+| 6.0 | Channel Sounding |  |
+| 6.0 | Decision-Based Advertising Filtering |  |
+| 6.0 | Monitoring Advertisers |  |
+| 6.0 | Frame Space Update |  |
+| 6.1 | Randomized RPA Updates |  |
+| 6.2 | Shorter Connection Intervals |  |
+| 6.2 | Channel Sounding Amplitude-based Attack Resilience |  |
+| 6.3 | Channel Sounding Inline Phase Correction Term Transfer |  |
+
+## 工作原理
+
+每个 Controller 由 HCI 层、Link Layer 和射频适配层组成。所有 Controller 都连接到同一个 BabbleSim PHY，PHY 负责在共享信道上传递它们的报文，并推进统一的仿真时钟。协议行为遵循 [Bluetooth Core 6.3](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/architecture,-change-history,-and-conventions/architecture.html#UUID-37039e1f-e0cd-37ce-2cf0-15dd6e6cff2e)。
+
+<div align="center"><img src="docs/images/radio_controller_arch.svg" alt="多个 Controller 共享 BabbleSim PHY" width="80%"><br><em>图 1：共享同一 PHY 的多个 Controller</em></div>
+
+在单个 Controller 内部，Link Layer 为每种角色（广播、扫描、发起连接、同步、连接）各维护一个管理器。每条 ACL 连接都有自己的控制流程状态、加密状态和连接事件执行器。所有角色共用一个射频调度器，由它决定这唯一的一个射频下一步做什么。
+
+![单个 Controller 的内部模块、状态归属与交互路径](docs/images/radio_controller_internal_arch.svg)
+
+*图 2：单个 Controller 内部结构。[打开 SVG 查看细节](docs/images/radio_controller_internal_arch.svg)。嵌套框表示归属关系；黑色箭头是调用，绿色虚线是回调，橙色是调度，蓝色是 PDU 和射频结果，灰色点线是运行时的组装关系。*
+
+**线程与时间。** 每个 `RadioController` 运行在独立线程中，有自己的事件循环和 PHY 连接。Host 线程和 Controller 线程之间不共享任何状态，只传递不可变的 H4 报文。射频时间以整数微秒计。每个 Controller，以及可选的 Host 时钟，都要先与 PHY 同步，仿真时间才会推进，所以时序与机器快慢无关。
+
+| 对象 | 负责的资源 |
+| --- | --- |
+| `RadioController` | worker 线程、Controller 事件循环、射频连接 |
+| `RadioSession` | 启动和停止 worker，可选的 Host 时钟 |
+| `H4Server` | Unix socket、Host 连接、H4 分帧 |
+| `PhyProcess` | BabbleSim PHY 进程及其日志和仿真目录 |
+
+## 开发
 
 ```text
 .
-├── pyproject.toml
-├── src/bscontroller/     # 运行时包（公开 API、HCI、Link Layer、radio、runtime）
-├── examples/             # 可运行的 H4 Controller 与 Mock Host 示例
+├── src/bscontroller/     # 包：HCI、Link Layer、射频、运行时、配置
+├── examples/             # 可直接运行的双 Controller 示例，带模拟 Host
 └── tests/
-    ├── unit/             # 自包含的实现检查（无需原生 PHY）
-    └── qualification/    # HCI/LL 协议用例（RF 用例需要 BabbleSim）
+    ├── unit/             # 快速测试，不需要 PHY
+    └── qualification/    # HCI/LL 协议用例；射频用例需要 BabbleSim
 ```
 
 ```sh
 python -m pip install -e '.[test]'
-python -m pytest tests/unit -n auto --dist worksteal -q
-python -m pytest tests/qualification -n auto --dist worksteal -v -rs
-python -m build
+python -m pytest tests/unit -n auto -q                  # 约 3 秒
+python -m pytest tests/qualification -n auto -v -rs     # 几分钟，需要 BSIM_OUT_PATH
+python -m build                                         # 在 dist/ 生成 sdist 和 wheel
 ```
 
-协议测试包含 501 个选定 HCI/LL 用例，结果保留 `PASS`、`PARTIAL`、规范冲突跳过和不适用跳过的区别；受时间精度限制的用例使用各自注明的整数微秒近似，不代表正式蓝牙认证。测试范围和执行方式见 [tests/README.zh-CN.md](tests/README.zh-CN.md)。
+qualification 测试从蓝牙测试规范中选取了 501 个 HCI 和 Link Layer 用例，由独立实现的 Lower Tester 执行。通过这些用例不代表 BSController 已通过蓝牙认证。测试范围见 [tests/README.zh-CN.md](tests/README.zh-CN.md)。
 
-构建产物位于 `dist/`。源码发行包包含运行时、示例及单元和协议测试；wheel 包含运行时与必要版权声明。许可证及第三方归属见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
+许可证和第三方声明见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。

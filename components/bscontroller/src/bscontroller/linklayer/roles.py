@@ -13,10 +13,6 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING
 
-from bscontroller.capabilities import (
-    CONTROLLER_CONNECTION_COUNT,
-    CONTROLLER_PERIODIC_SYNC_COUNT,
-)
 from bscontroller.errors import ErrorCode
 from bscontroller.linklayer import (
     LL_ADV_DELAY_MAX_US,
@@ -145,7 +141,7 @@ class ConnectionManager:
         )
 
     def can_accept(self, peer: Address) -> bool:
-        return len(self.contexts) < CONTROLLER_CONNECTION_COUNT and not any(
+        return len(self.contexts) < self.link.config.max_connections and not any(
             connection.peer == peer for connection in self.contexts.values()
         )
 
@@ -458,7 +454,7 @@ class SynchronizationManager:
     def start(self, sync: PeriodicSync) -> None:
         sync.handle = next(
             handle
-            for handle in range(1, CONTROLLER_PERIODIC_SYNC_COUNT + 1)
+            for handle in range(1, self.link.config.max_periodic_syncs + 1)
             if handle not in self.active
         )
         self.pending = sync

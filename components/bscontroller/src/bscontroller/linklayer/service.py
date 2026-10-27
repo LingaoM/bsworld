@@ -15,9 +15,6 @@ from dataclasses import fields, replace
 from typing import TYPE_CHECKING
 
 from bscontroller.capabilities import (
-    CONTROLLER_ADVERTISING_SET_COUNT,
-    CONTROLLER_CONNECTION_COUNT,
-    CONTROLLER_PERIODIC_SYNC_COUNT,
     CONTROLLER_SUPPORTED_PHY_MASK,
 )
 from bscontroller.errors import ErrorCode
@@ -128,7 +125,7 @@ class AdvertisingService:
             return DISALLOWED
         if (
             item is None
-            and len(self.link.advertisers) >= CONTROLLER_ADVERTISING_SET_COUNT
+            and len(self.link.advertisers) >= self.link.config.advertising_set_count
         ):
             return ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
         return SUCCESS
@@ -453,7 +450,7 @@ class LinkLayerService:
             return ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR
         if self.link.initiating is not None:
             return DISALLOWED
-        if len(self.link.connections) >= CONTROLLER_CONNECTION_COUNT:
+        if len(self.link.connections) >= self.link.config.max_connections:
             return ErrorCode.CONNECTION_LIMIT_EXCEEDED_ERROR
         return SUCCESS
 
@@ -492,7 +489,7 @@ class LinkLayerService:
             for active in self.link.syncs.values()
         ):
             return ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR
-        if len(self.link.syncs) >= CONTROLLER_PERIODIC_SYNC_COUNT:
+        if len(self.link.syncs) >= self.link.config.max_periodic_syncs:
             return ErrorCode.MEMORY_CAPACITY_EXCEEDED_ERROR
         return SUCCESS
 

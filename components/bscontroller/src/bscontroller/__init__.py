@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from . import hci as hci
+    from .config import ControllerConfig as ControllerConfig
     from .radio.base import Phy as Phy
     from .radio.base import Radio as Radio
     from .radio.base import Received as Received
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 # Keep the public convenience exports, loading their implementation when requested.
 _EXPORTS = {
     'hci': ('.hci', None),
+    'ControllerConfig': ('.config', 'ControllerConfig'),
     'Phy': ('.radio.base', 'Phy'),
     'Radio': ('.radio.base', 'Radio'),
     'Received': ('.radio.base', 'Received'),

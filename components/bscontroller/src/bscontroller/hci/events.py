@@ -125,9 +125,9 @@ class LeControllerEvents:
     @property
     def local_version(self) -> tuple[int, int, int]:
         return (
-            self.controller.lmp_version,
-            self.controller.manufacturer_company_identifier,
-            self.controller.lmp_subversion,
+            self.controller.config.lmp_version,
+            self.controller.config.manufacturer,
+            self.controller.config.lmp_subversion,
         )
 
     def on_remote_version(self, connection: ConnectionSnapshot, status):

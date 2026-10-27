@@ -15,10 +15,7 @@ from dataclasses import replace
 import pytest
 
 from bscontroller import hci
-from bscontroller.capabilities import (
-    CONTROLLER_ADVERTISING_SET_COUNT,
-    CONTROLLER_PERIODIC_SYNC_COUNT,
-)
+from bscontroller.config import ControllerConfig
 from bscontroller.hci import HCI_LE_ADV_DATA_SIZE_MAX
 from bscontroller.linklayer.discovery import Advertising, PeriodicSync
 from bscontroller.linklayer.extended import advertising_time_us
@@ -836,7 +833,7 @@ def test_set_capacity_and_atomic_enable(host):
         2. Enable a pair including an unknown set, then a valid pair.
 
     Expected:
-        - The count equals ``CONTROLLER_ADVERTISING_SET_COUNT``; the extra
+        - The count equals the ``ControllerConfig`` default; the extra
           configure returns MEMORY_CAPACITY_EXCEEDED; the unknown-set enable
           returns UNKNOWN_ADVERTISING_IDENTIFIER with nothing advertising; the
           valid enable enables both sets.
@@ -844,7 +841,7 @@ def test_set_capacity_and_atomic_enable(host):
     count = host.cmd(
         hci.HCI_LE_Read_Number_Of_Supported_Advertising_Sets_Command()
     ).num_supported_advertising_sets
-    assert count == CONTROLLER_ADVERTISING_SET_COUNT
+    assert count == ControllerConfig().advertising_set_count
     for handle in range(count):
         host.cmd(extended_parameters(advertising_handle=handle))
     host.cmd(
@@ -1608,9 +1605,11 @@ def test_sync_capacity_handles_and_reset(host):
           MEMORY_CAPACITY_EXCEEDED; after terminate the new sync reuses handle
           4; cancel reports handle 0 with SID 8; after Reset no syncs remain.
     """
-    for index in range(CONTROLLER_PERIODIC_SYNC_COUNT):
+    # SID 8 stays free: the table holds one sync per SID 0-7, then other peers.
+    for index in range(ControllerConfig().max_periodic_syncs):
+        address = PEER_ADDRESS if index < 8 else PEERS[index]
         host.link.syncs[index + 1] = PeriodicSync(
-            PEER_ADDRESS, index, 100_000, 100_000, established=True, handle=index + 1
+            address, index % 8, 100_000, 100_000, established=True, handle=index + 1
         )
     host.cmd_status(
         create_sync(advertising_sid=3), ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR

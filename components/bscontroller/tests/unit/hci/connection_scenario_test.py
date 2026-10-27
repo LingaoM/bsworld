@@ -13,7 +13,7 @@ LL procedure behaviour behind these commands is specified in linklayer/llcp/.
 import pytest
 
 from bscontroller import hci
-from bscontroller.capabilities import CONTROLLER_CONNECTION_COUNT
+from bscontroller.config import ControllerConfig
 from bscontroller.hci.capabilities import HCI_RSSI_NOT_AVAILABLE
 from bscontroller.linklayer import LlId
 from bscontroller.linklayer.instant import InstantUpdate
@@ -707,7 +707,7 @@ def test_oversize_host_acl_is_rejected(host):
         - ``ValueError`` mentioning 'HCI buffer' is raised; the queue is empty.
     """
     connection = host.connection()
-    data = bytes(host.controller.le_acl_data_packet_length + 1)
+    data = bytes(host.controller.config.acl_packet_length + 1)
     with pytest.raises(ValueError, match='HCI buffer'):
         host.controller.on_hci_acl_data_packet(
             hci.HCI_AclDataPacket(connection.handle, FIRST, 0, len(data), data)
@@ -985,8 +985,9 @@ def test_create_connection_capacity_and_duplicates(host):
         create_connection(peer_address=first.peer),
         ErrorCode.CONNECTION_ALREADY_EXISTS_ERROR,
     )
-    for index in range(1, CONTROLLER_CONNECTION_COUNT):
-        host.connection(peer=PEERS[index])
+    template = host.link.connections[first.handle]
+    for handle in range(2, ControllerConfig().max_connections + 1):
+        host.link.connections[handle] = template
     host.cmd_status(create_connection(), ErrorCode.CONNECTION_LIMIT_EXCEEDED_ERROR)
 
 

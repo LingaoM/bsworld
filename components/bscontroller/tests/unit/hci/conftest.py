@@ -22,3 +22,18 @@ def fresh():
     harness = HciHarness(unmask=False)
     yield harness
     harness.close()
+
+
+@pytest.fixture
+def configured():
+    """Build Hosts whose Controller uses a given ``ControllerConfig``."""
+    harnesses = []
+
+    def build(config):
+        harness = HciHarness(config=config)
+        harnesses.append(harness)
+        return harness
+
+    yield build
+    for harness in harnesses:
+        harness.close()

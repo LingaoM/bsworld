@@ -4,6 +4,7 @@
 """Controller-thread ownership, deferred HCI delivery and worker lifecycle."""
 
 import asyncio
+import json
 import socket
 import struct
 import time
@@ -13,6 +14,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from bscontroller.config import ControllerConfig
 from bscontroller.hci.controller import Controller
 from bscontroller.radio.babblesim import (
     DISCONNECT,
@@ -692,3 +694,29 @@ async def test_startup_barrier_gates_hci_and_releases_resources(
     assert not path.exists()
     if outcome != 'ack':
         assert handled == []
+
+
+async def test_worker_selects_its_config_entry_by_name(tmp_path):
+    """A worker given a shared configuration uses the entry for its own name.
+
+    Purpose: Verify that ``RadioController`` resolves a mapping or file with its
+    own name, so one document configures several Controllers and the name is
+    written only once.
+
+    Steps:
+        1. Write a document with hci0 and hci1 entries.
+        2. Create workers named hci0 (file) and hci1 (mapping), and one with an
+           explicit ``ControllerConfig``.
+
+    Expected:
+        - Each named worker holds its own entry; the explicit one is unchanged.
+    """
+    document = {
+        'controllers': {'hci0': {'maxConnections': 1}, 'hci1': {'maxConnections': 5}}
+    }
+    path = tmp_path / 'bsc.json'
+    path.write_text(json.dumps(document))
+    explicit = ControllerConfig(max_connections=9)
+    assert RadioControllerWorker('hci0', config=path).config.max_connections == 1
+    assert RadioControllerWorker('hci1', config=document).config.max_connections == 5
+    assert RadioControllerWorker('hci0', config=explicit).config is explicit

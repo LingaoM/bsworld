@@ -40,6 +40,7 @@ class LeControllerContext(LeControllerEvents):
             notifications,
             int(controller.le_features),
             seed=int.from_bytes(bytes(controller.public_address), 'little'),
+            config=controller.config,
         )
         notifications.bind(self.link)
         self.extended_scan = False

@@ -9,6 +9,7 @@ rejected, timeout, disconnect, collision}. Scenarios drive the LLCP harness
 """
 
 import struct
+from dataclasses import replace
 
 import pytest
 
@@ -408,10 +409,13 @@ def test_feature_collision_loc_and_rem(iut, role):
 # ---------------------------------------------------------------------------
 def configure_version(dut):
     controller = dut.controller
-    controller.lmp_version = hci.SpecificationVersion.BLUETOOTH_CORE_5_4
-    controller.manufacturer_company_identifier = 0x0059
-    controller.lmp_subversion = 0x1234
-    return struct.pack('<BHH', controller.lmp_version, 0x0059, 0x1234)
+    controller.config = replace(
+        controller.config,
+        lmp_version=hci.SpecificationVersion.BLUETOOTH_CORE_5_4,
+        manufacturer=0x0059,
+        lmp_subversion=0x1234,
+    )
+    return struct.pack('<BHH', controller.config.lmp_version, 0x0059, 0x1234)
 
 
 @pytest.mark.parametrize('role', ROLES)
