@@ -2,157 +2,62 @@
 
 English | [简体中文](README.zh-CN.md)
 
-BSController is a Python Bluetooth LE Controller that can be installed, run, and published independently. Its import package and command-line entry point are both named `bscontroller`. It exposes an H4 HCI byte interface to the Host, executes LE link-layer procedures, and uses a BabbleSim PHY for radio transmission, reception, and discrete-time synchronization.
+BSController is a Bluetooth LE Controller written in Python. Your Host stack talks to it over standard H4 HCI, and it transmits and receives over a simulated radio ([BabbleSim](https://babblesim.github.io/)). Controllers on the same simulated radio communicate with each other. Simulation time is discrete, so runs are reproducible.
 
-Supported features include legacy advertising, active and passive scanning, extended advertising, periodic advertising and synchronization, ACL connections, link-layer encryption, data-length negotiation, channel selection, and PHY updates across LE 1M, LE 2M, and LE Coded PHYs. Privacy, ISO, PAwR, and Bluetooth Classic are not implemented.
+## Quick start
 
-## Installation and execution
-
-The module requires Python 3.11 or newer and [BabbleSim](https://babblesim.github.io/) for RF simulation, running on Linux. The following instructions use Ubuntu 24.04 x86_64. Install the build tools first:
+BSController needs Linux, Python 3.11 or newer, and a BabbleSim build. On Ubuntu 24.04 x86_64:
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y git repo build-essential gcc-multilib g++-multilib python3-venv
-```
 
-Follow the [official BabbleSim fetching instructions](https://babblesim.github.io/fetching.html) to download the sources, then build the PHY, modem, and channel needed by this module:
-
-```sh
-mkdir -p "$HOME/bsim"
-cd "$HOME/bsim"
+# Fetch and build the BabbleSim PHY, modem and channel models.
+mkdir -p "$HOME/bsim" && cd "$HOME/bsim"
 repo init -u https://github.com/BabbleSim/manifest.git -m everything.xml -b master
 repo sync
-
 export BSIM_OUT_PATH="$PWD/build"
 export BSIM_COMPONENTS_PATH="$PWD/components"
-
 make -j"$(nproc)" ext_2G4_phy_v1 ext_2G4_modem_BLE_simple ext_2G4_channel_multiatt
 ```
 
-Build outputs are placed in `$BSIM_OUT_PATH/bin/` and `$BSIM_OUT_PATH/lib/`. Retain these exports when running BSController; the CLI, examples, and RF tests use `BSIM_OUT_PATH` directly. See the [official BabbleSim build instructions](https://babblesim.github.io/building.html) for more options.
+Keep `BSIM_OUT_PATH` exported whenever you run BSController. See the BabbleSim [fetching](https://babblesim.github.io/fetching.html) and [building](https://babblesim.github.io/building.html) guides for other options.
 
-After building BabbleSim, return to this module's source root and install the Python package:
+Then install BSController from this directory:
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install .
-bscontroller --help
 ```
 
-## Technical architecture
+## Standalone Controller
 
-Each Controller implements HCI, the Link Layer, and radio adaptation. Multiple Controllers connect to the same BabbleSim PHY and interact through shared radio channels on a common simulation timeline.
-
-<div align="center"><img src="docs/images/radio_controller_arch.svg" alt="Multiple Radio Controllers sharing a BabbleSim PHY" width="80%"><br><em>Figure 1: Controller protocol architecture and shared PHY</em></div>
-
-Protocol behavior follows [Bluetooth Core 6.3](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/architecture,-change-history,-and-conventions/architecture.html#UUID-37039e1f-e0cd-37ce-2cf0-15dd6e6cff2e). The specification defines the protocol boundaries between the Host, Controller, LL, and PHY; the modules below are this implementation's organization.
-
-### Internal architecture
-
-The following diagram expands one Controller instance. LL role managers own active contexts and their lifetimes. Each ACL connection has its own LLCP, packet-security state, and event executor; all roles share one RadioResourceManager.
-
-![Internal modules, state ownership and principal interaction paths of one Controller](docs/images/radio_controller_internal_arch.svg)
-
-*Figure 2: Controller internal architecture. [Open the SVG for detail](docs/images/radio_controller_internal_arch.svg).*
-
-Nested boxes show object and state ownership. Black arrows denote operations/control, dashed green arrows denote Listener callbacks, orange denotes activity selection and scheduling windows, blue denotes PDUs and RF results, and dotted gray arrows denote runtime composition, driving, and clock relationships. H4Parser/H4Server describe the socket path; in-process HCI packets enter Controller directly.
-
-| Module | Responsibilities and state ownership |
-| --- | --- |
-| `hci/` | H4 framing, command decoding and parameter conversion, command-family selection, unfinished HCI fragments, event masks, duplicate filtering, and report encoding |
-| `linklayer/api.py`, `service.py` | Decoded configuration, read-only queries, and role commands; HCI submits `AdvertisingConfig` without radio deadlines or event counters |
-| `linklayer/notifications.py`, `listener.py` | Convert committed LL state to frozen notification snapshots before passing it to HCI; active contexts remain inside LL |
-| `linklayer/roles.py`, `results.py` | Own connection handles, advertising/scanning/initiating/synchronization contexts, lifetime transitions, next activities, and validated RF outcomes |
-| `linklayer/connection.py` | `Connection` manages lifetime, current parameters, anchor, and supervision timeout |
-| `linklayer/llcp.py`, `procedure.py` | `LlcpCoordinator` handles control admission, procedure contexts and reply association, packet-level TX/RX gates, ACK routing, and response-timer ownership |
-| `linklayer/control.py`, `phy.py`, `connection_parameters.py`, `encryption.py`, `data_length.py` | Procedure-owned state transitions, collision rules, Instant updates, key/mode transitions, and data-length negotiation; PHY and connection parameters have their own handlers |
-| `linklayer/connection_event.py`, `data_path.py` | `ConnectionEvent` owns the TX queue, SN/NESN, LL fragmentation, and retry snapshot; packet security, effective limits, and RX facts form its explicit contract with LLCP |
-| `linklayer/primary.py`, `extended.py`, `periodic.py` | Execute role-specific packet validation and immediate exchanges, reporting connection/sync outcomes to the role owner; active contexts are defined in `discovery.py` |
-| `linklayer/resource.py`, `scheduler.py` | `RadioResourceManager` supplies shared reservations, priorities, arbitration, and activity-window release; scheduling helpers find complete, non-preemptive slots |
-| `radio/`, `runtime/` | Radio supplies TX/RX, physical time, and BabbleSim FIFO adaptation; Runtime composes threads, event loops, sessions, and PHY process lifecycle |
-
-Control requests pass through the LL service to LLCP admission. Asynchronous procedures return a `PreparedProcedure`: HCI emits Command Status before calling `start()`, so immediate completion from cached information also follows Command Status. HCI queries and notifications return detached values rather than live Connection, Advertising, or PeriodicSync objects. Configuration commits preserve LL-owned event timing and counters; reading advertising TX power does not create or reconfigure a role.
-
-Role managers prepare activities and reservations, commit validated connection/synchronization outcomes, and publish notifications after updating their resource tables. RadioLink drives these managers and the shared scheduler. Packet validation and T_IFS responses stay in the event executors; cross-role lifetime changes go through the owning manager.
-
-Host ACL data enters the event queue through the LL service. RX facts include the prospective control ACK without consuming it. LLCP authenticates and checks admissibility before the executor commits ARQ state. Effective limits and packet-security modes are separate from procedure state; sent/ACK callbacks may change encryption inside one connection event.
-
-Outstanding requests are removed on a matching reply or link teardown; delayed replies during an encryption pause are routed using the same association. The shared response timer records its current procedure owner, so PHY completion stops only its own timer. Public HCI connection identities are read-only, advertising payload views return `bytes`, and scan configuration reads return detached copies. Updates go through HCI commands or LL services.
-
-HCI/LL handle raw payloads; the Host owns L2CAP reassembly, ATT/GATT, SMP pairing, and key storage. Controller-to-Controller packets all pass through the shared PHY. Resource capacities and supported PHY masks are implementation capabilities. See [Threads, clocks, and resource ownership](#threads-clocks-and-resource-ownership) for execution and cleanup order.
-
-## Running examples
-
-[examples/advertise_scan.py](examples/advertise_scan.py) exposes a scanning Controller through a standard H4 HCI Unix socket and implements a Mock Host that only exchanges HCI bytes over that socket. A second Controller transmits advertisements through the shared PHY, providing simulated RF input.
-
-```sh
-python examples/advertise_scan.py
-```
-
-```mermaid
-sequenceDiagram
-    participant Host as Mock Host
-    participant H4 as H4 Unix socket
-    participant Scan as Scanning Controller
-    participant PHY as BabbleSim PHY
-    participant Adv as Advertising Controller
-    Note over Scan,Adv: Two Controllers and one Host clock endpoint join the shared PHY
-    Note over Adv: The example configures and enables advertising through HCI first
-    Host->>H4: HCI Reset / Set Event Mask / LE Set Event Mask
-    H4->>Scan: H4 command bytes
-    Scan-->>H4: Command Complete
-    H4-->>Host: H4 event bytes
-    Host->>H4: LE Set Scan Parameters / LE Set Scan Enable
-    H4->>Scan: H4 scanning commands
-    Scan-->>H4: Command Complete
-    H4-->>Host: H4 event bytes
-    Scan->>PHY: RX: scan channel and receive window
-    Adv->>PHY: TX: advertising PDU
-    PHY-->>Scan: Receive result, data, and timestamps
-    Scan-->>H4: LE Advertising Report
-    H4-->>Host: H4 event bytes
-    Note over Host: Validate advertiser address and payload
-    Host->>H4: LE Set Scan Enable = 0
-    H4->>Scan: Stop scanning
-    Scan-->>H4: Command Complete
-    H4-->>Host: H4 event bytes
-```
-
-The example exercises the Host's H4 transport boundary, HCI command processing, and PHY advertising reception path. See [examples/README.md](examples/README.md) for details.
-
-Expose H4 HCI to an external Host:
+Start a Controller and connect your Host to its socket:
 
 ```sh
 bscontroller serve --hci-socket /tmp/radio.sock --btsnoop-file /tmp/hci.snoop
 ```
 
-Use `hci_snoop_file=Path(...)` when constructing `RadioController`, or `--btsnoop-file` with the CLI, to write a BTSnoop v1 H4 capture. The worker records complete HCI packets with its local simulation timestamps before handing output to the Host loop. Records are written without user-space buffering; capture does not advance simulation time. BSWorld supplies this path automatically.
+`serve` starts a BabbleSim PHY and serves H4 HCI on the Unix socket. It accepts one Host and exits when that Host disconnects; the socket path must not exist. `--btsnoop-file` saves the HCI traffic for Wireshark. See `bscontroller serve --help`.
 
-The Host exchanges an H4 HCI byte stream over the Unix socket. The service accepts one Host and exits when it disconnects; the socket path must be unused. See `bscontroller serve --help` for more options.
+The Controller runs on simulation time, which advances as fast as the machine allows. A Host that uses wall-clock time sees the Controller run ahead, so timers and timeouts on the two sides disagree.
 
-## Threads, clocks, and resource ownership
+For reproducible results, the Host must join the same discrete-time schedule. For a quick manual test, add BabbleSim's handbrake device instead, which holds simulation time close to wall-clock time. Start the PHY with one extra device, then join it:
 
-Create `RadioController` inside the Host's running event loop; it runs its Controller in a dedicated thread. The Host and the worker never share mutable protocol state, so Host input and Controller output are passed as immutable H4 packets.
+```sh
+cd "$BSIM_OUT_PATH/bin"
+./bs_2G4_phy_v1 -s=demo -D=3 &           # 0: Controller, 1: serve clock, 2: handbrake
+./bs_device_handbrake -s=demo -d=2 -r=1 &  # -r: simulation/wall-clock ratio
+bscontroller serve --join --sim-id demo --dev-id 0 --clock-id 1 \
+  --hci-socket /tmp/radio.sock --btsnoop-file /tmp/hci.snoop
+```
 
-RF time uses integer microseconds. Each worker keeps its own clock endpoint and synchronizes with the shared simulation timeline through the PHY. A standalone Host may use an additional clock endpoint, which needs a PHY device identity distinct from every Controller.
+Timing then still depends on host load, so use this only for exploration.
 
-| Object | Resources it manages |
-| --- | --- |
-| `RadioController` | One worker thread, Controller event loop, and radio FIFO endpoint |
-| `RadioSession` | Worker startup and shutdown, plus an optional standalone Host clock connection and loop binding |
-| `H4Server` | Unix socket, one Host connection, H4 framing, and a bounded output queue |
-| `PhyProcess` | BabbleSim PHY subprocess, logs, and simulation directory cleanup |
+## Using BSController from Python
 
-`RadioSession` connects to an already running PHY; it does not start that process. With `clock_dev_id`, the Host must use `RadioEventLoop`. Without it, the caller supplies a synchronized clock and event loop and owns device identities, startup barriers, and time binding. Stop workers before closing the Host clock and PHY. The CLI and example already combine these lifecycles.
-
-## Python integration
-
-Public exports include `RadioController`, `RadioSession`, `RadioEventLoop`, `Radio`, `Phy`, `Received`, and `hci`. For a direct connection, send complete H4 packets with `controller.on_packet(packet)` and register an output sink with `controller.set_packet_sink(sink)` before starting the worker. The sink must implement `on_packet(packet: bytes)`.
-
-For an external Host, pass `hci_socket` to `RadioController`. The worker owns socket reads, H4 parsing, and replies in its Controller thread. Startup returns once the socket is listening; commands wait until the worker has received its initial PHY grant at time zero and bound its clock. Socket mode does not use the cross-thread packet queue or HCI polling timer.
-
-This example joins a PHY already started by the caller. The PHY must use the same `sim_id` and have two devices: identity `0` for the Controller and `1` for the Host clock.
+`RadioController` runs one Controller in its own worker thread. Create it inside a running asyncio event loop. `RadioSession` joins it to a PHY that is already running. The example below expects a PHY started with the same `sim_id` (`example`) and two devices: device `0` for the Controller and device `1` for the Host clock.
 
 ```python
 import asyncio
@@ -173,25 +78,158 @@ with asyncio.Runner(loop_factory=RadioEventLoop) as runner:
     runner.run(main())
 ```
 
-## Layout and verification
+[examples/advertise_scan.py](examples/advertise_scan.py) is a complete program built on these APIs: it starts the PHY with `PhyProcess`, runs an advertising and a scanning Controller in one `RadioSession`, and a mock Host scans over the scanner's socket. Run it with `python examples/advertise_scan.py`; see [examples/README.md](examples/README.md).
+
+There are two ways to connect a Host:
+
+- **Socket.** Pass `hci_socket`, as above. Any Host that speaks H4 over a Unix socket can connect. Startup returns once the socket is listening. HCI commands are processed after the Controller has synchronized with the PHY.
+- **In process.** Omit `hci_socket`. Register an object with an `on_packet(packet: bytes)` method through `controller.set_packet_sink(sink)` before starting, then send complete H4 packets with `controller.on_packet(packet)`.
+
+Pass `hci_snoop_file=Path(...)` to record a BTSnoop capture, timestamped with simulation time.
+
+Other public names are `ControllerConfig` (see [Configuration](#configuration)), `RadioEventLoop`, `Radio`, `Phy`, `Received` and `hci` (HCI packet classes).
+
+When managing the runtime yourself:
+
+- `RadioSession` does not start the PHY; use `bscontroller.runtime.PhyProcess`.
+- With `clock_dev_id`, the Host event loop must be a `RadioEventLoop`. Without it, you provide the clock and a distinct PHY device ID for every participant.
+- Stop the Controllers before closing the Host clock and the PHY; `async with RadioSession(...)` does this.
+
+## Configuration
+
+Values the Bluetooth specification leaves to the Controller form a `ControllerConfig`. Unset fields keep their defaults.
+
+| JSON key | Default | Range | Spec (Vol 4, Part E) |
+|---|---|---|---|
+| `hciVersion` | `0x09` (5.0) | `0x06`–`0x10` | 7.4.1 |
+| `hciRevision` | `0` | `0`–`0xFFFF` | 7.4.1 |
+| `lmpVersion` | `0x09` (5.0) | `0x06`–`0x10` | 7.4.1 |
+| `lmpSubversion` | `0` | `0`–`0xFFFF` | 7.4.1 |
+| `manufacturer` | `0xFFFF` | `0`–`0xFFFF` | 7.4.1 |
+| `aclPacketCount` | `8` | `1`–`255` | 7.8.2 |
+| `aclPacketLength` | `251` | `27`–`65535` | 7.8.2 |
+| `maxTxOctets` | `251` | `27`–`251` | 7.8.46 |
+| `maxTxTime` | `17040` | `328`–`17040` | 7.8.46 |
+| `maxRxOctets` | `251` | `27`–`251` | 7.8.46 |
+| `maxRxTime` | `17040` | `328`–`17040` | 7.8.46 |
+| `advertisingSetCount` | `16` | `1`–`240` | 7.8.58 |
+| `maxAdvertisingDataLength` | `1650` | `31`–`1650` | 7.8.57 |
+| `filterAcceptListSize` | `16` | `1`–`255` | 7.8.14 |
+| `periodicAdvertiserListSize` | `8` | `1`–`255` | 7.8.73 |
+| `maxConnections` | `64` | `1`–`3839` | 5.3.1 |
+| `maxPeriodicSyncs` | `16` | `1`–`3839` | 5.3.1 |
+
+A configuration file has a `defaults` object for every Controller, and a `controllers` object with one entry per Controller name:
+
+```json
+{
+  "defaults": {"aclPacketCount": 16},
+  "controllers": {"hci0": {"maxConnections": 2}, "hci1": {"maxTxOctets": 27}}
+}
+```
+
+Keys are camelCase; snake_case also works. For each value, the most specific source wins: built-in default, then `defaults`, then `controllers.<name>`, then Python keyword arguments. An unknown key, or a value outside its range, is skipped with a warning; that field keeps its previous value and the rest of the file still applies.
+
+On the command line:
+
+```sh
+bscontroller config > bsc.json        # every default, ready to edit
+bscontroller serve --hci-socket /tmp/radio.sock --config bsc.json --name hci0
+```
+
+In Python, pass the file (or an equivalent dict) to `RadioController`. Each Controller picks the `controllers` entry with its own name:
+
+```python
+from bscontroller import ControllerConfig, RadioController
+
+central = RadioController("hci0", "F0:F1:F2:F3:F4:01", config="bsc.json")
+peripheral = RadioController("hci1", "F0:F1:F2:F3:F4:02", config="bsc.json")
+other = RadioController("x", "F0:F1:F2:F3:F4:03", config=ControllerConfig(max_connections=2))
+```
+
+`ControllerConfig(...)` raises `ValueError` for an invalid value.
+
+## Supported features
+
+These are the Link Layer features of the Bluetooth Core specification, listed by the version that introduced them. `*` marks the features BSController implements and reports in its LE FeatureSet ([Vol 6, Part B, 4.6](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/low-energy-controller/link-layer-specification.html#UUID-56ada5ed-4ae3-acee-198f-27ead57d86f1)). Legacy advertising, scanning, initiating and ACL connections from Core 4.0 are supported as well. Bluetooth Classic (BR/EDR) is not.
+
+| Core spec version | Link Layer feature | Supported |
+|---|---|:---:|
+| 4.0 | LE Encryption | * |
+| 4.1 | Connection Parameters Request Procedure | * |
+| 4.1 | Extended Reject Indication | * |
+| 4.1 | Peripheral-initiated Features Exchange | * |
+| 4.1 | LE Ping Procedure | * |
+| 4.2 | LE Data Packet Length Extension | * |
+| 4.2 | LL Privacy |  |
+| 5.0 | LE 2M PHY | * |
+| 5.0 | LE Coded PHY | * |
+| 5.0 | Channel Selection Algorithm #2 | * |
+| 5.0 | Minimum Number of Used Channels Procedure | * |
+| 5.0 | Extended Advertising | * |
+| 5.0 | Periodic Advertising | * |
+| 5.1 | Connection CTE Request |  |
+| 5.1 | Connection CTE Response |  |
+| 5.1 | Connectionless CTE Transmitter |  |
+| 5.1 | Connectionless CTE Receiver |  |
+| 5.1 | Periodic Advertising Sync Transfer |  |
+| 5.1 | Initiating Periodic Advertising Sync Transfer for Local Periodic Advertising |  |
+| 5.1 | Initiating Periodic Advertising Sync Transfer for Remote Periodic Advertising |  |
+| 5.2 | Isochronous Broadcaster |  |
+| 5.2 | Synchronized Receiver |  |
+| 5.2 | Connected Isochronous Stream (CIS) |  |
+| 5.3 | Periodic Advertising ADI Support |  |
+| 5.3 | LE Channel Classification |  |
+| 5.3 | Connection Subrating |  |
+| 5.4 | Periodic Advertising with Responses |  |
+| 6.0 | Channel Sounding |  |
+| 6.0 | Decision-Based Advertising Filtering |  |
+| 6.0 | Monitoring Advertisers |  |
+| 6.0 | Frame Space Update |  |
+| 6.1 | Randomized RPA Updates |  |
+| 6.2 | Shorter Connection Intervals |  |
+| 6.2 | Channel Sounding Amplitude-based Attack Resilience |  |
+| 6.3 | Channel Sounding Inline Phase Correction Term Transfer |  |
+
+## How it works
+
+Each Controller contains an HCI layer, a Link Layer and a radio adapter. All Controllers connect to one BabbleSim PHY, which carries their packets on shared channels and advances one common simulation clock. Protocol behaviour follows [Bluetooth Core 6.3](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/architecture,-change-history,-and-conventions/architecture.html#UUID-37039e1f-e0cd-37ce-2cf0-15dd6e6cff2e).
+
+<div align="center"><img src="docs/images/radio_controller_arch.svg" alt="Multiple Controllers sharing a BabbleSim PHY" width="80%"><br><em>Figure 1: Controllers on a shared PHY</em></div>
+
+Inside one Controller, the Link Layer keeps a manager for each role (advertising, scanning, initiating, synchronizing, connections). Every ACL connection has its own control-procedure state, encryption state and connection-event executor. All roles share one radio scheduler, which decides what the single radio does next.
+
+![Internal modules, state ownership and interaction paths of one Controller](docs/images/radio_controller_internal_arch.svg)
+
+*Figure 2: Inside one Controller. [Open the SVG for detail](docs/images/radio_controller_internal_arch.svg). Nested boxes show ownership. Black arrows are calls, dashed green arrows are callbacks, orange marks scheduling, blue marks PDUs and radio results, and dotted gray marks runtime wiring.*
+
+**Threads and time.** Each `RadioController` runs in a dedicated thread with its own event loop and PHY connection. The Host thread and the Controller thread share no state; they only pass immutable H4 packets. Radio time is in integer microseconds. Every Controller, and an optional Host clock, synchronizes with the PHY before simulation time advances, so timing does not depend on how fast the machine is.
+
+| Object | Owns |
+| --- | --- |
+| `RadioController` | Worker thread, Controller event loop, radio connection |
+| `RadioSession` | Starting and stopping workers, optional Host clock |
+| `H4Server` | Unix socket, the Host connection, H4 framing |
+| `PhyProcess` | BabbleSim PHY process, its logs and simulation directory |
+
+## Development
 
 ```text
 .
-├── pyproject.toml
-├── src/bscontroller/     # Runtime package (public API, HCI, Link Layer, radio, runtime)
-├── examples/             # Runnable H4 Controller and Mock Host example
+├── src/bscontroller/     # Package: HCI, Link Layer, radio, runtime, config
+├── examples/             # Runnable two-Controller example with a mock Host
 └── tests/
-    ├── unit/             # Self-contained implementation checks (no native PHY)
-    └── qualification/    # HCI/LL protocol cases (RF cases need BabbleSim)
+    ├── unit/             # Fast tests, no PHY needed
+    └── qualification/    # HCI/LL protocol cases; radio cases need BabbleSim
 ```
 
 ```sh
 python -m pip install -e '.[test]'
-python -m pytest tests/unit -n auto --dist worksteal -q
-python -m pytest tests/qualification -n auto --dist worksteal -v -rs
-python -m build
+python -m pytest tests/unit -n auto -q                  # about 3 s
+python -m pytest tests/qualification -n auto -v -rs     # a few minutes, needs BSIM_OUT_PATH
+python -m build                                         # sdist and wheel in dist/
 ```
 
-The protocol suite contains 501 selected HCI/LL cases, retaining distinct `PASS`, `PARTIAL`, source-conflict skips, and applicability skips. Timing-limited cases use their documented integer-microsecond approximation. These results are not a Bluetooth qualification claim. See [tests/README.md](tests/README.md) for test scope and execution details.
+The qualification suite runs 501 selected HCI and Link Layer test cases from the Bluetooth test specifications against independent lower testers. Passing them does not make BSController Bluetooth-qualified. See [tests/README.md](tests/README.md) for the test scope.
 
-Build artifacts are written to `dist/`. The source distribution includes the runtime, examples, and unit and protocol tests; the wheel contains the runtime and required license notices. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for licensing and third-party attribution.
+Licensing and third-party notices are in [LICENSE](LICENSE) and [NOTICE](NOTICE).

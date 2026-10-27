@@ -12,15 +12,17 @@ from contextlib import nullcontext
 from pathlib import Path
 
 from . import RadioController, RadioEventLoop, RadioSession, __version__
+from .config import ControllerConfig
 from .runtime import PhyProcess
 
 
 async def serve(args):
     controller = RadioController(
-        'controller',
+        args.name,
         args.address,
         hci_snoop_file=args.btsnoop_file,
         hci_socket=args.hci_socket,
+        config=args.config,
     )
     async with RadioSession(
         args.sim_id, [(args.dev_id, controller)], clock_dev_id=args.clock_id
@@ -43,6 +45,9 @@ def main():
     parser = argparse.ArgumentParser(description='BSController Bluetooth LE Controller')
     parser.add_argument('--version', action='version', version=__version__)
     commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser(
+        'config', help='print a JSON configuration with every default value'
+    )
     for name, help_text in [('serve', 'serve H4 HCI over a Unix socket')]:
         command = commands.add_parser(name, help=help_text)
         command.add_argument(
@@ -63,9 +68,22 @@ def main():
     server.add_argument(
         '--join', action='store_true', help='join a PHY managed by the caller'
     )
+    server.add_argument(
+        '--config',
+        type=Path,
+        help='JSON Controller configuration (see "bscontroller config")',
+    )
+    server.add_argument(
+        '--name',
+        default='controller',
+        help='select this entry under "controllers" in --config',
+    )
     server.add_argument('--dev-id', type=int, default=0)
     server.add_argument('--clock-id', type=int, default=1)
     args = parser.parse_args()
+    if args.command == 'config':
+        print(ControllerConfig.template())
+        return
     if args.command == 'serve':
         if args.dev_id < 0 or args.clock_id < 0 or args.dev_id == args.clock_id:
             parser.error(
@@ -78,6 +96,8 @@ def main():
     args.sim_id = args.sim_id or ('bscontroller_' + uuid.uuid4().hex[:12])
     args.log_dir = args.log_dir or Path('/tmp') / args.sim_id
     logging.basicConfig(level=logging.WARNING)
+    if args.config is not None and not args.config.is_file():
+        parser.error(f'configuration file not found: {args.config}')
     try:
         owner = (
             nullcontext()

@@ -15,6 +15,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from threading import Event, Thread
 
+from bscontroller.config import ConfigSource, ControllerConfig
 from bscontroller.hci.backend import RadioBackend
 from bscontroller.hci.controller import Controller
 from bscontroller.hci.snoop import BtsnoopWriter
@@ -54,10 +55,13 @@ class RadioControllerWorker:
         max_step_us: int = DEFAULT_MAX_STEP_US,
         hci_snoop_file: Path | None = None,
         hci_socket: Path | None = None,
+        config: ConfigSource = None,
     ):
         if max_step_us <= 0:
             raise ValueError('max_step_us must be positive')
         self.name = name
+        # Mappings and files select their ``controllers`` entry by this name.
+        self.config = ControllerConfig.resolve(config, name)
         self.public_address = public_address
         self.max_step_us = max_step_us
         self.hci_snoop_file = hci_snoop_file
@@ -168,6 +172,7 @@ class RadioControllerWorker:
                 public_address=self.public_address,
                 host_sink=_ControllerOutput(self) if self.hci_socket is None else None,
                 snoop=snoop,
+                config=self.config,
             )
             async with AsyncExitStack() as endpoints:
                 if self._stopping.is_set():

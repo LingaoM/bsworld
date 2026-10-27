@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 
 from bscontroller import hci
 from bscontroller.colors import color
+from bscontroller.config import ControllerConfig
 from bscontroller.hci.records import AdvertisingSet, ConnectionRecord, LegacyAdvertiser
 from bscontroller.hci.transport import TransportSink
 
@@ -47,13 +48,6 @@ logger = logging.getLogger(__name__)
 class Controller:
     """One LE Controller's Lower HCI endpoint."""
 
-    hci_version = hci.SpecificationVersion.BLUETOOTH_CORE_5_0
-    hci_revision = 0
-    lmp_version = hci.SpecificationVersion.BLUETOOTH_CORE_5_0
-    lmp_subversion = 0
-    manufacturer_company_identifier = 0xFFFF
-    filter_accept_list_size = 8
-
     def __init__(
         self,
         name: str,
@@ -63,8 +57,10 @@ class Controller:
         *,
         backend: ControllerBackend,
         snoop: BtsnoopWriter | None = None,
+        config: ControllerConfig | None = None,
     ) -> None:
         self.name = name
+        self.config = config or ControllerConfig()
         self.backend = backend
         self._snoop = snoop
         self.le_procedures: LeControllerProcedures
@@ -290,11 +286,11 @@ class Controller:
         '''
         return hci.HCI_Read_Local_Version_Information_ReturnParameters(
             status=hci.HCI_ErrorCode.SUCCESS,
-            hci_version=self.hci_version,
-            hci_subversion=self.hci_revision,
-            lmp_version=self.lmp_version,
-            company_identifier=self.manufacturer_company_identifier,
-            lmp_subversion=self.lmp_subversion,
+            hci_version=self.config.hci_version,
+            hci_subversion=self.config.hci_revision,
+            lmp_version=self.config.lmp_version,
+            company_identifier=self.config.manufacturer,
+            lmp_subversion=self.config.lmp_subversion,
         )
 
     def on_hci_read_local_supported_commands_command(
@@ -352,8 +348,8 @@ class Controller:
         '''
         return hci.HCI_LE_Read_Buffer_Size_ReturnParameters(
             status=hci.HCI_ErrorCode.SUCCESS,
-            le_acl_data_packet_length=self.le_acl_data_packet_length,
-            total_num_le_acl_data_packets=self.total_num_le_acl_data_packets,
+            le_acl_data_packet_length=self.config.acl_packet_length,
+            total_num_le_acl_data_packets=self.config.acl_packet_count,
         )
 
     def on_hci_le_read_local_supported_features_command(

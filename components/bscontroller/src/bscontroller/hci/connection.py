@@ -38,8 +38,6 @@ from bscontroller.linklayer import (
     LL_CHANNEL_MAP_SIZE,
     LL_CONN_WINDOW_SIZE_MIN,
     LL_ENCRYPTION_RANDOM_SIZE,
-    PDU_DATA_PAYLOAD_SIZE_MAX,
-    PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
 )
 from bscontroller.linklayer.api import InitiatingConfig, ScanWindowConfig
 from bscontroller.linklayer.data_length import valid_data_length
@@ -456,7 +454,7 @@ class LeConnectionCommands(LeControllerContext):
         ):
             logger.warning('Invalid ACL handle or flags')
             return
-        if len(packet.data) > self.controller.le_acl_data_packet_length:
+        if len(packet.data) > self.controller.config.acl_packet_length:
             raise ValueError('ACL payload exceeds the HCI buffer')
         self.ll.send_acl(
             packet.connection_handle,
@@ -499,10 +497,11 @@ class LeConnectionCommands(LeControllerContext):
         '''
         See Bluetooth spec Vol 4, Part E - 7.8.46 LE Read Maximum Data Length Command
         '''
+        config = self.controller.config
         return hci.HCI_LE_Read_Maximum_Data_Length_ReturnParameters(
             SUCCESS,
-            PDU_DATA_PAYLOAD_SIZE_MAX,
-            PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
-            PDU_DATA_PAYLOAD_SIZE_MAX,
-            PDU_DATA_PAYLOAD_TIME_CODED_MAX_US,
+            config.max_tx_octets,
+            config.max_tx_time,
+            config.max_rx_octets,
+            config.max_rx_time,
         )

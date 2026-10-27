@@ -13,9 +13,9 @@ families after Reset.
 import pytest
 
 from bscontroller import hci
+from bscontroller.config import ControllerConfig
 from bscontroller.errors import InvalidPacketError
 from bscontroller.hci.backend import RadioBackend
-from bscontroller.hci.capabilities import HCI_ACL_BUFFER_SIZE
 from bscontroller.hci.controller import Controller
 from bscontroller.linklayer import (
     PDU_DATA_PAYLOAD_SIZE_MAX,
@@ -238,15 +238,15 @@ def test_read_local_version(host):
 
     Expected:
         - The returned HCI/LMP versions and company identifier match the
-          Controller's own attributes.
+          Controller's configuration.
     """
     result = host.cmd(hci.HCI_Read_Local_Version_Information_Command())
-    controller = host.controller
+    config = host.controller.config
     assert (result.hci_version, result.lmp_version) == (
-        controller.hci_version,
-        controller.lmp_version,
+        config.hci_version,
+        config.lmp_version,
     )
-    assert result.company_identifier == controller.manufacturer_company_identifier
+    assert result.company_identifier == config.manufacturer
 
 
 def test_read_supported_commands_matches_dispatch(host):
@@ -336,11 +336,11 @@ def test_buffer_and_data_length_capabilities(host):
         2. Read the maximum data length.
 
     Expected:
-        - The buffer length equals ``HCI_ACL_BUFFER_SIZE`` with 8 packets; the
+        - The buffer length and count equal the ``ControllerConfig`` defaults; the
           maximum TX octets/time equal the payload-size and coded-time maxima.
     """
     buffers = host.cmd(hci.HCI_LE_Read_Buffer_Size_Command())
-    assert buffers.le_acl_data_packet_length == HCI_ACL_BUFFER_SIZE
+    assert buffers.le_acl_data_packet_length == ControllerConfig().acl_packet_length
     assert buffers.total_num_le_acl_data_packets == 8
     maximum = host.cmd(hci.HCI_LE_Read_Maximum_Data_Length_Command())
     assert (maximum.supported_max_tx_octets, maximum.supported_max_tx_time) == (

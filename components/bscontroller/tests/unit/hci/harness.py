@@ -51,7 +51,7 @@ class HostSink:
 
 
 class HciHarness:
-    def __init__(self, *, unmask=True, address=IUT_ADDRESS):
+    def __init__(self, *, unmask=True, address=IUT_ADDRESS, config=None):
         self.loop = asyncio.new_event_loop()
         self.radio = ScriptedRadio()
         self.host = HostSink()
@@ -62,6 +62,7 @@ class HciHarness:
                 host_sink=self.host,
                 public_address=address,
                 backend=RadioBackend(self.radio),
+                config=config,
             )
 
         self.controller = self.loop.run_until_complete(create())

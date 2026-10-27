@@ -11,6 +11,7 @@ from dataclasses import replace
 
 from bscontroller.address import Address
 from bscontroller.capabilities import CONTROLLER_SUPPORTED_PHY_MASK
+from bscontroller.config import ControllerConfig
 from bscontroller.linklayer import (
     LL_CONN_INTERVAL_UNIT_US,
     LL_HOP_INCREMENT_MAX,
@@ -51,9 +52,15 @@ class RadioLink:
     """One physical radio, with explicit, integer-microsecond operation deadlines."""
 
     def __init__(
-        self, radio: Radio, listener: Listener, features: int = 0, seed: int = 1
+        self,
+        radio: Radio,
+        listener: Listener,
+        features: int = 0,
+        seed: int = 1,
+        config: ControllerConfig | None = None,
     ):
         self.radio = radio
+        self.config = config or ControllerConfig()
         self.listener = listener
         self.features = features
         self.default_tx_phys = self.default_rx_phys = CONTROLLER_SUPPORTED_PHY_MASK

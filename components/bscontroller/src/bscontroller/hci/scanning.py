@@ -8,7 +8,6 @@ import asyncio
 
 from bscontroller import hci
 from bscontroller.capabilities import (
-    CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE,
     CONTROLLER_PRIMARY_SCAN_PHY_MASK,
 )
 from bscontroller.hci import (
@@ -211,12 +210,14 @@ class LeScanningCommands(LeControllerContext):
         Command
         '''
         return hci.HCI_LE_Read_Filter_Accept_List_Size_ReturnParameters(
-            SUCCESS, self.controller.filter_accept_list_size
+            SUCCESS, self.controller.config.filter_accept_list_size
         )
 
     def on_hci_le_clear_filter_accept_list_command(self, command):
         return hci.HCI_StatusReturnParameters(
-            self.ll.edit_filter(None, False, self.controller.filter_accept_list_size)
+            self.ll.edit_filter(
+                None, False, self.controller.config.filter_accept_list_size
+            )
         )
 
     def _edit_filter(self, command, add):
@@ -240,7 +241,9 @@ class LeScanningCommands(LeControllerContext):
             command.address_type,
         )
         return hci.HCI_StatusReturnParameters(
-            self.ll.edit_filter(address, add, self.controller.filter_accept_list_size)
+            self.ll.edit_filter(
+                address, add, self.controller.config.filter_accept_list_size
+            )
         )
 
     def on_hci_le_add_device_to_filter_accept_list_command(self, command):
@@ -322,7 +325,7 @@ class LeScanningCommands(LeControllerContext):
         Command
         '''
         return hci.HCI_LE_Read_Periodic_Advertiser_List_Size_ReturnParameters(
-            SUCCESS, CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE
+            SUCCESS, self.controller.config.periodic_advertiser_list_size
         )
 
     def _edit_periodic_list(self, command, add):
@@ -343,7 +346,7 @@ class LeScanningCommands(LeControllerContext):
         )
         return hci.HCI_StatusReturnParameters(
             self.ll.edit_periodic_list(
-                key, add, CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE
+                key, add, self.controller.config.periodic_advertiser_list_size
             )
         )
 
@@ -364,7 +367,7 @@ class LeScanningCommands(LeControllerContext):
     def on_hci_le_clear_periodic_advertiser_list_command(self, command):
         return hci.HCI_StatusReturnParameters(
             self.ll.edit_periodic_list(
-                None, False, CONTROLLER_PERIODIC_ADVERTISER_LIST_SIZE
+                None, False, self.controller.config.periodic_advertiser_list_size
             )
         )
 
