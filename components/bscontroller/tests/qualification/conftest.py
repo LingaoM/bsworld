@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -23,6 +24,7 @@ from tests.qualification.tester import (
     HciProbe,
     MultiAirTester,
 )
+from tests.qualification.zephyr_iut import ZephyrController, zephyr_controller
 
 
 def pytest_configure(config):
@@ -40,6 +42,11 @@ def pytest_configure(config):
 
 @pytest_asyncio.fixture
 async def hci_dut(tmp_path, request):
+    if zephyr_controller() is not None:
+        # An external Controller only runs on the simulated PHY.
+        async with air_session(tmp_path, request) as tester:
+            yield tester
+        return
     with (tmp_path / 'protocol.log').open('w') as trace:
         trace.write(f'TEST {request.node.nodeid}\n')
         probe = HciProbe(trace)
@@ -54,6 +61,12 @@ async def hci_dut(tmp_path, request):
 
 @pytest_asyncio.fixture
 async def air_dut(tmp_path, request, controller_log):
+    async with air_session(tmp_path, request) as tester:
+        yield tester
+
+
+@asynccontextmanager
+async def air_session(tmp_path, request):
     if not os.environ.get('BSIM_OUT_PATH'):
         pytest.skip('set BSIM_OUT_PATH to run real-PHY Controller behavior tests')
     binary = find_phy()
@@ -62,11 +75,18 @@ async def air_dut(tmp_path, request, controller_log):
     assert scan_max_coded_range_m >= 0
     sim_id = f'bscontroller_ll_{uuid.uuid4().hex[:12]}'
     (tmp_path / 'sim_id.txt').write_text(sim_id)
-    worker = RadioControllerWorker(
-        'dut',
-        public_address=str(DUT_ADDRESS).split('/')[0],
-        hci_snoop_file=tmp_path / 'hci.snoop',
-    )
+    public_address = str(DUT_ADDRESS).split('/')[0]
+    zephyr = zephyr_controller()
+    if zephyr is not None:
+        worker = ZephyrController(
+            zephyr, tmp_path, public_address=public_address, bsim_bin=out / 'bin'
+        )
+    else:
+        worker = RadioControllerWorker(
+            'dut',
+            public_address=public_address,
+            hci_snoop_file=tmp_path / 'hci.snoop',
+        )
     # The lower tester injects/observes RF without modeling DUT hardware delays.
     radio = BabbleSimRadio(switch_time_us=0)
     peer_config = request.node.get_closest_marker('radio_peers')
@@ -121,6 +141,8 @@ async def air_dut(tmp_path, request, controller_log):
             if radio.connection.read_fd is not None:
                 await tester.wait(0)
         finally:
+            # A PHY that exited before teardown failed during the procedure.
+            phy_running = phy.returncode is None
             try:
                 await worker.close()
             finally:
@@ -136,7 +158,16 @@ async def air_dut(tmp_path, request, controller_log):
                     phy.kill()
                     await asyncio.wait_for(phy.wait(), 5)
                     raise
-                assert phy.returncode == 0, f'PHY exited with status {phy.returncode}'
+                if zephyr is not None:
+                    # Terminating the simulator while it waits on the PHY is
+                    # reported by the PHY as a device communication error.
+                    assert phy_running, (
+                        f'PHY exited with status {phy.returncode} before teardown'
+                    )
+                else:
+                    assert phy.returncode == 0, (
+                        f'PHY exited with status {phy.returncode}'
+                    )
                 for result in peer_results:
                     if isinstance(result, BaseException) and not isinstance(
                         result, asyncio.CancelledError

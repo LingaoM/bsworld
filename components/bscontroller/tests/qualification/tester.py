@@ -225,9 +225,16 @@ class AirTester(HciProbe):
         # Equal-time WAIT is a real PHY barrier; Radio.advance_to_us would skip it.
         self.radio.connection.wait_sync(target, 5)
         self.radio.now_us = target
+        self.flush_input()
         # Dispatch HCI already queued by the completed device grant before advancing
         # again.
         await asyncio.sleep(0)
+
+    def flush_input(self):
+        # An external Controller has written its events up to this PHY barrier.
+        flush = getattr(self.input, 'flush', None)
+        if flush is not None:
+            flush()
 
     async def receive(self, channel, *, duration_us=100_000, **parameters):
         packet = await asyncio.wait_for(
@@ -336,6 +343,7 @@ class MultiAirTester(AirTester):
         self.radio.now_us = await asyncio.wait_for(
             self.radio.connection.wait(target), 5
         )
+        self.flush_input()
         await asyncio.sleep(0)
 
 
