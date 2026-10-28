@@ -76,7 +76,7 @@ Each integration suite owns the loader that registers its Applications and Contr
 | NuttX | [BTSak and NimBLE](../tests/integration/nuttx/README.md#adding-scenarios) |
 | QEMU Linux | [BlueZ and NimBLE](../tests/integration/qemu/README.md#adding-scenarios) |
 | TrouBLE | [Native TrouBLE tests](../tests/integration/trouble/README.md#adding-scenarios) |
-| Zephyr | [Bluetooth and Mesh shells](../tests/integration/zephyr/shell/README.md#scenario-commands) |
+| Zephyr | [Bluetooth and Mesh shells](../tests/integration/zephyr/shell/README.md#adding-scenarios) |
 
 ## Process Shell Commands
 

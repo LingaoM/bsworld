@@ -45,15 +45,18 @@ class ZephyrController(Controller):
             binary,
             f"-s={self.sim_id}",
             f"-d={self.controller_dev_id}",
+            # Real AES-CCM/ECB; the HW models default to plaintext and a dummy MIC.
+            "-RealEncryption=1",
             f"-hci-socket={self.hci_sock}",
             f"-btsnoop-file={self.hci_snoop_file}",
         ]
         if self.public_address is not None:
             argv.append(f"-bd-addr={self.public_address}")
+        # The HW models load ../lib/libCryptov1.so relative to BabbleSim's bin/.
         self._process = pm.spawn(
             f"bt_virt_controller_hci{self.controller_dev_id}",
             argv,
-            cwd=binary.parent,
+            cwd=env.bsim_bin_dir,
             log_dir=controller_log_dir,
         )
         self._pm = pm
