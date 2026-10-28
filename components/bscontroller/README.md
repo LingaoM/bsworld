@@ -6,13 +6,16 @@ BSController is a Bluetooth LE Controller written in Python. Your Host stack tal
 
 ## Quick start
 
-BSController needs Linux, Python 3.11 or newer, and a BabbleSim build. On Ubuntu 24.04 x86_64:
+BSController needs Linux, Python 3.11 or newer, and a BabbleSim build. On Ubuntu 24.04 x86_64, install the build tools:
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y git repo build-essential gcc-multilib g++-multilib python3-venv
+```
 
-# Fetch and build the BabbleSim PHY, modem and channel models.
+Fetch BabbleSim and build its PHY, modem and channel models:
+
+```sh
 mkdir -p "$HOME/bsim" && cd "$HOME/bsim"
 repo init -u https://github.com/BabbleSim/manifest.git -m everything.xml -b master
 repo sync

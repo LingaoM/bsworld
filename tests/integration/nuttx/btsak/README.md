@@ -2,20 +2,18 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-This directory contains end-to-end tests for the stock NuttX `btsak` Application. The tests run one NuttX image that includes `btsak`, then use process shell commands to choose the role for each process.
-
-Application build instructions and artifact environment variables are documented in [source/README.md](source/README.md). For first-time NuttX environment setup, start with [../README.md](../README.md).
+Runs the stock NuttX `btsak` and uses shell commands to make each process an advertiser or a scanner. See [source/README.md](source/README.md) for the build.
 
 ## Shell Commands
 
-NuttX profiles enable the process shell by default. After `await topo.start()` establishes the initial PHY synchronization boundary, the test issues role commands through the process shell. Advertiser processes run:
+Advertiser processes:
 
 ```sh
 ifup bnep0
 bt bnep0 advertise start
 ```
 
-Scanner processes run:
+Scanner processes:
 
 ```sh
 ifup bnep0
@@ -25,22 +23,16 @@ bt bnep0 scan get
 ...
 ```
 
-The scanner test waits for non-zero addresses printed by `bt bnep0 scan get`. The stock `btsak` advertiser currently uses a fixed scan-response name, so the test validates discovery through scan table entries instead of custom names. Role commands are defined in the test and can be issued together with `shell.run_many(...)` or individually with `shell.run(...)`.
-
 ## Test Cases
 
 - `test_nuttx_btsak_scanner_finds_advertiser`: one scanner discovers one advertiser.
-- `test_nuttx_btsak_shell_commands_can_stage_scan`: the test starts both process shells, then issues role commands in explicit stages.
+- `test_nuttx_btsak_shell_commands_can_stage_scan`: both shells start first, then role commands are issued in stages.
 - `test_nuttx_btsak_scanner_finds_multiple_advertisers`: one scanner discovers two advertisers.
-- `test_nuttx_btsak_targeted_interference_isolates_and_recovers`: three timed CW sources cover advertising channels 37, 38, and 39. Per-path attenuation places them next to one scanner while isolating a second scanner; the protected scanner keeps receiving during the interference window, and the jammed scanner recovers after the window closes.
-
-The interference case uses the same unmodified NuttX image as the other cases. Only the BSWorld RF topology changes.
+- `test_nuttx_btsak_targeted_interference_isolates_and_recovers`: CW interference on the advertising channels blocks only one scanner, which recovers afterwards.
 
 ## Run
 
-We recommend the [Docker test image](../../../../docker/README.md#select-a-suite), using `tests/integration/nuttx/btsak` as the pytest target.
-
-For native Linux, compile with [source/README.md](source/README.md), retain the BabbleSim and Controller variables, then switch back to the BSWorld Python environment and run:
+In the [Docker test image](../../../../docker/README.md#select-a-suite), use `tests/integration/nuttx/btsak`. Natively:
 
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"

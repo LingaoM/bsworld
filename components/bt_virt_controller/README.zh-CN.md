@@ -2,9 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`bt_virt_controller` 是 Xiaomi 为 BSWorld 开发的虚拟 Controller 实现。它是一个面向 [nrf52_bsim](https://docs.zephyrproject.org/latest/boards/native/nrf_bsim/doc/nrf52_bsim.html) 构建的 Zephyr 树外（out-of-tree）Application。该程序运行完整的 HCI 接口和 Link Layer 协议逻辑，并通过 BabbleSim PHY 参与无线数据收发和 RF 交互。虚拟 Controller 提供基于 Unix socket 的双向 H4 传输通道，以及可选的非阻塞 BTSnoop 抓包 socket。
-
-本目录保留 Application 源码、配置和构建说明。编译产物位于 Zephyr 工作区，通过 `BSWORLD_BT_VIRT_CONTROLLER_BIN` 指定。
+`bt_virt_controller` 是 BSWorld 的虚拟 Controller：面向 [nrf52_bsim](https://docs.zephyrproject.org/latest/boards/native/nrf_bsim/doc/nrf52_bsim.html) 的 Zephyr 树外 Application，运行 Zephyr Bluetooth Controller，通过 Unix socket 提供 H4 HCI。可执行文件通过 `BSWORLD_BT_VIRT_CONTROLLER_BIN` 指定。
 
 ## 运行接口
 
@@ -14,26 +12,22 @@ BSWorld 为每个 HCI socket 启动一个虚拟 Controller：
 "$BSWORLD_BT_VIRT_CONTROLLER_BIN" \
   -s=<sim_id> \
   -d=<device_id> \
+  -RealEncryption=1 \
   [-hci-poll-interval=<microseconds>] \
   -hci-socket=<hci_socket_path> \
   [-bd-addr=<AA:BB:CC:DD:EE:FF>] \
   [-btsnoop-file=<btsnoop_file_path>]
 ```
 
-- `-s` 和 `-d` 分别指定 BabbleSim 仿真标识和 Controller 设备编号。
-- `-hci-poll-interval` 设置 HCI socket 轮询周期，并将同一个值应用为 PHY 最大重同步偏移量；默认值为 1,000 微秒（1 ms）。
-- `-hci-socket` 承载双向 H4 HCI 帧。
-- `-bd-addr` 用于在 Host 连接前初始化 Controller 的 public address。
-
-`-btsnoop-file` 使用 Controller 本地仿真时间戳，直接将 BTSnoop 记录写入指定文件。BSWorld 创建父目录并始终传入每个设备的输出路径，HCI 仍通过 Unix socket 直连。
+- `-s`、`-d`：BabbleSim 仿真标识和设备编号。
+- `-hci-poll-interval`：HCI socket 轮询周期，同时作为 PHY 最大重同步偏移，默认 1000 µs。
+- `-hci-socket`：H4 HCI socket。
+- `-bd-addr`：Controller 的 public address。
+- `-btsnoop-file`：BTSnoop 抓包文件。
 
 ## 构建
 
-推荐使用的 [Docker 测试镜像](../../docker/README.zh-CN.md#使用已发布镜像)已包含 Controller。以下命令用于本机 Linux 构建。
-
-先按照[README 构建说明](../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim，并保留 `BSWORLD_ROOT`、`BSIM_OUT_PATH` 和 `BSIM_COMPONENTS_PATH`。本机请先按 [Zephyr 环境说明](../../tests/integration/zephyr/shell/README.zh-CN.md#准备-zephyr-工作区)设置 `ZEPHYR_WORKSPACE`。
-
-直接使用官方 [west build](https://docs.zephyrproject.org/latest/develop/west/build-flash-debug.html) 命令：
+[Docker 测试镜像](../../docker/README.zh-CN.md#使用已发布镜像)已包含 Controller。本机构建先按[仓库构建说明](../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim，并准备 [Zephyr 工作区](../../tests/integration/zephyr/shell/README.zh-CN.md#准备-zephyr-工作区)，然后执行：
 
 ```sh
 source "$ZEPHYR_WORKSPACE/.venv/bin/activate"
@@ -42,16 +36,7 @@ west build -p always -b nrf52_bsim \
   -d "$ZEPHYR_WORKSPACE/build/bsworld_bt_virt_controller" \
   "$BSWORLD_ROOT/components/bt_virt_controller"
 export BSWORLD_BT_VIRT_CONTROLLER_BIN="$ZEPHYR_WORKSPACE/build/bsworld_bt_virt_controller/zephyr/zephyr.exe"
-"$BSWORLD_BT_VIRT_CONTROLLER_BIN" --help
 ```
-
-运行 pytest 前，在同一个 shell 中切回 BSWorld Python 环境：
-
-```sh
-source "$BSWORLD_ROOT/.venv/bin/activate"
-```
-
-默认使用开源 Zephyr Bluetooth Controller。使用 nRF Connect SDK 构建的等价程序应按其自身许可处理。
 
 ## 许可证与依赖
 

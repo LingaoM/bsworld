@@ -2,11 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Use the upstream `sim:nimble` configuration and stock Applications. Prepare the workspaces and BabbleSim from the [NuttX environment guide](../../README.md).
+Builds the upstream `sim:nimble` configuration. Prepare the workspaces first using the [NuttX environment guide](../../README.md).
 
 ## Build
 
-Use the official [configure.sh / make workflow](https://nuttx.apache.org/docs/latest/quickstart/compiling.html), enabling the options required by these tests:
+Configure:
 
 ```sh
 # Keep BSIM_OUT_PATH and BSIM_COMPONENTS_PATH from the BabbleSim build.
@@ -20,10 +20,13 @@ kconfig-tweak --file .config -e SIM_BSIM_TIME \
   -e EXAMPLES_NIMBLE_BLEPRPH -e EXAMPLES_NIMBLE_BLECENT \
   -e NIMBLE_ROLE_PERIPHERAL -e NIMBLE_ROLE_CENTRAL -e NIMBLE_ROLE_OBSERVER
 make olddefconfig
+```
+
+Compile:
+
+```sh
 make -j"$(nproc)"
 export BSWORLD_NUTTX_NIMBLE_BIN="$NUTTX_NIMBLE_DIR/nuttx"
 ```
 
-`SIM_BSIM_TIME` joins the simulation clock. NimBLE enables the bleprph/blecent examples and the peripheral, central, and observer roles.
-
-The output is `$NUTTX_NIMBLE_DIR/nuttx`, exported as `BSWORLD_NUTTX_NIMBLE_BIN`. Keep its linked BabbleSim shared libraries available at the build-time `$BSIM_OUT_PATH/lib/` path. Run the tests from the [NimBLE test README](../README.md#run).
+Run the tests from the [test README](../README.md#run).

@@ -2,21 +2,19 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-本测试将两个 [TrouBLE](https://github.com/embassy-rs/trouble) Rust Host 作为原生 Linux 进程运行。每个 Host 直接加入 BabbleSim，通过 H:4 Unix socket 连接到各自的 Virtual Controller，定时器运行在仿真时间上。Host 协议栈与 Battery Service 应用来自固定的上游提交；[`source/src/bsim/`](source/src/bsim) 提供 Unix 传输、执行器与 BabbleSim 时钟。
+将两个 [TrouBLE](https://github.com/embassy-rs/trouble) Rust Host 作为原生 Linux 进程运行，各自连接一个虚拟 Controller。[`source/src/bsim/`](source/src/bsim) 提供 Unix 传输、执行器和 BabbleSim 时钟。
 
 ## 已验证场景
 
-`test_trouble_native_hosts_connect_discover_read_and_notify` 针对两种 Virtual Controller 实现（`[zephyr]` 与 `[bscontroller]`）运行，验证：
+`test_trouble_native_hosts_connect_discover_read_and_notify`，每种 Controller 各跑一次：
 
 1. peripheral 发起广播并接受 central 的连接。
 2. central 发现 Battery Service 并读取 Battery Level 特征。
-3. central 订阅后持续接收通知，覆盖连接建立之后的行为。
+3. central 订阅并接收通知。
 
 ## 构建与运行
 
-推荐使用 [Docker 测试镜像](../../../docker/README.zh-CN.md#选择测试套件)，pytest 目标为 `tests/integration/trouble`。
-
-在本地 Linux 上，用 [rustup](https://rustup.rs/) 安装 Rust 工具链，保留仓库 [README](../../../docs/zh-CH/README.md) 中的 BabbleSim 与 Controller 环境变量，然后在仓库根目录执行：
+[Docker 测试镜像](../../../docker/README.zh-CN.md#选择测试套件)中使用 `tests/integration/trouble`。本机先用 [rustup](https://rustup.rs/) 安装 Rust，再在仓库根目录执行：
 
 ```sh
 cargo build --locked --manifest-path tests/integration/trouble/source/Cargo.toml
@@ -26,19 +24,19 @@ source .venv/bin/activate
 pytest tests/integration/trouble -q
 ```
 
-使用 `CARGO_TARGET_DIR` 或 release 构建时，将 `BSWORLD_TROUBLE_NATIVE_BIN` 设为 `ble_bas` 二进制路径；否则测试使用 `source/target/debug/ble_bas`。
+测试默认使用 `source/target/debug/ble_bas`，其他构建产物通过 `BSWORLD_TROUBLE_NATIVE_BIN` 指定。
 
-传输、执行器与时钟带有单元测试，无需仿真器：
+适配层单元测试：
 
 ```sh
 cargo test --locked --manifest-path tests/integration/trouble/source/Cargo.toml
 ```
 
-应用日志保存为 `trouble/central/central.log` 和 `trouble/peripheral/peripheral.log`。HCI BTSnoop 抓包与 BabbleSim 射频 trace 与其他按用例归档的文件一起保存，详见[日志、Trace 与抓包](../../../docs/zh-CH/artifacts.md)。
+日志位于 `trouble/<角色>/`，其余见[产物目录结构](../../../docs/zh-CH/artifacts.md)。
 
 ## 添加场景
 
-以 [test_trouble_native.py](test_trouble_native.py) 为起点，在 `topo.start()` 前登记各个原生 Host 角色，启动后用 `wait_log()` 验证连接和业务事件。角色及业务行为由 Rust 可执行文件实现，改变这些行为后需要重新编译。
+以 [test_trouble_native.py](test_trouble_native.py) 为起点，在 `topo.start()` 前登记各 Host 角色，启动后用 `wait_log()` 验证事件。角色行为在 Rust 可执行文件中实现。
 
 ## 许可
 
