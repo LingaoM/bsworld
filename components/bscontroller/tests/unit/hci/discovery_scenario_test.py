@@ -516,6 +516,61 @@ def test_data_placement_rules(host, properties, field, status):
     host.cmd(command, status)
 
 
+@pytest.mark.parametrize(
+    'stored,properties,status',
+    [
+        (
+            'scan',
+            Properties.CONNECTABLE_ADVERTISING | Properties.DIRECTED_ADVERTISING,
+            ErrorCode.SUCCESS,
+        ),
+        ('scan', 0, ErrorCode.SUCCESS),
+        (
+            'advertising',
+            Properties.SCANNABLE_ADVERTISING,
+            ErrorCode.INVALID_COMMAND_PARAMETERS_ERROR,
+        ),
+    ],
+    ids=['scan-to-directed', 'scan-to-nonscannable', 'data-to-scannable'],
+)
+def test_reconfigure_with_stored_payload(host, stored, properties, status):
+    """Only stored advertising data can make new event properties invalid.
+
+    Purpose: Verify LE Set Extended Advertising Parameters returns Invalid HCI
+    Command Parameters when the event type does not support advertising data
+    and the set already contains some, and has no such error for scan
+    response data left by an earlier scannable configuration (Vol 4, Part E,
+    7.8.53). Zephyr's Host re-uses a set this way after legacy scannable
+    advertising.
+
+    Steps:
+        1. Configure a set that accepts the stored payload and store one octet.
+        2. Re-send parameters with the parametrized properties.
+
+    Expected:
+        - Scan response data does not block the change and stays stored;
+          advertising data on a now-scannable set returns
+          INVALID_COMMAND_PARAMETERS.
+    """
+    first = Properties.SCANNABLE_ADVERTISING if stored == 'scan' else 0
+    host.cmd(
+        extended_parameters(
+            advertising_event_properties=first,
+            peer_address=PEER_ADDRESS,
+        )
+    )
+    host.cmd(data(0, Operation.COMPLETE_DATA, b'x', field=stored))
+    host.cmd(
+        extended_parameters(
+            advertising_event_properties=properties,
+            peer_address=PEER_ADDRESS,
+        ),
+        status,
+    )
+    if stored == 'scan':
+        assert host.controller.advertising_sets[0].scan_response_data == b'x'
+
+
 def test_empty_fragment_is_invalid(host):
     """A first fragment with no data is invalid.
 
