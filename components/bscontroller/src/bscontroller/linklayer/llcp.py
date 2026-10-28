@@ -10,6 +10,7 @@ aggregates their deadlines (Core Vol 6, Part B, 5.1, 5.2 and 5.3).
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -88,6 +89,41 @@ class LlcpCoordinator:
         self.controls = ControlProcedures(connection, self.response_timer)
         self.encryption = Encryption(connection)
         self.local_exchanges: dict[int, ProcedureContext] = {}
+        # Host-requested procedures admitted while another procedure runs.
+        # Vol 6, Part B, 5 allows one local procedure at a time; the HCI
+        # commands (Vol 4, Part E, 7.8.18, 7.8.33, 7.8.49) define no Command
+        # Disallowed for that, so they queue instead of failing.
+        self.deferred: deque[tuple[str, Callable[[], None]]] = deque()
+
+    def _admit(self, kind: str, start: Callable[[], None]) -> int:
+        """Start now, queue behind another procedure, or refuse a duplicate."""
+        if self._duplicate(kind):
+            return DISALLOWED
+        if self.controls.busy:
+            self.deferred.append((kind, start))
+        else:
+            start()
+        return SUCCESS
+
+    def _duplicate(self, kind: str) -> bool:
+        """The Host already has this procedure running or queued."""
+        return self._local_pending(kind) or any(
+            item == kind for item, _ in self.deferred
+        )
+
+    def _local_pending(self, kind: str) -> bool:
+        controls = self.controls
+        if kind == 'phy':
+            return bool(controls.phy.phy_request)
+        if kind == 'parameters':
+            return bool(controls.connection_parameters.parameter_request)
+        return bool(controls.data_length.pending)
+
+    def start_deferred(self) -> None:
+        """Start the next queued Host procedure once the link is idle."""
+        if self.deferred and not self.controls.busy and not self.connection.closed:
+            _, start = self.deferred.popleft()
+            start()
 
     @property
     def next_deadline_us(self) -> int:
@@ -260,9 +296,11 @@ class LlcpCoordinator:
 
     def event_prepare(self) -> None:
         self.controls.apply()
+        self.start_deferred()
         self._prune_exchanges()
 
     def close(self, reason: int) -> None:
+        self.deferred.clear()
         self.controls.finish_features(reason)
         self.controls.finish_version(None)
         self.local_exchanges.clear()
@@ -345,13 +383,16 @@ class LlcpCoordinator:
     ) -> PreparedProcedure:
         if parameter_status:
             return PreparedProcedure(parameter_status)
-        if self.controls.busy:
-            return PreparedProcedure(DISALLOWED)
 
-        def start():
+        def request():
             self.connection.tx_coding = coding
             self.controls.phy.request_phy(tx, rx)
 
+        def start():
+            self._admit('phy', request)
+
+        if self._duplicate('phy'):
+            return PreparedProcedure(DISALLOWED)
         return PreparedProcedure(SUCCESS, start)
 
     def prepare_parameters(
@@ -363,7 +404,7 @@ class LlcpCoordinator:
         *,
         valid_ce_lengths: bool,
     ) -> PreparedProcedure:
-        if self.controls.busy:
+        if self._duplicate('parameters'):
             return PreparedProcedure(DISALLOWED)
         if not valid_timing(minimum, maximum, latency, timeout) or not valid_ce_lengths:
             return PreparedProcedure(INVALID)
@@ -373,7 +414,7 @@ class LlcpCoordinator:
         ):
             return PreparedProcedure(ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR)
 
-        def start():
+        def request():
             # Only the Central can fall back to UPDATE_IND (Vol 6, Part B, 5.1.1).
             if (
                 self.connection.role == Role.CENTRAL
@@ -387,7 +428,7 @@ class LlcpCoordinator:
                     minimum, maximum, latency, timeout
                 )
 
-        return PreparedProcedure(SUCCESS, start)
+        return PreparedProcedure(SUCCESS, lambda: self._admit('parameters', request))
 
     def supply_key(self, key: bytes | None) -> int:
         if (
@@ -419,7 +460,7 @@ class LlcpCoordinator:
     def set_data_length(self, octets: int, time_us: int) -> int:
         if not valid_data_length(octets, time_us):
             return INVALID
-        if self.controls.busy:
+        if self._duplicate('data_length'):
             return DISALLOWED
         if (
             self.connection.peer_features is not None
@@ -427,5 +468,6 @@ class LlcpCoordinator:
             & LeFeatureMask.LE_DATA_PACKET_LENGTH_EXTENSION
         ):
             return ErrorCode.UNSUPPORTED_REMOTE_FEATURE_ERROR
-        self.controls.data_length.request(octets, time_us)
-        return SUCCESS
+        return self._admit(
+            'data_length', lambda: self.controls.data_length.request(octets, time_us)
+        )

@@ -32,6 +32,7 @@ from tests.unit.linklayer.llcp.harness import (
     connection_update_ind,
     hci,
     instant_of,
+    length,
     phy_req,
     phy_rsp,
     phy_update_ind,
@@ -606,3 +607,111 @@ def test_central_host_channel_classification_while_busy(central):
     service = central.controller.le_procedures.ll
     assert service.classify_channels(0x0F) == ErrorCode.COMMAND_DISALLOWED_ERROR
     central.lt_rx(Opcode.LL_CONNECTION_PARAM_REQ)
+
+
+# ---------------------------------------------------------------------------
+# Host requests queued behind another local procedure
+# ---------------------------------------------------------------------------
+def _length_request(dut, octets=251, time_us=2120):
+    assert dut.host('set_data_length', octets, time_us) == ErrorCode.SUCCESS
+
+
+def test_phy_request_waits_for_local_data_length(central):
+    """A Host PHY request during a local Data Length Update is queued.
+
+    Purpose: Verify that LE Set PHY issued while the Controller's own Data
+    Length Update is outstanding is accepted and started once that procedure
+    completes. HCI defines no Command Disallowed for this case (Vol 4, Part E,
+    7.8.49) and the Link Layer runs one local procedure at a time (Vol 6,
+    Part B, 5).
+
+    Steps:
+        1. Upper Tester calls set_data_length; Lower Tester receives LENGTH_REQ.
+        2. Upper Tester starts a PHY Update while LENGTH_REQ is unanswered.
+        3. Lower Tester answers LENGTH_RSP.
+        4. Run the next connection event.
+
+    Expected:
+        - The PHY request is admitted with Success but sends nothing yet.
+        - PHY_REQ is sent only in the event after LENGTH_RSP completes the
+          Data Length Update.
+    """
+    _length_request(central)
+    central.event_prepare()
+    central.lt_rx(Opcode.LL_LENGTH_REQ)
+    central.host_start('prepare_phy', PHY_2M, PHY_2M, 0, 0)
+    assert not central.controls.phy.phy_request
+    central.lt_tx(length(Opcode.LL_LENGTH_RSP, 251, 2120, 251, 2120))
+    central.event_done()
+
+    central.event_prepare()
+    central.lt_rx(Opcode.LL_PHY_REQ, phy_req(PHY_2M, PHY_2M))
+
+
+@pytest.mark.parametrize('kind', ['phy', 'parameters', 'data_length'])
+def test_queued_request_of_same_kind_is_disallowed(central, kind):
+    """A second request of a queued procedure kind is still refused.
+
+    Purpose: Verify that queueing only covers a different busy procedure: a
+    second Host request of the same kind, running or queued, keeps returning
+    Command Disallowed so the Host cannot stack duplicates.
+
+    Steps:
+        1. Start a local Data Length Update (or PHY Update for data_length).
+        2. Queue one request of the parametrized kind.
+        3. Issue a second request of the same kind.
+
+    Expected:
+        - The first queued request succeeds; the duplicate returns Command
+          Disallowed.
+    """
+    if kind == 'data_length':
+        central.host_start('prepare_phy', PHY_2M, PHY_2M, 0, 0)
+        _length_request(central)
+        assert (
+            central.host('set_data_length', 251, 2120)
+            == ErrorCode.COMMAND_DISALLOWED_ERROR
+        )
+        return
+    _length_request(central)
+    if kind == 'phy':
+        central.host_start('prepare_phy', PHY_2M, PHY_2M, 0, 0)
+        central.host_start(
+            'prepare_phy',
+            PHY_CODED,
+            PHY_CODED,
+            0,
+            0,
+            status=ErrorCode.COMMAND_DISALLOWED_ERROR,
+        )
+    else:
+        request_parameters(central, 30)
+        central.host_start(
+            'prepare_parameters',
+            40,
+            40,
+            0,
+            100,
+            valid_ce_lengths=True,
+            status=ErrorCode.COMMAND_DISALLOWED_ERROR,
+        )
+
+
+def test_queued_request_is_dropped_on_disconnect(central):
+    """A queued Host request does not outlive its connection.
+
+    Purpose: Verify that closing the link discards queued procedures, so no
+    PHY_REQ is built for a closed connection.
+
+    Steps:
+        1. Start a local Data Length Update and queue a PHY Update behind it.
+        2. Close the LLCP coordinator.
+
+    Expected:
+        - The deferred queue is empty after close.
+    """
+    _length_request(central)
+    central.host_start('prepare_phy', PHY_2M, PHY_2M, 0, 0)
+    assert central.connection.llcp.deferred
+    central.connection.llcp.close(ErrorCode.REMOTE_USER_TERMINATED_CONNECTION_ERROR)
+    assert not central.connection.llcp.deferred

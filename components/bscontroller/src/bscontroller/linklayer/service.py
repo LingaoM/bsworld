@@ -168,6 +168,10 @@ class AdvertisingService:
     def data_status(item: Advertising) -> int:
         """Validate payload placement and complete-event airtime before a configuration
         commit.
+
+        Only stored advertising data can make an event type invalid (Vol 4, Part E,
+        7.8.53). Scan response data kept from an earlier scannable configuration is
+        not an error; a non-scannable set simply never transmits it.
         """
         if (
             (
@@ -179,11 +183,6 @@ class AdvertisingService:
             )
             or (item.target is not None and not item.extended and item.data)
             or (item.extended and item.mode == AdvertisingMode.SCANNABLE and item.data)
-            or (
-                item.extended
-                and item.mode != AdvertisingMode.SCANNABLE
-                and item.scan_response
-            )
         ):
             return INVALID
         if (
