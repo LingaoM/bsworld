@@ -2,18 +2,14 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这组测试将 [Bumble](https://github.com/google/bumble) Bluetooth Host 协议栈直接运行在 pytest 的 asyncio event loop 中。每个 Bumble 设备都会分配一个独立的 BSWorld 虚拟 Controller，并通过 Unix-socket HCI 连接。
-
-当前覆盖以下场景：
+在 pytest 的 asyncio event loop 中运行 [Bumble](https://github.com/google/bumble) Host，与测试共用仿真时钟。每个设备连接一个独立的虚拟 Controller。场景：
 
 - 传统广播和被动扫描；
-- 覆盖三个广播信道的定向 CW 干扰、空间隔离和干扰后恢复；
+- 广播信道上的定向 CW 干扰与恢复；
 - Bumble Central 与 Peripheral 建立连接；
-- 扩展周期广播、周期同步和周期广播报告接收。
+- 周期广播与同步。
 
-推荐使用[已发布的 Docker 镜像](../../../docker/README.zh-CN.md#运行测试)。选择本套件时使用 `pytest tests/integration/bumble`。
-
-Bumble 随 BSWorld 一起安装。本机 Linux 先按仓库 README 的[本地 Linux 环境搭建](../../../docs/zh-CH/README.md#本地-linux)准备环境、编译 BabbleSim 和虚拟 Controller，并保留 `BSIM_OUT_PATH` 与 `BSWORLD_BT_VIRT_CONTROLLER_BIN`，再运行：
+[已发布的 Docker 镜像](../../../docker/README.zh-CN.md#运行测试)中使用 `pytest tests/integration/bumble`。Bumble 随 BSWorld 安装；本机按[本地 Linux 环境搭建](../../../docs/zh-CH/README.md#本地-linux)准备后运行：
 
 ```sh
 cd "$BSWORLD_ROOT"
@@ -21,8 +17,6 @@ source .venv/bin/activate
 pytest tests/integration/bumble -n auto
 ```
 
-业务程序直接运行在 pytest 中，因此它们的定时器、socket 操作和超时都会使用测试所用的仿真时间 asyncio event loop；虚拟 Controller 仍然是相互独立的 Linux 进程。每个设备的 BTSnoop 文件保存在该测试的 `bumble/<角色>/` 日志目录中，RF 交互则写入共享的 BabbleSim 跟踪文件。
-
 ## 添加场景
 
-在对应场景目录添加异步 pytest 测试。启动拓扑前复用 [common/](common/) 中的 `add_bumble_controller()`，启动后通过 `open_bumble_device()` 打开 Host。标准双设备拓扑也可直接使用 `open_bumble_pair()`，由它完成登记和启动。使用 Bumble API 驱动行为并断言收到的事件；这些操作与测试共用仿真时钟。
+在对应场景目录添加异步 pytest 测试。`topo.start()` 前调用 [common/](common/) 中的 `add_bumble_controller()`，启动后调用 `open_bumble_device()`；两个设备可直接用 `open_bumble_pair()`。

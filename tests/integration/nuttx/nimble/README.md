@@ -2,27 +2,18 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-This directory contains BSWorld tests for the [Apache NimBLE](https://github.com/apache/mynewt-nimble) Host running as stock NuttX apps examples.
-
-The current test starts:
-
-- `examples/nimble_bleprph` as the peripheral.
-- `examples/nimble_blecent` as the central.
-
-The peripheral advertises the stock `NuttX NimBLE PRPH` name and Alert Notification Service UUID. The central scans, finds that advertisement, connects, performs service discovery, and subscribes to notifications. The test waits for the connection, service discovery, and subscription logs printed by these NuttX examples.
-
-Firmware build instructions live in [`source/README.md`](source/README.md). For first-time NuttX environment setup, start with [../README.md](../README.md).
+Runs the [Apache NimBLE](https://github.com/apache/mynewt-nimble) examples from nuttx-apps: `nimble_bleprph` as the Peripheral and `nimble_blecent` as the Central. The Central scans, connects, discovers services and subscribes to notifications. See [source/README.md](source/README.md) for the build.
 
 ## Shell Commands
 
-NuttX profiles enable the process shell by default. After `await topo.start()` establishes the initial PHY synchronization boundary, the test issues role commands through the process shell. Peripheral processes run:
+Peripheral processes:
 
 ```sh
 ifup bnep0
 bleprph
 ```
 
-Central processes run:
+Central processes:
 
 ```sh
 ifup bnep0
@@ -31,9 +22,7 @@ blecent
 
 ## Run
 
-We recommend the [Docker test image](../../../../docker/README.md#select-a-suite), using `tests/integration/nuttx/nimble` as the pytest target.
-
-For native Linux, compile with [source/README.md](source/README.md), retain the BabbleSim and Controller variables, then switch back to the BSWorld Python environment and run:
+In the [Docker test image](../../../../docker/README.md#select-a-suite), use `tests/integration/nuttx/nimble`. Natively:
 
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"

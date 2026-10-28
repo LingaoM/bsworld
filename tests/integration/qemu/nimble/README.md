@@ -2,21 +2,15 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-This test runs the upstream Apache NimBLE Linux Host example inside the AArch64 Linux Guest. QEMU exposes the Virtual Controller's Unix-socket HCI stream as `/dev/ttyS0`, `btattach` registers the H4 serial transport as `hci0`, and the NimBLE Linux port claims that device through HCI User Channel. The integration neither modifies NimBLE source nor adds a BSWorld-specific transport.
+Runs the upstream Apache NimBLE Linux Host example in the [QEMU Linux guest](../README.md). Bumble is the peer.
 
 ## Validated Scenario
 
-`test_qemu_nimble_linux_advertises_and_accepts_connection` validates the complete path:
-
-1. NimBLE initializes its Host and Controller connection and starts connectable advertising.
-2. An independent Bumble Central receives the advertisement over the simulated radio and verifies public address `AA:BB:CC:DD:EE:FE` and complete local name `nimble`.
-3. Bumble connects to NimBLE, verifies a valid connection handle, and disconnects cleanly.
+`test_qemu_nimble_linux_advertises_and_accepts_connection`: NimBLE advertises as `nimble` from `AA:BB:CC:DD:EE:FE`, and a Bumble Central connects and disconnects.
 
 ## Build and Run
 
-We recommend the [Docker test image](../../../../docker/README.md#select-a-suite), using `tests/integration/qemu/nimble` as the pytest target.
-
-For native Linux, compile with the parent [QEMU / Buildroot README](../README.md), retain the BabbleSim/Controller exports and `BSWORLD_QEMU_BIN`, `BSWORLD_QEMU_KERNEL`, `BSWORLD_QEMU_ROOTFS`, then run from the repository root:
+In the [Docker test image](../../../../docker/README.md#select-a-suite), use `tests/integration/qemu/nimble`. Natively, build with the [QEMU / Buildroot README](../README.md), then run:
 
 ```sh
 cd "$BSWORLD_ROOT"
@@ -24,8 +18,8 @@ source .venv/bin/activate
 pytest tests/integration/qemu/nimble -q
 ```
 
-The QEMU console is stored as `qemu/nimble/qemu_nimble.log`. HCI BTSnoop captures and BabbleSim RF traces are archived with the other per-test files described in [Logs, Traces, and Packet Captures](../../../../docs/artifacts.md).
+The QEMU console is under `qemu/nimble/qemu_nimble.log`; see [artifacts](../../../../docs/artifacts.md) for the rest.
 
 ## License
 
-The tests in this directory are licensed under Apache License 2.0. Apache NimBLE is licensed under Apache License 2.0; QEMU, Linux, Buildroot, and other Guest packages retain their own licenses. Review [Third-Party Notices](../../../../THIRD_PARTY_NOTICES.md) and the parent guide's [license notes](../README.md#licenses) before distributing binaries.
+The tests in this directory use Apache License 2.0. See the [parent license notes](../README.md#licenses).

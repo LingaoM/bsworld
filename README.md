@@ -65,18 +65,21 @@ pytest tests/unit -q
 
 #### Build and Test
 
-Fetch and build the BabbleSim revisions selected by `components/babblesim.xml`:
+Fetch the BabbleSim revisions selected by `components/babblesim.xml`:
 
 ```sh
 mkdir -p "$BSWORLD_ROOT/.cache/babblesim"
 cd "$BSWORLD_ROOT/.cache/babblesim"
 repo init --standalone-manifest --depth=1 -u "file://$BSWORLD_ROOT/components/babblesim.xml"
 repo sync -c --no-tags
+```
 
+Set the output paths and build every component:
+
+```sh
 export BSIM_OUT_PATH="$PWD/build"
 export BSIM_COMPONENTS_PATH="$PWD/components"
 export BSIM_BUILD_FAIL_ASAP=1
-
 make -j"$(nproc)" everything
 ```
 
@@ -101,7 +104,7 @@ pytest tests/integration -n auto -v -k '[bscontroller]'
 
 | Environment | Validated behavior | Guide |
 |---|---|---|
-| Zephyr Bluetooth shell | Advertising and scanning, interference and recovery, connections and GATT, periodic advertising, Mesh provisioning and configuration | [Zephyr tests](tests/integration/zephyr/shell/README.md) |
+| Zephyr Bluetooth shell | Advertising and scanning, interference and recovery, connections and GATT, LL procedures, pairing and privacy across Controller pairings, periodic advertising, Mesh provisioning and configuration | [Zephyr tests](tests/integration/zephyr/shell/README.md) |
 | Bumble Python Host | Advertising, scanning, connections, periodic advertising and synchronization | [Bumble tests](tests/integration/bumble/README.md) |
 | Linux and BlueZ under QEMU | Controller setup, advertising, scanning, connection and disconnection through the Linux Bluetooth subsystem | [BlueZ tests](tests/integration/qemu/bluez/README.md) |
 | TrouBLE Rust Host | Advertising, connection, Battery Service discovery, reads and notifications | [TrouBLE tests](tests/integration/trouble/README.md) |

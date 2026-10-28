@@ -65,18 +65,21 @@ pytest tests/unit -q
 
 #### 构建与测试
 
-获取并构建 `components/babblesim.xml` 指定的 BabbleSim 版本：
+获取 `components/babblesim.xml` 指定的 BabbleSim 版本：
 
 ```sh
 mkdir -p "$BSWORLD_ROOT/.cache/babblesim"
 cd "$BSWORLD_ROOT/.cache/babblesim"
 repo init --standalone-manifest --depth=1 -u "file://$BSWORLD_ROOT/components/babblesim.xml"
 repo sync -c --no-tags
+```
 
+设置输出路径并构建全部组件：
+
+```sh
 export BSIM_OUT_PATH="$PWD/build"
 export BSIM_COMPONENTS_PATH="$PWD/components"
 export BSIM_BUILD_FAIL_ASAP=1
-
 make -j"$(nproc)" everything
 ```
 
@@ -101,7 +104,7 @@ pytest tests/integration -n auto -v -k '[bscontroller]'
 
 | 环境 | 已验证行为 | 文档 |
 |---|---|---|
-| Zephyr Bluetooth shell | 广播与扫描、干扰与恢复、连接与 GATT、周期广播、Mesh 配网和配置 | [Zephyr 测试](../../tests/integration/zephyr/shell/README.zh-CN.md) |
+| Zephyr Bluetooth shell | 广播与扫描、干扰与恢复、连接与 GATT、跨 Controller 组合的 LL 过程、配对与隐私、周期广播、Mesh 配网和配置 | [Zephyr 测试](../../tests/integration/zephyr/shell/README.zh-CN.md) |
 | Bumble Python Host | 广播、扫描、连接、周期广播与同步 | [Bumble 测试](../../tests/integration/bumble/README.zh-CN.md) |
 | QEMU 中的 Linux 与 BlueZ | 通过 Linux Bluetooth 子系统完成 Controller 初始化、广播、扫描、连接和断连 | [BlueZ 测试](../../tests/integration/qemu/bluez/README.zh-CN.md) |
 | TrouBLE Rust Host | 广播、连接、Battery Service 发现、读取和通知 | [TrouBLE 测试](../../tests/integration/trouble/README.zh-CN.md) |

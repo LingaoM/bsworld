@@ -2,31 +2,23 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-BSWorld can run a complete Linux guest as one participant in the BabbleSim time domain. The validated setup uses a single-vCPU AArch64 QEMU `virt` machine and a Buildroot Linux kernel and initramfs containing BlueZ and Apache NimBLE. QEMU connects the guest's HCI UART to a BSWorld Virtual Controller through a Host Unix socket, while its instruction-counting clock is synchronized with BabbleSim.
-
-This path is intended for Linux Bluetooth software that should be tested without porting the Application or Host stack to an RTOS. Buildroot builds the guest kernel and root filesystem using an automatically downloaded prebuilt cross toolchain.
+Runs a Buildroot AArch64 Linux guest with BlueZ and Apache NimBLE in a single-vCPU QEMU `virt` machine. The guest HCI UART connects to a Virtual Controller, and QEMU's `icount` clock is synchronized with BabbleSim.
 
 ## Validated Versions
 
-| Component | Revision or version | Purpose |
-|---|---|---|
-| BSWorld QEMU fork | `b2d1776bca209773c4a023e4decb785f7dc3cfb4` | Synchronizes TCG `icount` with BabbleSim and orders vCPU execution and Main Loop I/O deterministically |
-| Buildroot | `1ad0796f2b40eb8dadc43e95dd1d56708b191375` | Builds the AArch64 Linux guest |
-| Linux | `6.18.7` | Guest kernel selected by the maintained defconfig |
-| BlueZ | `5.86` | Guest Bluetooth Host stack and command-line tools |
-| Apache NimBLE | `1e8ed60276f35a80ed4d4b4f8bb9d9c6fee53845` | Linux Host example inside the Guest |
-
-The Buildroot and package versions are pinned by the validated Buildroot revision and the BSWorld defconfig. Use these revisions when reproducing the current tests; moving either repository independently may change build options, package versions, or runtime behavior.
-
-The current defconfig selects Bootlin's prebuilt AArch64 glibc stable toolchain (`2026.08-1`), including C++ and thread support. This profile is fixed by the pinned Buildroot revision.
+| Component | Revision or version |
+|---|---|
+| BSWorld QEMU fork | `b2d1776bca209773c4a023e4decb785f7dc3cfb4` |
+| Buildroot | `1ad0796f2b40eb8dadc43e95dd1d56708b191375` |
+| Linux | `6.18.7` |
+| BlueZ | `5.86` |
+| Apache NimBLE | `1e8ed60276f35a80ed4d4b4f8bb9d9c6fee53845` |
 
 ## Prepare the Environment
 
-We recommend the [published Docker image](../../../docker/README.md#run-tests), which includes QEMU, the kernel, and rootfs. Select the QEMU suites with `pytest tests/integration/qemu`.
+The [published Docker image](../../../docker/README.md#run-tests) already includes QEMU, the kernel and rootfs; select the suites with `pytest tests/integration/qemu`. The steps below are for native Linux builds. Build BabbleSim using the [repository instructions](../../../README.md#build-and-test) and the [Controller](../../../components/bt_virt_controller/README.md) first.
 
-The steps below are for native Linux builds. First build BabbleSim from [README build instructions](../../../README.md#build-and-test) and the [Controller](../../../components/bt_virt_controller/README.md), retaining `BSWORLD_ROOT`, `BSIM_OUT_PATH`, and `BSIM_COMPONENTS_PATH`.
-
-Native Linux builds can follow the official [QEMU build documentation](https://www.qemu.org/docs/master/devel/build-system.html) and [Buildroot manual](https://buildroot.org/downloads/manual/manual.html). Use the BabbleSim-aware QEMU fork. Example environment preparation:
+Install the system dependencies (Ubuntu 24.04):
 
 ```sh
 sudo apt-get update
@@ -35,9 +27,18 @@ sudo apt-get install -y \
   gawk gcc g++ git gzip libfdt-dev libffi-dev libglib2.0-dev libncurses-dev \
   libpixman-1-dev libssl-dev make ninja-build patch perl pkg-config \
   python3.12 python3.12-venv python3-pip rsync sed tar unzip wget xz-utils zip zlib1g-dev
+```
+
+Install the Python tools for the QEMU build:
+
+```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"
 python -m pip install wheel 'meson>=1.6.0' 'pycotap>=1.1.0'
+```
 
+Fetch the QEMU fork and Buildroot:
+
+```sh
 export QEMU_DIR="$HOME/qemu"
 export BUILDROOT_DIR="$HOME/buildroot"
 git clone https://github.com/LingaoM/qemu.git "$QEMU_DIR"
@@ -48,7 +49,7 @@ git -C "$BUILDROOT_DIR" checkout 1ad0796f2b40eb8dadc43e95dd1d56708b191375
 
 ## Build QEMU and the Linux Guest
 
-Invoke QEMU configure/ninja and Buildroot make directly. Run Buildroot as a normal user.
+Build QEMU:
 
 ```sh
 # Use your local QEMU and Buildroot workspace paths.
@@ -63,23 +64,27 @@ cd "$QEMU_BUILD_DIR"
   --bsim-components-path="$BSIM_COMPONENTS_PATH" \
   --bsim-out-path="$BSIM_OUT_PATH"
 ninja -C "$QEMU_BUILD_DIR" -j"$(nproc)" qemu-system-aarch64
+```
 
+Build the kernel and rootfs as a normal user:
+
+```sh
 make -C "$BUILDROOT_DIR" \
   O="$BUILDROOT_OUTPUT" \
   BR2_EXTERNAL="$BSWORLD_ROOT/tests/integration/qemu/source" \
   bsworld_qemu_linux_defconfig
 make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" -j"$(nproc)"
+```
 
+Export the artifacts, shared by BlueZ and NimBLE:
+
+```sh
 export BSWORLD_QEMU_BIN="$QEMU_BUILD_DIR/qemu-system-aarch64"
 export BSWORLD_QEMU_KERNEL="$BUILDROOT_OUTPUT/images/Image"
 export BSWORLD_QEMU_ROOTFS="$BUILDROOT_OUTPUT/images/rootfs.cpio"
 ```
 
-BlueZ and NimBLE share this QEMU, kernel, and rootfs.
-
-The fork's `--enable-bsim` links the BabbleSim communication static libraries into QEMU. The Buildroot external tree at `tests/integration/qemu/source` maintains the guest defconfig, Linux fragment, and NimBLE package inputs. Buildroot automatically downloads and extracts the Bootlin toolchain, then compiles Linux and the guest packages. The first build takes substantially longer than incremental builds.
-
-The rootfs is an initramfs expanded afresh at each guest boot. Inspect the original outputs before testing:
+Check the outputs:
 
 ```sh
 test -x "$BSWORLD_QEMU_BIN"
@@ -91,33 +96,29 @@ test -x "$BUILDROOT_OUTPUT/target/usr/bin/nimble-linux"
 
 ## Runtime Data Path
 
-At runtime, BSWorld creates the Virtual Controller's Unix socket and starts QEMU with a socket-backed character device. QEMU exposes that character device as the guest's first PCI serial port, `/dev/ttyS0`. The test runs `btattach -B /dev/ttyS0 -P h4 -S 1000000 -N`, which registers `hci0` with the guest Linux Bluetooth subsystem. BlueZ tests control `hci0` through `bluetoothd`, `bluetoothctl`, and the standard kernel API. NimBLE tests stop `bluetoothd` and claim the same `hci0` through HCI User Channel.
+QEMU exposes the Virtual Controller socket as the guest's `/dev/ttyS0`, and the test registers it as `hci0` with `btattach -B /dev/ttyS0 -P h4 -S 1000000 -N`. BlueZ uses `hci0` through `bluetoothd`; NimBLE stops `bluetoothd` and claims `hci0` through HCI User Channel.
 
-The QEMU command supplies the BabbleSim simulation identity through `-icount`. `bsim-mro=1000` limits each virtual execution interval to 1,000 microseconds, while an earlier timer deadline shortens that interval. At each boundary, QEMU submits the target time to the PHY and holds the vCPU until the PHY acknowledges it. Guest virtual time, timer interrupts, and sleeps therefore follow the same BabbleSim timeline as the Virtual Controller, PHY, pytest, and every other simulated device: guest timing is defined by simulation time, so host load changes how long a test takes but not the protocol behavior the test observes.
-
-Because the fork drives the guest from simulation time rather than wall-clock time, BabbleSim synchronization and QEMU's record/replay feature are mutually exclusive; do not enable both.
+`-icount` carries the BabbleSim identity, and `bsim-mro=1000` limits each execution interval to 1,000 µs. QEMU record/replay cannot be used together with BabbleSim synchronization.
 
 ## Run the Tests
 
-See the [BlueZ tests](bluez/README.md) and [NimBLE Linux test](nimble/README.md) for pytest commands, artifact environment variables, validated behavior, and per-test logs.
+See [BlueZ](bluez/README.md) and [NimBLE](nimble/README.md).
 
 ## Rebuild and Inspect the Configuration
-
-Inspect the current Buildroot configuration:
 
 ```sh
 make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" show-info
 ```
 
-After changing the defconfig, Linux fragment, or toolchain selection, choose a fresh `BUILDROOT_OUTPUT`, rerun the defconfig and make commands above, and update the kernel/rootfs exports. Do not reuse an output directory created with the previous toolchain.
+After changing the defconfig, Linux fragment or toolchain, rebuild into a new `BUILDROOT_OUTPUT` and update the exports.
 
 ## Adding Scenarios
 
-Add an async pytest test under [BlueZ](bluez/README.md) or [NimBLE](nimble/README.md). Reuse `load_qemu_guest()` from [common.py](common.py) before `topo.start()`, then call `login_qemu_guest()` and follow the existing test's Host initialization. Send guest commands through `guest.shell` and verify console output with `wait_log()` or Bluetooth behavior through a peer.
+Add an async pytest test under [BlueZ](bluez/README.md) or [NimBLE](nimble/README.md). Call `load_qemu_guest()` from [common.py](common.py) before `topo.start()` and `login_qemu_guest()` after it, then send guest commands through `guest.shell` and verify them with `wait_log()`.
 
 ## Licenses
 
-The external configuration and tests in this repository use Apache License 2.0. QEMU, Linux, and guest software retain their own licenses. For distribution, generate Buildroot's `legal-info` from the actual build output; see [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md).
+The external configuration and tests in this repository use Apache License 2.0. QEMU, Linux and guest software retain their own licenses; see [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md). Generate the license information for a build with:
 
 ```sh
 make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" legal-info

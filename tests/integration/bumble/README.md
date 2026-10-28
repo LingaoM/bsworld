@@ -2,18 +2,14 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-These tests run the [Bumble](https://github.com/google/bumble) Bluetooth Host stack directly in pytest's asyncio event loop. Each Bumble device receives an independent BSWorld Virtual Controller and connects to it through a Unix-socket HCI transport.
-
-The suite covers:
+Runs the [Bumble](https://github.com/google/bumble) Host inside the pytest asyncio event loop, sharing the simulation clock with the test. Each device has its own Virtual Controller. Scenarios:
 
 - legacy advertising and passive scanning;
-- targeted CW interference across all three advertising channels, spatial isolation, and post-interference recovery;
-- connection establishment between a Bumble central and peripheral;
-- extended periodic advertising, periodic synchronization, and periodic report reception.
+- targeted CW interference on the advertising channels and recovery;
+- connection between a Bumble central and peripheral;
+- periodic advertising and synchronization.
 
-We recommend the [published Docker image](../../../docker/README.md#run-tests). Select this suite with `pytest tests/integration/bumble`.
-
-Bumble is installed with BSWorld. For native Linux, follow the repository README's [local Linux setup](../../../README.md#local-linux) to prepare the environment and build BabbleSim and the Virtual Controller. Retain `BSIM_OUT_PATH` and `BSWORLD_BT_VIRT_CONTROLLER_BIN`, then run:
+In the [published Docker image](../../../docker/README.md#run-tests), use `pytest tests/integration/bumble`. Bumble is installed with BSWorld; natively, after the [local Linux setup](../../../README.md#local-linux), run:
 
 ```sh
 cd "$BSWORLD_ROOT"
@@ -21,8 +17,6 @@ source .venv/bin/activate
 pytest tests/integration/bumble -n auto
 ```
 
-The Applications execute inside pytest, so their timers, socket operations, and timeouts use the same simulation-aware asyncio event loop as the test. The Virtual Controllers remain independent Linux processes. Per-device BTSnoop files are stored under the test's `bumble/<role>/` log directories, and RF traffic is included in the shared BabbleSim trace.
-
 ## Adding Scenarios
 
-Add an async pytest test under the relevant scenario directory. Reuse `add_bumble_controller()` from [common/](common/) before `topo.start()`, then open the Host with `open_bumble_device()`. For a standard two-device topology, `open_bumble_pair()` handles registration and startup together. Drive Bumble APIs and assert received events; these operations share the test's simulation clock.
+Add an async pytest test in the relevant scenario directory. Call `add_bumble_controller()` from [common/](common/) before `topo.start()` and `open_bumble_device()` after it; `open_bumble_pair()` does both for two devices.

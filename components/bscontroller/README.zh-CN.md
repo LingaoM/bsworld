@@ -6,13 +6,16 @@ BSController 是用 Python 实现的低功耗蓝牙 Controller。你的 Host 协
 
 ## 快速开始
 
-BSController 需要 Linux、Python 3.11 或更高版本，以及编译好的 BabbleSim。以 Ubuntu 24.04 x86_64 为例：
+BSController 需要 Linux、Python 3.11 或更高版本，以及编译好的 BabbleSim。以 Ubuntu 24.04 x86_64 为例，先安装构建工具：
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y git repo build-essential gcc-multilib g++-multilib python3-venv
+```
 
-# 获取并编译 BabbleSim 的 PHY、调制解调器和信道模型。
+获取 BabbleSim 并编译其 PHY、调制解调器和信道模型：
+
+```sh
 mkdir -p "$HOME/bsim" && cd "$HOME/bsim"
 repo init -u https://github.com/BabbleSim/manifest.git -m everything.xml -b master
 repo sync
