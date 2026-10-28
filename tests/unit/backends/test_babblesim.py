@@ -191,6 +191,9 @@ async def test_start_spawns_phy_virtual_controllers_and_interference(
     assert backend.clock.sim_dir == env.sim_dir("sim")
     assert backend.clock.phy_alive()
     assert "-d=0" in recorder.calls[1][1]
+    # Real AES-CCM needs libCryptov1, which the HW models load from ../lib.
+    assert "-RealEncryption=1" in recorder.calls[1][1]
+    assert recorder.calls[1][2]["cwd"] == env.bsim_bin_dir
     assert (
         f"-hci-socket={tmp_path / 'state' / 'sim' / 'hci0.sock'}"
         in recorder.calls[1][1]

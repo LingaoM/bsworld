@@ -68,10 +68,11 @@ def test_babblesim_check_accepts_runtime_without_source(tmp_path) -> None:
     "break_output",
     [
         lambda env: (env.bsim_dir / "lib" / "lib_2G4Channel_multiatt.so").unlink(),
+        lambda env: (env.bsim_dir / "lib" / "libCryptov1.so").unlink(),
         lambda env: (env.bsim_bin_dir / "bs_2G4_phy_v1").unlink(),
         lambda env: (env.bsim_bin_dir / "bs_2G4_phy_v1").chmod(0o644),
     ],
-    ids=["missing-radio-module", "missing-phy", "non-executable-phy"],
+    ids=["missing-radio-module", "missing-aes", "missing-phy", "non-executable-phy"],
 )
 def test_babblesim_check_names_the_unusable_output(tmp_path, break_output) -> None:
     env = _bsim_env(tmp_path)

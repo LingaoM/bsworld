@@ -76,7 +76,7 @@ result = await asyncio.wait_for(operation(), timeout=5)
 | NuttX | [BTSak 与 NimBLE](../../tests/integration/nuttx/README.zh-CN.md#添加场景) |
 | QEMU Linux | [BlueZ 与 NimBLE](../../tests/integration/qemu/README.zh-CN.md#添加场景) |
 | TrouBLE | [原生 TrouBLE 测试](../../tests/integration/trouble/README.zh-CN.md#添加场景) |
-| Zephyr | [Bluetooth 与 Mesh shell](../../tests/integration/zephyr/shell/README.zh-CN.md#场景命令) |
+| Zephyr | [Bluetooth 与 Mesh shell](../../tests/integration/zephyr/shell/README.zh-CN.md#添加场景) |
 
 ## 向进程发送 Shell 命令
 

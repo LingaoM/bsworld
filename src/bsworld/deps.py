@@ -37,6 +37,8 @@ _BABBLESIM_OUTPUTS = (
     "lib/lib_2G4Channel_multiatt.so",
     "lib/lib_2G4Modem_BLE_simple.so",
     "lib/lib_2G4Modem_Magic.so",
+    # Real AES for the nRF HW models (-RealEncryption=1).
+    "lib/libCryptov1.so",
     "lib/libPhyComv1.so",
     "lib/libPhyComv1.32.so",
     "lib/libUtilv1.so",
