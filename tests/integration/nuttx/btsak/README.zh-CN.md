@@ -1,42 +1,71 @@
-# BSWorld NuttX BTSak 测试
+# NuttX BTSak 测试
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-运行 NuttX 自带的 `btsak`，通过 shell 命令让每个进程充当广播者或扫描者。构建见 [source/README.zh-CN.md](source/README.zh-CN.md)。
+本组测试运行 NuttX 自带的 `btsak`。每个进程连接自己的虚拟 Controller，由 pytest 通过 shell 命令驱动，充当广播者或扫描者。
 
-## Shell 命令
+| 程序 | 上游配置 | 可执行文件变量 |
+|---|---|---|
+| BTSak | NuttX `sim:bthcisock` | `BSWORLD_NUTTX_BTSAK_BIN` |
 
-广播进程：
+[Docker 运行镜像](../../../../docker/README.zh-CN.md#选择测试套件)已包含该程序并设置好变量。以下步骤用于本机 Linux 构建。
 
-```sh
-ifup bnep0
-bt bnep0 advertise start
-```
+## 准备环境
 
-扫描进程：
+先按 [NuttX 测试环境](../README.zh-CN.md#准备环境)准备 `$NUTTX_DIR` 和 `$NUTTX_APPS_DIR` 工作区，并构建 BabbleSim 和[虚拟 Controller](../../../../docs/zh-CH/controllers.md#编译-zephyr-controller)。
 
-```sh
-ifup bnep0
-bt bnep0 scan start
-sleep 1
-bt bnep0 scan get
-...
-```
+## 构建与运行
 
-## 测试用例
-
-- `test_nuttx_btsak_scanner_finds_advertiser`：一个扫描者发现一个广播者。
-- `test_nuttx_btsak_shell_commands_can_stage_scan`：先启动两个 shell，再分阶段下发角色命令。
-- `test_nuttx_btsak_scanner_finds_multiple_advertisers`：一个扫描者发现两个广播者。
-- `test_nuttx_btsak_targeted_interference_isolates_and_recovers`：广播信道上的 CW 干扰只阻断一个扫描者，干扰结束后恢复。
-
-## 运行
-
-[Docker 测试镜像](../../../../docker/README.zh-CN.md#选择测试套件)中使用 `tests/integration/nuttx/btsak`。本机运行：
+配置 `sim:bthcisock`，启用 BabbleSim 时钟并关闭 SMP 自检。配置时需保留 BabbleSim 构建时导出的 `BSIM_OUT_PATH` 和 `BSIM_COMPONENTS_PATH`：
 
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"
+cd "$NUTTX_DIR"
+# Only needed when this tree was previously configured.
+if [ -f .config ]; then make distclean; fi
+./tools/configure.sh -l -a "$(realpath --relative-to="$NUTTX_DIR" "$NUTTX_APPS_DIR")" sim:bthcisock
+kconfig-tweak --file .config -e SIM_BSIM_TIME -d BLUETOOTH_SMP_SELFTEST
+make olddefconfig
+```
+
+编译程序：
+
+```sh
+make -j"$(nproc)"
 export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
+```
+
+运行测试：
+
+```sh
 cd "$BSWORLD_ROOT"
 pytest tests/integration/nuttx/btsak -q
 ```
+
+| 文件 | 场景 | Controller |
+|---|---|---|
+| [test_btsak_scan_advertise.py](test_btsak_scan_advertise.py) | 单个与多个广播者被发现、分阶段下发 shell 命令、定向 CW 干扰与恢复 | 两种 Controller 各跑一次 |
+
+## 添加场景
+
+```python
+from tests.integration.nuttx.btsak.devices import NUTTX_BTSAK_ADVERTISER
+from tests.integration.nuttx.common import load_nuttx_profile
+
+advertiser = load_nuttx_profile(
+    topo, NUTTX_BTSAK_ADVERTISER, log_subdir="nuttx/advertisers/advertiser"
+)
+await topo.start()
+await advertiser.shell.run_many(("ifup bnep0", "bt bnep0 advertise start"))
+```
+
+| 角色 | Shell 命令 |
+|---|---|
+| 广播者 | `ifup bnep0`、`bt bnep0 advertise start` |
+| 扫描者 | `ifup bnep0`、`bt bnep0 scan start`，然后重复 `sleep 1`、`bt bnep0 scan get` |
+
+[devices.py](devices.py) 提供广播者和扫描者的设备配置。`log_subdir` 指定进程输出目录，现有测试使用 `nuttx/advertisers/<name>/` 和 `nuttx/scanners/<name>/`，其余见[产物目录结构](../../../../docs/zh-CH/artifacts.md)。
+
+## 许可证
+
+本目录的测试使用 Apache License 2.0，其余见[上级许可证说明](../README.zh-CN.md#许可证)。

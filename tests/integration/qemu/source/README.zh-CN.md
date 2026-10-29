@@ -17,4 +17,5 @@ make -C /path/to/buildroot \
 
 完整的环境准备、构建、验证和许可证处理流程见上一级 [QEMU Linux 测试环境](../README.zh-CN.md)。
 
-这些 BSWorld 构建配置使用 Apache License 2.0，不改变 Buildroot、Linux、BlueZ、Apache NimBLE 或生成的 Guest 镜像所适用的许可证。
+- 本目录中的 BSWorld 构建配置：Apache License 2.0。
+- Buildroot、Linux、BlueZ、Apache NimBLE 及生成的 Guest 镜像：保留各自的许可证。

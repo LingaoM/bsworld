@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-The image contains BSWorld, the tests and all compiled firmware. It needs a Linux/x86_64 host with [Docker Engine](https://docs.docker.com/engine/install/ubuntu/); building it also needs Buildx. Omit `sudo` if your user has Docker access.
+The image contains BSWorld, the tests and all compiled firmware. It needs a Linux/x86_64 host with [Docker Engine](https://docs.docker.com/engine/install/ubuntu/).
 
 ## Use a Published Image
 

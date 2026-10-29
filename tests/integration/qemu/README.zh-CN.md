@@ -14,11 +14,13 @@
 | BlueZ | `5.86` |
 | Apache NimBLE | `1e8ed60276f35a80ed4d4b4f8bb9d9c6fee53845` |
 
+[已发布的 Docker 镜像](../../../docker/README.zh-CN.md#运行测试)已包含 QEMU、kernel 和 rootfs。以下步骤用于本机 Linux 构建。
+
 ## 准备环境
 
-[已发布的 Docker 镜像](../../../docker/README.zh-CN.md#运行测试)已包含 QEMU、kernel 和 rootfs，使用 `pytest tests/integration/qemu` 运行。以下步骤用于本机 Linux 构建，先按[仓库构建说明](../../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim 和[虚拟 Controller](../../../docs/zh-CH/controllers.md#编译-zephyr-controller)。
+先按[仓库构建说明](../../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim 和[虚拟 Controller](../../../docs/zh-CH/controllers.md#编译-zephyr-controller)。
 
-安装系统依赖（Ubuntu 24.04）：
+然后安装系统依赖（Ubuntu 24.04）：
 
 ```sh
 sudo apt-get update
@@ -118,7 +120,12 @@ make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" show-info
 
 ## 许可证
 
-本仓库的 external 配置和测试使用 Apache License 2.0。QEMU、Linux 及 Guest 软件保持各自许可证，见[第三方声明](../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。生成构建产物的许可证信息：
+- 测试和 `source/` 中的 Buildroot external 树：Apache License 2.0。
+- QEMU、Linux 及 Guest 软件：保留各自的许可证。
+
+详见[第三方声明](../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。
+
+生成构建产物的许可证信息：
 
 ```sh
 make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" legal-info

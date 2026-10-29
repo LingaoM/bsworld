@@ -8,9 +8,7 @@
 
 `test_qemu_nimble_linux_advertises_and_accepts_connection`：NimBLE 以 `AA:BB:CC:DD:EE:FE` 和设备名 `nimble` 广播，Bumble Central 连接后断开。
 
-## 构建与运行
-
-[Docker 测试镜像](../../../../docker/README.zh-CN.md#选择测试套件)中使用 `tests/integration/qemu/nimble`。本机先按 [QEMU / Buildroot README](../README.zh-CN.md) 构建，再运行：
+## 运行
 
 ```sh
 cd "$BSWORLD_ROOT"

@@ -61,6 +61,8 @@ pytest tests/integration -n auto -k '[zephyr]'
 pytest tests/integration -n auto -k '[bscontroller]'
 ```
 
+`test_le_features.py` 等混用两种实现的场景使用 `[<peripheral>-<central>]` 形式的 ID，例如 `[zephyr-bscontroller]`，上面两条命令都不会选中它们。
+
 ## 配置 BSController
 
 通过 `config=` 传入一个 `ControllerConfig`。字段、默认值和取值范围见 [BSController 配置说明](../../components/bscontroller/README.zh-CN.md#配置)。

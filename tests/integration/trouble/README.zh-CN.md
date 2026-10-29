@@ -1,43 +1,67 @@
-# 原生 TrouBLE 测试
+# TrouBLE 测试
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-将两个 [TrouBLE](https://github.com/embassy-rs/trouble) Rust Host 作为原生 Linux 进程运行，各自连接一个虚拟 Controller。[`source/src/bsim/`](source/src/bsim) 提供 Unix 传输、执行器和 BabbleSim 时钟。
+本组测试将两个 [TrouBLE](https://github.com/embassy-rs/trouble) Rust Host 作为原生 Linux 进程运行，每个进程连接自己的虚拟 Controller，由 pytest 通过日志验证。[`source/src/bsim/`](source/src/bsim) 提供 Unix 传输、执行器和 BabbleSim 时钟。
 
-## 已验证场景
+| 程序 | 上游入口 | 可执行文件变量 |
+|---|---|---|
+| `ble_bas` | `trouble-example-apps` 的 `ble_bas_central` / `ble_bas_peripheral` | `BSWORLD_TROUBLE_NATIVE_BIN`，默认 `source/target/debug/ble_bas` |
 
-`test_trouble_native_hosts_connect_discover_read_and_notify`，每种 Controller 各跑一次：
+[Docker 运行镜像](../../../docker/README.zh-CN.md#选择测试套件)已包含该程序并设置好变量。以下步骤用于本机 Linux 构建。
 
-1. peripheral 发起广播并接受 central 的连接。
-2. central 发现 Battery Service 并读取 Battery Level 特征。
-3. central 订阅并接收通知。
+## 准备 Rust 工具链
+
+先按[本地 Linux 环境搭建](../../../docs/zh-CH/README.md#本地-linux)准备 BSWorld，并按[仓库构建说明](../../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim。
+
+用 [rustup](https://rustup.rs/) 安装 Rust。首次执行 Cargo 命令时会自动安装 [rust-toolchain.toml](source/rust-toolchain.toml) 固定的工具链。
+
+`[zephyr]` 用例还需要构建 [Zephyr 虚拟 Controller](../../../docs/zh-CH/controllers.md#编译-zephyr-controller)。
 
 ## 构建与运行
 
-[Docker 测试镜像](../../../docker/README.zh-CN.md#选择测试套件)中使用 `tests/integration/trouble`。本机先用 [rustup](https://rustup.rs/) 安装 Rust，再在仓库根目录执行：
+构建程序：
 
 ```sh
-cargo build --locked --manifest-path tests/integration/trouble/source/Cargo.toml
-
 cd "$BSWORLD_ROOT"
+cargo build --locked --manifest-path tests/integration/trouble/source/Cargo.toml
+```
+
+运行测试：
+
+```sh
 source .venv/bin/activate
 pytest tests/integration/trouble -q
 ```
 
-测试默认使用 `source/target/debug/ble_bas`，其他构建产物通过 `BSWORLD_TROUBLE_NATIVE_BIN` 指定。
+| 文件 | 场景 | Controller |
+|---|---|---|
+| [test_trouble_native.py](test_trouble_native.py) | 广播与连接、Battery Service 发现与读取、通知 | 两种 Controller 各跑一次 |
 
-适配层单元测试：
+运行适配层单元测试：
 
 ```sh
 cargo test --locked --manifest-path tests/integration/trouble/source/Cargo.toml
 ```
 
-日志位于 `trouble/<角色>/`，其余见[产物目录结构](../../../docs/zh-CH/artifacts.md)。
-
 ## 添加场景
 
-以 [test_trouble_native.py](test_trouble_native.py) 为起点，在 `topo.start()` 前登记各 Host 角色，启动后用 `wait_log()` 验证事件。角色行为在 Rust 可执行文件中实现。
+```python
+central = _add_host(topo, "central")
+peripheral = _add_host(topo, "peripheral")
+await topo.start()
+await peripheral.wait_log(r"\[adv\] connection established")
+await central.wait_log(r"Read value: \d+")
+```
 
-## 许可
+`_add_host()` 定义在 [test_trouble_native.py](test_trouble_native.py) 中，角色行为在 Rust 可执行文件中实现。
 
-本目录下的测试与适配层以 Apache License 2.0 授权。TrouBLE 以 MIT 或 Apache License 2.0 提供，`source/src/bsim/` 保留其原始形态的 MIT OR Apache-2.0 许可。分发二进制前请查阅[第三方声明](../../../THIRD_PARTY_NOTICES.md)。
+进程输出位于 `trouble/<role>/`，其余见[产物目录结构](../../../docs/zh-CH/artifacts.md)。
+
+## 许可证
+
+- 测试代码和 `source/src/main.rs`：Apache License 2.0。
+- 适配层 `source/src/bsim/`：保留原始形态的 MIT OR Apache-2.0。
+- TrouBLE：MIT 或 Apache License 2.0。
+
+分发二进制前请查阅[第三方声明](../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。

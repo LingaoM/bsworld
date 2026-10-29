@@ -1,22 +1,58 @@
-# Bumble 集成测试
+# Bumble 测试
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-在 pytest 的 asyncio event loop 中运行 [Bumble](https://github.com/google/bumble) Host，与测试共用仿真时钟。每个设备连接一个独立的虚拟 Controller。场景：
+本组测试在 pytest 的 asyncio event loop 中运行 [Bumble](https://github.com/google/bumble) Python Host，与测试共用仿真时钟。每个设备连接自己的虚拟 Controller。[common/](common/) 存放共用的设备辅助函数。
 
-- 传统广播和被动扫描；
-- 广播信道上的定向 CW 干扰与恢复；
-- Bumble Central 与 Peripheral 建立连接；
-- 周期广播与同步。
+| Host | 上游 | 版本 |
+|---|---|---|
+| Bumble | [google/bumble](https://github.com/google/bumble) | `bumble==0.0.235`，在 [pyproject.toml](../../../pyproject.toml) 中固定 |
 
-[已发布的 Docker 镜像](../../../docker/README.zh-CN.md#运行测试)中使用 `pytest tests/integration/bumble`。Bumble 随 BSWorld 安装；本机按[本地 Linux 环境搭建](../../../docs/zh-CH/README.md#本地-linux)准备后运行：
+[Docker 运行镜像](../../../docker/README.zh-CN.md#选择测试套件)已包含 Bumble。以下步骤用于本机 Linux。
+
+## 准备环境
+
+先按[本地 Linux 环境搭建](../../../docs/zh-CH/README.md#本地-linux)准备 BSWorld（同时安装 Bumble），并按[仓库构建说明](../../../docs/zh-CH/README.md#构建与测试)构建 BabbleSim。
+
+`[zephyr]` 用例还需要构建 [Zephyr 虚拟 Controller](../../../docs/zh-CH/controllers.md#编译-zephyr-controller)。
+
+## 构建与运行
+
+Bumble 无需构建。运行测试：
 
 ```sh
 cd "$BSWORLD_ROOT"
 source .venv/bin/activate
-pytest tests/integration/bumble -n auto
+pytest tests/integration/bumble -n auto -q
 ```
+
+| 文件 | 场景 | Controller |
+|---|---|---|
+| [broadcast_observe/test_bumble_broadcast_observe.py](broadcast_observe/test_bumble_broadcast_observe.py) | 传统广播与被动扫描、定向 CW 干扰与恢复 | 两种 Controller 各跑一次 |
+| [connection/test_bumble_connection.py](connection/test_bumble_connection.py) | Central 与 Peripheral 建立连接 | 两种 Controller 各跑一次 |
+| [periodic_advertising/test_bumble_periodic_advertising.py](periodic_advertising/test_bumble_periodic_advertising.py) | 周期广播与同步 | 两种 Controller 各跑一次 |
 
 ## 添加场景
 
-在对应场景目录添加异步 pytest 测试。`topo.start()` 前调用 [common/](common/) 中的 `add_bumble_controller()`，启动后调用 `open_bumble_device()`；两个设备可直接用 `open_bumble_pair()`。
+```python
+from contextlib import AsyncExitStack
+
+from tests.integration.bumble.common import add_bumble_controller, open_bumble_device
+
+controller = add_bumble_controller(topo, "observer", "F0:F1:F2:F3:F4:02")
+await topo.start()
+async with AsyncExitStack() as stack:
+    observer = await open_bumble_device(
+        stack, "observer", "F0:F1:F2:F3:F4:02", controller.hci_sock
+    )
+    await observer.start_scanning()
+```
+
+两个设备可直接用 `open_bumble_pair()` 完成这两步。HCI 抓包位于 `bumble/<role>/`，其余见[产物目录结构](../../../docs/zh-CH/artifacts.md)。
+
+## 许可证
+
+- 测试代码：Apache License 2.0。
+- Bumble：Apache License 2.0。
+
+详见[第三方声明](../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。

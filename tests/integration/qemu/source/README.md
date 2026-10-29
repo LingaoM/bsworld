@@ -17,4 +17,5 @@ make -C /path/to/buildroot \
 
 The complete environment, build, validation, and license procedure is documented in the parent [QEMU Linux Test Environment](../README.md).
 
-These BSWorld build inputs are licensed under Apache License 2.0. They do not change the licenses of Buildroot, Linux, BlueZ, Apache NimBLE, or the generated Guest image.
+- BSWorld build inputs in this directory: Apache License 2.0.
+- Buildroot, Linux, BlueZ, Apache NimBLE and the generated Guest image: retain their own licenses.

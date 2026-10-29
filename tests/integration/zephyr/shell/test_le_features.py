@@ -47,7 +47,9 @@ def bsworld_default_controller_type():
         (ZephyrController, BSController),
         (BSController, BSController),
     ],
-    ids=["zephyr-zephyr", "bscontroller-zephyr", "zephyr-bscontroller", "bscontroller"],
+    # A single-Controller pairing uses that Controller's plain ID so `-k` selects
+    # it with the other suites; mixed pairings are "<peripheral>-<central>".
+    ids=["zephyr", "bscontroller-zephyr", "zephyr-bscontroller", "bscontroller"],
 )
 def roles(request, topo):
     """Controller types for (peripheral, central).

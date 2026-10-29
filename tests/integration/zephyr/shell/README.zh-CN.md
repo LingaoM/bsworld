@@ -113,4 +113,7 @@ Mesh 程序在两个辅助函数中都传入 `mesh=True`。进程输出位于 `z
 
 ## 许可证
 
-BSWorld 的测试代码和配置使用 Apache License 2.0；Zephyr 保留其上游许可证，见[第三方声明](../../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。
+- 测试代码和 `source/` 中的配置：Apache License 2.0。
+- Zephyr：保留其上游许可证。
+
+详见[第三方声明](../../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。

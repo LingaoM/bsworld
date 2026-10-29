@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-镜像包含 BSWorld、测试用例和全部编译好的固件，需要安装了 [Docker Engine](https://docs.docker.com/engine/install/ubuntu/) 的 Linux/x86_64 主机，自行构建还需要 Buildx。当前用户有 Docker 权限时可省略 `sudo`。
+镜像包含 BSWorld、测试用例和全部编译好的固件，需要安装了 [Docker Engine](https://docs.docker.com/engine/install/ubuntu/) 的 Linux/x86_64 主机。
 
 ## 使用已发布镜像
 
