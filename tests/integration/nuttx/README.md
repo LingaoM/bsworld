@@ -50,9 +50,17 @@ Build BabbleSim using the [repository instructions](../../../README.md#build-and
 
 | Suite | Build instructions | Test artifact variable |
 |---|---|---|
-| BTSak | [source/README](btsak/source/README.md) | `BSWORLD_NUTTX_BTSAK_BIN` |
-| NimBLE | [source/README](nimble/source/README.md) | `BSWORLD_NUTTX_NIMBLE_BIN` |
+| BTSak | [BTSak tests](btsak/README.md#build-and-run) | `BSWORLD_NUTTX_BTSAK_BIN` |
+| NimBLE | [NimBLE tests](nimble/README.md#build-and-run) | `BSWORLD_NUTTX_NIMBLE_BIN` |
 
 ## Adding Scenarios
 
 Add an async pytest test under [BTSak](btsak/README.md) or [NimBLE](nimble/README.md), reusing that suite's device profiles with `load_nuttx_profile()` from [common/](common/). Register processes before `topo.start()`, then send the role commands documented in the suite README and verify their output with `wait_log()`.
+
+## License
+
+- Test code: Apache License 2.0.
+- NuttX and NuttX Apps: Apache License 2.0.
+- Apache NimBLE, used by the NimBLE suite: Apache License 2.0.
+
+See [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md).

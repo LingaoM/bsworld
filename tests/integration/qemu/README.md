@@ -14,11 +14,13 @@ Runs a Buildroot AArch64 Linux guest with BlueZ and Apache NimBLE in a single-vC
 | BlueZ | `5.86` |
 | Apache NimBLE | `1e8ed60276f35a80ed4d4b4f8bb9d9c6fee53845` |
 
+The [published Docker image](../../../docker/README.md#run-tests) already includes QEMU, the kernel and rootfs. The steps below are for native Linux builds.
+
 ## Prepare the Environment
 
-The [published Docker image](../../../docker/README.md#run-tests) already includes QEMU, the kernel and rootfs; select the suites with `pytest tests/integration/qemu`. The steps below are for native Linux builds. Build BabbleSim using the [repository instructions](../../../README.md#build-and-test) and the [Controller](../../../docs/controllers.md#building-the-zephyr-controller) first.
+Build BabbleSim and the [Virtual Controller](../../../docs/controllers.md#building-the-zephyr-controller) using the [repository instructions](../../../README.md#build-and-test) first.
 
-Install the system dependencies (Ubuntu 24.04):
+Then install the system dependencies (Ubuntu 24.04):
 
 ```sh
 sudo apt-get update
@@ -116,9 +118,14 @@ After changing the defconfig, Linux fragment or toolchain, rebuild into a new `B
 
 Add an async pytest test under [BlueZ](bluez/README.md) or [NimBLE](nimble/README.md). Call `load_qemu_guest()` from [common.py](common.py) before `topo.start()` and `login_qemu_guest()` after it, then send guest commands through `guest.shell` and verify them with `wait_log()`.
 
-## Licenses
+## License
 
-The external configuration and tests in this repository use Apache License 2.0. QEMU, Linux and guest software retain their own licenses; see [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md). Generate the license information for a build with:
+- Tests and the Buildroot external tree in `source/`: Apache License 2.0.
+- QEMU, Linux and guest software: retain their own licenses.
+
+See [Third-Party Notices](../../../THIRD_PARTY_NOTICES.md).
+
+Generate the license information for a build:
 
 ```sh
 make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" legal-info

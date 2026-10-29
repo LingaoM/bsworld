@@ -12,9 +12,7 @@ Runs BlueZ in the [QEMU Linux guest](../README.md) and drives it through `blueto
 | `test_qemu_bluez_advertises_to_bumble_observer` | A Bumble observer receives BlueZ's connectable advertising with the expected name and address. |
 | `test_qemu_bluez_scans_and_connects_bumble_peripheral` | BlueZ discovers a Bumble peripheral, connects and disconnects. |
 
-## Build and Run
-
-In the [Docker test image](../../../../docker/README.md#select-a-suite), use `tests/integration/qemu/bluez`. Natively, build with the [QEMU / Buildroot README](../README.md), then run:
+## Run
 
 ```sh
 cd "$BSWORLD_ROOT"
@@ -26,4 +24,4 @@ The QEMU console is under `qemu/bluez/qemu_bluez.log`; see [artifacts](../../../
 
 ## License
 
-The tests in this directory use Apache License 2.0. See the [parent license notes](../README.md#licenses).
+The tests in this directory use Apache License 2.0. See the [parent license notes](../README.md#license).

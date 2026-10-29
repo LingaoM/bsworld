@@ -12,9 +12,7 @@
 | `test_qemu_bluez_advertises_to_bumble_observer` | Bumble Observer 收到 BlueZ 的可连接广播，设备名和地址正确。 |
 | `test_qemu_bluez_scans_and_connects_bumble_peripheral` | BlueZ 发现 Bumble Peripheral，建立连接后断开。 |
 
-## 构建与运行
-
-[Docker 测试镜像](../../../../docker/README.zh-CN.md#选择测试套件)中使用 `tests/integration/qemu/bluez`。本机先按 [QEMU / Buildroot README](../README.zh-CN.md) 构建，再运行：
+## 运行
 
 ```sh
 cd "$BSWORLD_ROOT"

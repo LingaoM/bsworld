@@ -7,7 +7,7 @@
 # src/main.rs are maintained here.
 #
 # To move to a newer upstream commit, update `rev` below, refresh Cargo.lock
-# with `cargo update`, and update TROUBLE_REVISION in README.md.
+# with `cargo update`, and update the revision in README.md and README.zh-CN.md.
 
 [package]
 name = "bsworld-trouble-native"

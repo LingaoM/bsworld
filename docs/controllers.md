@@ -61,6 +61,8 @@ pytest tests/integration -n auto -k '[zephyr]'
 pytest tests/integration -n auto -k '[bscontroller]'
 ```
 
+Scenarios that pair the two implementations, such as `test_le_features.py`, use `[<peripheral>-<central>]` IDs, for example `[zephyr-bscontroller]`. Neither command above selects them.
+
 ## Configuring BSController
 
 Pass a `ControllerConfig` as `config=`. The fields, defaults and ranges are listed in the [BSController configuration reference](../components/bscontroller/README.md#configuration).

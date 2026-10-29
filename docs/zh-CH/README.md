@@ -6,11 +6,13 @@ BSWorld 是一个在 Linux 上测试 Bluetooth Host 及其业务程序的确定�
 
 使用 BSWorld 可以：
 
-- 通过真实 Host 协议栈测试广播、扫描、连接、GATT、周期广播、Mesh 和多设备交互。
-- 稳定复现协议时序与 RF 行为，不受 Linux 调度抖动影响。
+- 测试 Zephyr、NuttX、BlueZ、NimBLE、Bumble、TrouBLE 等开源 Host 协议栈，无需修改其源码。
+- 每个 Host 通过标准 H4 HCI 连接自己的虚拟 Controller，不需要硬件。
+- 保留业务程序日志、HCI BTSnoop、PHY 日志和 Ellisys 跟踪文件定位故障。
+- 每个场景里可以同时仿真多台设备，同一场景重复运行，日志及时序均保持一致，不受主机负载和调度影响。
+- 所有设备共享离散仿真时钟；场景之间相互隔离，结合 pytest-xdist 并行运行，最高可达百倍加速。
 - 注入路径衰减、干扰、WLAN 活动和录制的无线信号。
-- 使用 pytest-xdist 并行运行相互隔离的场景。
-- 结合业务程序日志、HCI BTSnoop、PHY 日志和 Ellisys 跟踪文件定位故障。
+
 
 ## 快速开始
 
@@ -83,17 +85,18 @@ export BSIM_BUILD_FAIL_ASAP=1
 make -j"$(nproc)" everything
 ```
 
-按照 [Zephyr Controller](controllers.md#编译-zephyr-controller)、[Zephyr shell](../../tests/integration/zephyr/shell/README.zh-CN.md)、[NuttX](../../tests/integration/nuttx/README.zh-CN.md)或 [QEMU / Buildroot](../../tests/integration/qemu/README.zh-CN.md) 的说明构建所需 Host 和 Controller 二进制，然后运行集成测试：
+在 BSController 上运行 Bumble 场景，不需要其他二进制：
 
 ```sh
 cd "$BSWORLD_ROOT"
-source .venv/bin/activate
-pytest tests/integration -n auto
+pytest tests/integration/bumble -n auto -k '[bscontroller]'
 ```
 
 ### 选择测试用的 Controller
 
-集成场景默认分别使用 Zephyr Controller（`[zephyr]`）和 Python BSController（`[bscontroller]`）运行，参见[虚拟 Controller](controllers.md)。通过 pytest 参数 ID 选择一种实现：
+集成场景默认分别使用 Zephyr Controller（`[zephyr]`）和 Python BSController（`[bscontroller]`）运行，参见[虚拟 Controller](controllers.md)。
+
+通过 pytest 参数 ID 选择一种实现：
 
 ```sh
 pytest tests/integration -n auto -v -k '[zephyr]'

@@ -50,9 +50,17 @@ git clone "$NUTTX_APPS_DIR" "$NUTTX_NIMBLE_APPS_DIR"
 
 | 套件 | 编译说明 | 测试产物变量 |
 |---|---|---|
-| BTSak | [source/README](btsak/source/README.zh-CN.md) | `BSWORLD_NUTTX_BTSAK_BIN` |
-| NimBLE | [source/README](nimble/source/README.zh-CN.md) | `BSWORLD_NUTTX_NIMBLE_BIN` |
+| BTSak | [BTSak 测试](btsak/README.zh-CN.md#构建与运行) | `BSWORLD_NUTTX_BTSAK_BIN` |
+| NimBLE | [NimBLE 测试](nimble/README.zh-CN.md#构建与运行) | `BSWORLD_NUTTX_NIMBLE_BIN` |
 
 ## 添加场景
 
 在 [BTSak](btsak/README.zh-CN.md) 或 [NimBLE](nimble/README.zh-CN.md) 目录中添加异步 pytest 测试，复用套件的设备配置和 [common/](common/) 中的 `load_nuttx_profile()`。在 `topo.start()` 前登记进程，启动后按对应 README 发送角色命令，并通过 `wait_log()` 验证输出。
+
+## 许可证
+
+- 测试代码：Apache License 2.0。
+- NuttX 和 NuttX Apps：Apache License 2.0。
+- NimBLE 套件使用的 Apache NimBLE：Apache License 2.0。
+
+详见[第三方声明](../../../docs/zh-CH/THIRD_PARTY_NOTICES.md)。

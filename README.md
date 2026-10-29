@@ -6,11 +6,12 @@ BSWorld is a deterministic simulation framework for testing Bluetooth Hosts and 
 
 Use BSWorld to:
 
-- Test advertising, scanning, connections, GATT, periodic advertising, Mesh, and multi-device behavior with real Host stacks.
-- Reproduce protocol timing and RF behavior independently of Linux scheduling jitter.
+- Test open-source Host stacks such as Zephyr, NuttX, BlueZ, NimBLE, Bumble, and TrouBLE without modifying their source code.
+- Run without hardware: each Host connects over standard H4 HCI to its own virtual Controller.
+- Keep Application logs, HCI BTSnoop captures, PHY logs, and Ellisys traces for debugging failures.
+- Simulate many devices in one scenario. Repeated runs of the same scenario produce consistent logs and timing, regardless of host load or scheduling.
+- Share one discrete simulation clock across all devices. Scenarios are isolated and run in parallel with pytest-xdist, up to 100 times faster than real time.
 - Inject attenuation, interference, WLAN activity, and recorded radio signals.
-- Run isolated scenarios in parallel with pytest-xdist.
-- Debug failures with Application logs, HCI BTSnoop captures, PHY logs, and Ellisys traces.
 
 ## Quick Start
 
@@ -83,17 +84,18 @@ export BSIM_BUILD_FAIL_ASAP=1
 make -j"$(nproc)" everything
 ```
 
-Build the required Host and Controller binaries using the guides for the [Zephyr Controller](docs/controllers.md#building-the-zephyr-controller), [Zephyr shell](tests/integration/zephyr/shell/README.md), [NuttX](tests/integration/nuttx/README.md), or [QEMU / Buildroot](tests/integration/qemu/README.md). Then run the integration tests:
+Run the Bumble scenarios on BSController, which need no other binaries:
 
 ```sh
 cd "$BSWORLD_ROOT"
-source .venv/bin/activate
-pytest tests/integration -n auto
+pytest tests/integration/bumble -n auto -k '[bscontroller]'
 ```
 
 ### Test Controller Variants
 
-Integration scenarios run with both the Zephyr Controller (`[zephyr]`) and Python BSController (`[bscontroller]`) by default; see [Virtual Controllers](docs/controllers.md). Select one implementation with its pytest parameter ID:
+Integration scenarios run with both the Zephyr Controller (`[zephyr]`) and Python BSController (`[bscontroller]`) by default; see [Virtual Controllers](docs/controllers.md).
+
+Select one implementation with its pytest parameter ID:
 
 ```sh
 pytest tests/integration -n auto -v -k '[zephyr]'

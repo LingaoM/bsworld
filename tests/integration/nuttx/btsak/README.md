@@ -1,42 +1,71 @@
-# BSWorld NuttX BTSak Tests
+# NuttX BTSak Tests
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Runs the stock NuttX `btsak` and uses shell commands to make each process an advertiser or a scanner. See [source/README.md](source/README.md) for the build.
+These tests run the stock NuttX `btsak`. Each process connects to its own Virtual Controller and is driven by pytest through shell commands as an advertiser or a scanner.
 
-## Shell Commands
+| Executable | Upstream configuration | Executable variable |
+|---|---|---|
+| BTSak | NuttX `sim:bthcisock` | `BSWORLD_NUTTX_BTSAK_BIN` |
 
-Advertiser processes:
+The [Docker runtime image](../../../../docker/README.md#select-a-suite) includes the executable and sets the variable. The steps below are for native Linux builds.
 
-```sh
-ifup bnep0
-bt bnep0 advertise start
-```
+## Prepare the Environment
 
-Scanner processes:
+Prepare the `$NUTTX_DIR` and `$NUTTX_APPS_DIR` workspaces using the [NuttX test environment](../README.md#prepare-the-environment), and build BabbleSim and the [Virtual Controller](../../../../docs/controllers.md#building-the-zephyr-controller).
 
-```sh
-ifup bnep0
-bt bnep0 scan start
-sleep 1
-bt bnep0 scan get
-...
-```
+## Build and Run
 
-## Test Cases
-
-- `test_nuttx_btsak_scanner_finds_advertiser`: one scanner discovers one advertiser.
-- `test_nuttx_btsak_shell_commands_can_stage_scan`: both shells start first, then role commands are issued in stages.
-- `test_nuttx_btsak_scanner_finds_multiple_advertisers`: one scanner discovers two advertisers.
-- `test_nuttx_btsak_targeted_interference_isolates_and_recovers`: CW interference on the advertising channels blocks only one scanner, which recovers afterwards.
-
-## Run
-
-In the [Docker test image](../../../../docker/README.md#select-a-suite), use `tests/integration/nuttx/btsak`. Natively:
+Configure `sim:bthcisock` with the BabbleSim clock enabled and the SMP self-test disabled. Keep `BSIM_OUT_PATH` and `BSIM_COMPONENTS_PATH` exported from the BabbleSim build:
 
 ```sh
 source "$BSWORLD_ROOT/.venv/bin/activate"
+cd "$NUTTX_DIR"
+# Only needed when this tree was previously configured.
+if [ -f .config ]; then make distclean; fi
+./tools/configure.sh -l -a "$(realpath --relative-to="$NUTTX_DIR" "$NUTTX_APPS_DIR")" sim:bthcisock
+kconfig-tweak --file .config -e SIM_BSIM_TIME -d BLUETOOTH_SMP_SELFTEST
+make olddefconfig
+```
+
+Build the executable:
+
+```sh
+make -j"$(nproc)"
 export BSWORLD_NUTTX_BTSAK_BIN="$NUTTX_DIR/nuttx"
+```
+
+Run the tests:
+
+```sh
 cd "$BSWORLD_ROOT"
 pytest tests/integration/nuttx/btsak -q
 ```
+
+| File | Scenarios | Controllers |
+|---|---|---|
+| [test_btsak_scan_advertise.py](test_btsak_scan_advertise.py) | Discovery of one and multiple advertisers, staged shell commands, targeted CW interference and recovery | Once per Controller |
+
+## Adding Scenarios
+
+```python
+from tests.integration.nuttx.btsak.devices import NUTTX_BTSAK_ADVERTISER
+from tests.integration.nuttx.common import load_nuttx_profile
+
+advertiser = load_nuttx_profile(
+    topo, NUTTX_BTSAK_ADVERTISER, log_subdir="nuttx/advertisers/advertiser"
+)
+await topo.start()
+await advertiser.shell.run_many(("ifup bnep0", "bt bnep0 advertise start"))
+```
+
+| Role | Shell commands |
+|---|---|
+| Advertiser | `ifup bnep0`, `bt bnep0 advertise start` |
+| Scanner | `ifup bnep0`, `bt bnep0 scan start`, then repeated `sleep 1` and `bt bnep0 scan get` |
+
+[devices.py](devices.py) provides the advertiser and scanner profiles. `log_subdir` selects the process output directory; the existing tests use `nuttx/advertisers/<name>/` and `nuttx/scanners/<name>/`; see [artifacts](../../../../docs/artifacts.md) for the rest.
+
+## License
+
+The tests in this directory use Apache License 2.0. See the [parent license notes](../README.md#license).

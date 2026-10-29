@@ -8,9 +8,7 @@ Runs the upstream Apache NimBLE Linux Host example in the [QEMU Linux guest](../
 
 `test_qemu_nimble_linux_advertises_and_accepts_connection`: NimBLE advertises as `nimble` from `AA:BB:CC:DD:EE:FE`, and a Bumble Central connects and disconnects.
 
-## Build and Run
-
-In the [Docker test image](../../../../docker/README.md#select-a-suite), use `tests/integration/qemu/nimble`. Natively, build with the [QEMU / Buildroot README](../README.md), then run:
+## Run
 
 ```sh
 cd "$BSWORLD_ROOT"
@@ -22,4 +20,4 @@ The QEMU console is under `qemu/nimble/qemu_nimble.log`; see [artifacts](../../.
 
 ## License
 
-The tests in this directory use Apache License 2.0. See the [parent license notes](../README.md#licenses).
+The tests in this directory use Apache License 2.0. See the [parent license notes](../README.md#license).

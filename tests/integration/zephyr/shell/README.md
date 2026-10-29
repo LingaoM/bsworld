@@ -113,4 +113,7 @@ For the Mesh executable, pass `mesh=True` to both helpers. Process output is und
 
 ## License
 
-The BSWorld test code and configuration use Apache License 2.0. Zephyr retains its upstream licenses; see [Third-Party Notices](../../../../THIRD_PARTY_NOTICES.md).
+- Test code and the configuration in `source/`: Apache License 2.0.
+- Zephyr: retains its upstream licenses.
+
+See [Third-Party Notices](../../../../THIRD_PARTY_NOTICES.md).
