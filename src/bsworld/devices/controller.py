@@ -19,6 +19,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from string import hexdigits
 
 from ..env import Env
 from ..runtime.proc import ProcessManager
@@ -31,15 +32,9 @@ def _normalize_controller_address(address: str) -> str:
 
     octets: list[str] = []
     for part in parts:
-        if len(part) != 2:
+        if len(part) != 2 or any(char not in hexdigits for char in part):
             raise ValueError("controller address must use AA:BB:CC:DD:EE:FF format")
-        try:
-            value = int(part, 16)
-        except ValueError as exc:
-            raise ValueError(
-                "controller address must use AA:BB:CC:DD:EE:FF format"
-            ) from exc
-        octets.append(f"{value:02X}")
+        octets.append(part.upper())
 
     if all(octet == "00" for octet in octets):
         raise ValueError("controller address must not be all zero")

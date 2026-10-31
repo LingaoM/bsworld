@@ -34,6 +34,10 @@ def test_controller_normalizes_public_address(tmp_path) -> None:
         "C0:FF:EE:00:00",
         "C0:FF:EE:00:00:01:02",
         "C0:FF:EE:00:00:GG",
+        "C0:FF:EE:00:00:-1",
+        "C0:FF:EE:00:00:+1",
+        "C0:FF:EE:00:00: 1",
+        "C0:FF:EE:00:00:０１",
         "00:00:00:00:00:00",
     ],
 )
