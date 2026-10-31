@@ -101,7 +101,7 @@ def bsworld_env(request: pytest.FixtureRequest) -> Env:
     """
     cfg = request.config
     return Env.detect(
-        out_tag=cfg._bsworld_out_dir,
+        out_dir=cfg._bsworld_out_dir,
         now_tag=cfg._bsworld_now_tag,
         run_uid=cfg._bsworld_run_uid,
     )

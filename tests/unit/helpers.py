@@ -29,13 +29,11 @@ def make_env(tmp_path: Path) -> Env:
     """Build an isolated environment without probing the host machine."""
     bsim_dir = tmp_path / "build" / "babblesim" / "bsim"
     return Env(
-        out_tag="run-test",
         run_uid="uid",
         out_dir=tmp_path / "out",
         log_dir=tmp_path / "out" / "log",
         hci_virt_bin=tmp_path / "components" / "hci",
         bsim_dir=bsim_dir,
-        bsim_bin_dir=bsim_dir / "bin",
         bs_state_dir=tmp_path / "state",
     )
 
