@@ -57,7 +57,7 @@ def resolve_run_identity(
     """
     base_dir = out_dir or os.environ.get("OUT_DIR") or "/tmp"
     return (
-        base_dir,
+        str(Path(base_dir).expanduser().resolve()),
         now_tag or _now_tag(),
         run_uid or os.environ.get("RUN_UID") or _run_uid(),
     )
@@ -65,7 +65,6 @@ def resolve_run_identity(
 
 @dataclass(frozen=True)
 class Env:
-    out_tag: str
     run_uid: str
     out_dir: Path
     log_dir: Path
@@ -75,39 +74,44 @@ class Env:
 
     # shared build outputs prepared before pytest
     bsim_dir: Path | None
-    bsim_bin_dir: Path | None
 
     bs_state_dir: Path
+
+    @property
+    def bsim_bin_dir(self) -> Path | None:
+        return self.bsim_dir / "bin" if self.bsim_dir else None
 
     @classmethod
     def detect(
         cls,
         *,
-        out_tag: str | None = None,
+        out_dir: str | Path | None = None,
         now_tag: str | None = None,
         run_uid: str | None = None,
     ) -> "Env":
         """Resolve an environment, defaulting the run identity from os.environ.
 
-        The pytest plugin resolves the identity once per session and passes it
-        in, so every xdist worker shares one output directory.
+        out_dir is the base output directory; each run writes beneath
+        <out_dir>/<now_tag>/<run_uid>. The pytest plugin resolves the identity
+        once per session and passes it in, so every xdist worker shares one
+        output directory.
         """
         base_dir, resolved_tag, uid = resolve_run_identity(
-            out_dir=out_tag, now_tag=now_tag, run_uid=run_uid
+            out_dir=str(out_dir) if out_dir is not None else None,
+            now_tag=now_tag,
+            run_uid=run_uid,
         )
-        out_dir = Path(base_dir) / resolved_tag / uid
-        log_dir = out_dir / "log"
+        run_dir = Path(base_dir) / resolved_tag / uid
+        log_dir = run_dir / "log"
 
         bsim_dir = env_path("BSIM_OUT_PATH")
 
         return cls(
-            out_tag=resolved_tag,
             run_uid=uid,
-            out_dir=out_dir,
+            out_dir=run_dir,
             log_dir=log_dir,
             hci_virt_bin=env_path("BSWORLD_BT_VIRT_CONTROLLER_BIN"),
             bsim_dir=bsim_dir,
-            bsim_bin_dir=bsim_dir / "bin" if bsim_dir else None,
             # Native layout shared with the Controllers; bscontroller owns it.
             bs_state_dir=simulation_root(),
         )
