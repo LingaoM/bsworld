@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tests.integration.applications import add_application, require_artifact
+from tests.integration.applications import create_application, require_artifact
 
 from bsworld.devices import BSController, ZephyrController
 from bsworld.devices.layout import AppSlot
@@ -31,13 +31,11 @@ _GUIDE = "docs/writing-tests.md"
 
 def _env(tmp_path: Path) -> Env:
     return Env(
-        out_tag="run-test",
         run_uid="uid",
         out_dir=tmp_path / "out",
         log_dir=tmp_path / "out" / "log",
         hci_virt_bin=tmp_path / "components" / "hci",
         bsim_dir=tmp_path / "bsim",
-        bsim_bin_dir=tmp_path / "bsim" / "bin",
         bs_state_dir=tmp_path / "state",
     )
 
@@ -53,23 +51,32 @@ def _argv(binary: Path, slot: AppSlot) -> list[str | Path]:
     return [binary, f"--dev={slot.dev_id}", f"--sim={slot.sim_id}", slot.hci_sock]
 
 
-def test_registered_application_receives_its_own_slot(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("controller_type", [BSController, ZephyrController])
+def test_application_creation_registers_without_selecting_a_controller(
+    tmp_path, monkeypatch, controller_type
+):
     binary = _executable(tmp_path)
     monkeypatch.setenv("BSWORLD_TEST_BIN", str(binary))
     topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-
-    process = add_application(
+    process = create_application(
         topo,
         binary_env="BSWORLD_TEST_BIN",
         guide=_GUIDE,
         argv=_argv,
         label="device",
-        controller_address="c0:ff:ee:00:00:09",
         log_subdir="devices/device",
     )
+    assert process.controller is None
+    assert topo.processes == (process,)
+    assert topo.bsim.controllers == []
 
-    assert process.controller.public_address == "C0:FF:EE:00:00:09"
-    slot = topo.bsim.plan_devices().application_slot(process.controller)
+    controller = topo.add_controller(
+        controller_type=controller_type, public_address="c0:ff:ee:00:00:09"
+    )
+    assert process.attach(controller) is process
+    assert process.controller is controller
+    assert topo.bsim.controllers == [controller]
+    slot = topo.bsim.plan_devices().application_slot(process)
     assert [str(part) for part in process._resolve_command(slot)] == [
         str(binary),
         "--dev=1",
@@ -78,12 +85,12 @@ def test_registered_application_receives_its_own_slot(tmp_path, monkeypatch) -> 
     ]
 
 
-def test_registration_skips_before_touching_the_topology(tmp_path, monkeypatch) -> None:
+def test_missing_application_skips_before_creating_a_process(
+    topo, tmp_path, monkeypatch
+):
     monkeypatch.delenv("BSWORLD_TEST_BIN", raising=False)
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-
     with pytest.raises(pytest.skip.Exception, match="BSWORLD_TEST_BIN"):
-        add_application(
+        create_application(
             topo,
             binary_env="BSWORLD_TEST_BIN",
             guide=_GUIDE,
@@ -91,69 +98,46 @@ def test_registration_skips_before_touching_the_topology(tmp_path, monkeypatch) 
             label="device",
         )
 
-    assert topo.bsim.controllers == []
-    assert topo.processes == []
 
-
-def test_registration_inherits_the_topology_controller_default(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("BSWORLD_TEST_BIN", str(_executable(tmp_path)))
-    topo = BluetoothTopology(
-        _env(tmp_path), "sim0", tmp_path / "log", default_controller_type=BSController
+def test_host_only_program_without_attachment_fails_before_the_phy_starts(
+    topo, tmp_path
+):
+    process = create_application(
+        topo, binary=_executable(tmp_path), argv=_argv, label="host"
     )
+    assert process.requires_controller
+    with pytest.raises(ValueError, match="host: HCI Host has no Controller"):
+        topo.bsim.plan_devices()
 
-    inherited = add_application(
-        topo, binary_env="BSWORLD_TEST_BIN", guide=_GUIDE, argv=_argv, label="inherited"
-    )
-    overridden = add_application(
-        topo,
-        binary_env="BSWORLD_TEST_BIN",
-        guide=_GUIDE,
-        argv=_argv,
-        label="overridden",
-        controller_type=ZephyrController,
-    )
-
-    assert isinstance(inherited.controller, BSController)
-    assert isinstance(overridden.controller, ZephyrController)
+    # The rejected plan is not frozen, so the test can still attach and continue.
+    process.attach(topo.add_controller())
+    assert topo.bsim.plan_devices().application_slot(process).dev_id == 1
 
 
-def test_a_prebuilt_binary_bypasses_the_environment_lookup(
-    tmp_path, monkeypatch
-) -> None:
+def test_a_prebuilt_binary_bypasses_the_environment_lookup(topo, tmp_path, monkeypatch):
     binary = _executable(tmp_path)
     monkeypatch.delenv("BSWORLD_TEST_BIN", raising=False)
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-
-    process = add_application(
+    process = create_application(
         topo, binary=binary, argv=_argv, label="device", shell=True
     )
-
-    assert process.shell.enabled is True
-    slot = topo.bsim.plan_devices().application_slot(process.controller)
+    assert process.shell.enabled
+    slot = AppSlot(sim_id="sim", phy_id="2G4", dev_id=1, hci_sock=tmp_path / "hci.sock")
     assert process._resolve_command(slot)[0] == binary
 
 
 @pytest.mark.parametrize(
-    "kwargs",
-    [
-        {},
-        {"binary": Path("/bin/true"), "binary_env": "BSWORLD_TEST_BIN"},
-    ],
+    "kwargs", [{}, {"binary": Path("/bin/true"), "binary_env": "BSWORLD_TEST_BIN"}]
 )
-def test_exactly_one_binary_source_is_required(tmp_path, kwargs) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-
+def test_exactly_one_binary_source_is_required(topo, kwargs):
     with pytest.raises(TypeError, match="exactly one of binary or binary_env"):
-        add_application(topo, argv=_argv, label="device", guide=_GUIDE, **kwargs)
+        create_application(topo, argv=_argv, label="device", guide=_GUIDE, **kwargs)
 
 
-def test_an_environment_selected_binary_requires_its_guide(tmp_path) -> None:
-    topo = BluetoothTopology(_env(tmp_path), "sim0", tmp_path / "log")
-
+def test_an_environment_selected_binary_requires_its_guide(topo):
     with pytest.raises(TypeError, match="requires guide"):
-        add_application(topo, binary_env="BSWORLD_TEST_BIN", argv=_argv, label="device")
+        create_application(
+            topo, binary_env="BSWORLD_TEST_BIN", argv=_argv, label="device"
+        )
 
 
 @pytest.mark.parametrize("executable", [False, True])

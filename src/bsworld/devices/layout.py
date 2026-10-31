@@ -20,8 +20,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from .controller import Controller
+
+if TYPE_CHECKING:
+    from .instance import ProcessInstance
 
 
 @dataclass(frozen=True)
@@ -36,7 +40,7 @@ class AppSlot:
     sim_id: str
     phy_id: str
     dev_id: int
-    hci_sock: Path
+    hci_sock: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -46,9 +50,10 @@ class DeviceLayout:
     PHY device ids are laid out in registration order:
 
         [0 .. C-1]      Virtual Controller processes or worker threads
-        [C .. C+A-1]    Application processes that join BabbleSim directly
-        [C+A]           the in-process pytest framework clock
-        [C+A+1 ..]      interference devices
+        [C .. C+A-1]    HCI Host processes, in their Controllers' order
+        [C+A .. C+A+F-1] complete firmware processes, with their own radios
+        [C+A+F]         the in-process pytest framework clock
+        [C+A+F+1 ..]    interference devices
 
     The layout is derived once from a complete topology, so the ids it
     publishes cannot drift apart from the device count given to the PHY.
@@ -62,18 +67,15 @@ class DeviceLayout:
     interference_count: int
 
     @property
-    def controller_count(self) -> int:
-        return len(self.controller_ids)
-
-    @property
     def device_count(self) -> int:
         """Total participants to register with the PHY, including the clock."""
         return self.interference_base + self.interference_count
 
-    def application_slot(self, controller: Controller) -> AppSlot:
-        slot = self.application_slots.get(id(controller))
+    def application_slot(self, process: ProcessInstance) -> AppSlot:
+        """Look up a registered process by identity."""
+        slot = self.application_slots.get(id(process))
         if slot is None:
-            raise KeyError(f"{controller!r} has no Application device reserved")
+            raise KeyError(f"{process!r} has no Application device reserved")
         return slot
 
     def interference_dev_id(self, index: int) -> int:
@@ -95,12 +97,15 @@ class DeviceLayout:
     def resolve_endpoint(self, endpoint) -> int:
         """Map an RF path endpoint declared by a test onto its PHY dev_id.
 
-        Accepts a raw dev_id, an InterferenceRef, or a Controller — directly or
-        through the Application process attached to it. Every id a test can name
-        is assigned here, so the mapping lives with the assignment.
+        Accepts a raw dev_id, an InterferenceRef, a Controller, or a registered
+        process. A Host resolves to its Controller's radio; complete firmware
+        to its own. Every id a test can name is assigned here, so the mapping
+        lives with the assignment.
         """
-        # Imported here because bsworld.interference depends on this package.
+        # Imported here because bsworld.interference and .instance depend on
+        # this module.
         from ..interference import InterferenceRef
+        from .instance import ProcessInstance
 
         # bool is an int subclass, so reject it before the numeric case.
         if isinstance(endpoint, bool):
@@ -118,10 +123,18 @@ class DeviceLayout:
             ):
                 raise ValueError(f"unknown interference source ref: {index}")
             return self.interference_base + index
-        controller = getattr(endpoint, "controller", endpoint)
-        if not isinstance(controller, Controller):
+        if isinstance(endpoint, Controller):
+            return self.controller_dev_id(endpoint)
+        if not isinstance(endpoint, ProcessInstance):
             raise TypeError(f"unsupported attenuation endpoint: {endpoint!r}")
-        return self.controller_dev_id(controller)
+        slot = self.application_slots.get(id(endpoint))
+        if slot is None:
+            raise ValueError(f"{endpoint.label} does not belong to this topology")
+        # An HCI Host transmits through its Controller; complete firmware
+        # owns its radio.
+        if endpoint.controller is not None:
+            return self.controller_dev_id(endpoint.controller)
+        return slot.dev_id
 
     def lock_paths(self, sim_dir: Path) -> list[Path]:
         """PHY registration lock files, one per participant."""
@@ -134,25 +147,53 @@ class DeviceLayout:
 def build_device_layout(
     *,
     phy_id: str,
+    sim_id: str,
     controllers: list[Controller],
-    application_controllers: list[Controller],
+    processes: list[ProcessInstance],
     interference_count: int,
 ) -> DeviceLayout:
-    """Assign every PHY device id for a complete topology in one pass."""
-    reserved = {id(controller) for controller in application_controllers}
-    controller_ids: dict[int, int] = {}
+    """Assign every PHY device id for a complete topology in one pass.
+
+    Every slot is keyed by its process. HCI Hosts follow their Controllers'
+    order; complete firmware follows registration order.
+    """
+    controller_ids = {
+        id(controller): dev_id for dev_id, controller in enumerate(controllers)
+    }
+    hosts: dict[int, ProcessInstance] = {}
+    firmwares: list[ProcessInstance] = []
+    for process in processes:
+        controller = process.controller
+        if controller is None:
+            if process.requires_controller:
+                raise ValueError(
+                    f"{process.label}: HCI Host has no Controller; "
+                    "call attach(controller) before starting the topology"
+                )
+            firmwares.append(process)
+            continue
+        controller_dev_id = controller_ids.get(id(controller))
+        if controller_dev_id is None:
+            raise ValueError(f"{process.label}: Controller does not belong here")
+        if controller_dev_id in hosts:
+            raise ValueError(
+                "a Virtual Controller can only be attached to one Application process"
+            )
+        hosts[controller_dev_id] = process
+
     slots: dict[int, AppSlot] = {}
     next_dev_id = len(controllers)
-    for dev_id, controller in enumerate(controllers):
-        controller_ids[id(controller)] = dev_id
-        if id(controller) not in reserved:
-            continue
-        slots[id(controller)] = AppSlot(
-            sim_id=controller.sim_id,
+    for controller_dev_id in sorted(hosts):
+        host = hosts[controller_dev_id]
+        slots[id(host)] = AppSlot(
+            sim_id=sim_id,
             phy_id=phy_id,
             dev_id=next_dev_id,
-            hci_sock=controller.hci_sock,
+            hci_sock=host.controller.hci_sock,
         )
+        next_dev_id += 1
+    for firmware in firmwares:
+        slots[id(firmware)] = AppSlot(sim_id=sim_id, phy_id=phy_id, dev_id=next_dev_id)
         next_dev_id += 1
     return DeviceLayout(
         phy_id=phy_id,

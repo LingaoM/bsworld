@@ -26,7 +26,7 @@ from tests.integration.bumble.common import (
     advertising_data,
     open_bumble_device,
 )
-from tests.integration.qemu.common import load_qemu_guest, login_qemu_guest
+from tests.integration.qemu.common import create_qemu_guest, login_qemu_guest
 
 from bsworld.devices import ProcessInstance
 from bsworld.topology import BluetoothTopology
@@ -39,13 +39,14 @@ _BUMBLE_PERIPHERAL_NAME = "BSWorld-Peer"
 _TIMEOUT = 20.0
 
 
-def _load_qemu_bluez(topo: BluetoothTopology) -> ProcessInstance:
-    return load_qemu_guest(
+def _add_qemu_bluez(topo: BluetoothTopology) -> ProcessInstance:
+    guest = create_qemu_guest(
         topo,
-        controller_address=_CONTROLLER_ADDRESS,
         label="qemu_bluez",
         log_subdir=Path("qemu") / "bluez",
     )
+    guest.attach(topo.add_controller(public_address=_CONTROLLER_ADDRESS))
+    return guest
 
 
 async def _initialize_bluez(guest: ProcessInstance) -> None:
@@ -75,7 +76,7 @@ async def _initialize_bluez(guest: ProcessInstance) -> None:
 async def test_qemu_bluez_initializes_virtual_controller(
     topo: BluetoothTopology,
 ) -> None:
-    guest = _load_qemu_bluez(topo)
+    guest = _add_qemu_bluez(topo)
     await topo.start()
 
     await _initialize_bluez(guest)
@@ -85,7 +86,7 @@ async def test_qemu_bluez_initializes_virtual_controller(
 async def test_qemu_bluez_advertises_to_bumble_observer(
     topo: BluetoothTopology,
 ) -> None:
-    guest = _load_qemu_bluez(topo)
+    guest = _add_qemu_bluez(topo)
     observer_ctl = add_bumble_controller(
         topo, "bluez_observer", _BUMBLE_OBSERVER_ADDRESS
     )
@@ -135,7 +136,7 @@ async def test_qemu_bluez_advertises_to_bumble_observer(
 async def test_qemu_bluez_scans_and_connects_bumble_peripheral(
     topo: BluetoothTopology,
 ) -> None:
-    guest = _load_qemu_bluez(topo)
+    guest = _add_qemu_bluez(topo)
     peripheral_ctl = add_bumble_controller(
         topo, "bluez_peripheral", _BUMBLE_PERIPHERAL_ADDRESS
     )

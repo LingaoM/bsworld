@@ -22,7 +22,7 @@ from tests.unit.helpers import SpawnRecorder, make_env
 
 from bsworld.backends import babblesim
 from bsworld.backends.babblesim import BabbleSimBackend
-from bsworld.devices import zephyr
+from bsworld.devices import ProcessInstance, zephyr
 from bsworld.interference import (
     BurstInterference,
     PlaybackInterference,
@@ -42,8 +42,14 @@ def _patch_controller_bin(monkeypatch, tmp_path: Path) -> Path:
 
 
 def _add_process_controller(backend: BabbleSimBackend):
-    controller = backend.add_controller()
-    backend.reserve_application_device(controller)
+    controller = backend.add_controller(controller_type=zephyr.ZephyrController)
+    backend.register_process(
+        ProcessInstance(
+            command=["/host"],
+            label=f"host{controller.controller_dev_id}",
+            controller=controller,
+        )
+    )
     return controller
 
 
@@ -137,10 +143,10 @@ def test_check_deps_ready_only_validates_built_artifacts(tmp_path, monkeypatch) 
     assert calls == ["bsim:True"]
 
 
-async def test_start_rejects_a_simulation_without_controllers(tmp_path) -> None:
+async def test_start_rejects_an_empty_simulation(tmp_path) -> None:
     backend = BabbleSimBackend(make_env(tmp_path), "sim")
 
-    with pytest.raises(RuntimeError, match="at least one Virtual Controller"):
+    with pytest.raises(RuntimeError, match="Virtual Controller or complete firmware"):
         await backend.start(SpawnRecorder())
 
 
@@ -148,13 +154,13 @@ async def test_add_controller_rejects_started_backend(tmp_path, monkeypatch) -> 
     backend = BabbleSimBackend(make_env(tmp_path), "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
-    backend.add_controller()
+    backend.add_controller(controller_type=zephyr.ZephyrController)
     _patch_controller_bin(monkeypatch, tmp_path)
     monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
     await backend.start(SpawnRecorder(), log_dir=tmp_path / "log")
 
-    with pytest.raises(RuntimeError, match="after BabbleSim has started"):
-        backend.add_controller()
+    with pytest.raises(RuntimeError, match="layout is frozen"):
+        backend.add_controller(controller_type=zephyr.ZephyrController)
 
 
 async def test_start_spawns_phy_virtual_controllers_and_interference(
@@ -233,7 +239,7 @@ async def test_start_passes_public_address_to_virtual_controller(
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
-    ctl = backend.add_controller()
+    ctl = backend.add_controller(controller_type=zephyr.ZephyrController)
     ctl.public_address = "C0:FF:EE:00:00:01"
     recorder = SpawnRecorder()
 
@@ -253,7 +259,7 @@ async def test_start_places_default_modem_before_channel_plugin_args(
     backend = BabbleSimBackend(env, "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
-    backend.add_controller()
+    backend.add_controller(controller_type=zephyr.ZephyrController)
     backend.channel_attenuation = babblesim.ChannelAttenuation(
         default_attenuation_db=70.0
     )
@@ -293,7 +299,7 @@ def test_registration_connects_clock_before_waiting_for_all_device_locks(
     tmp_path, monkeypatch
 ) -> None:
     backend = BabbleSimBackend(make_env(tmp_path), "sim")
-    backend.add_controller()
+    backend.add_controller(controller_type=zephyr.ZephyrController)
     calls = []
 
     class Clock:
@@ -319,7 +325,7 @@ def test_registration_does_not_wait_for_locks_after_clock_connection_failure(
     tmp_path, monkeypatch
 ) -> None:
     backend = BabbleSimBackend(make_env(tmp_path), "sim")
-    backend.add_controller()
+    backend.add_controller(controller_type=zephyr.ZephyrController)
 
     class Clock:
         dev_id = 1
@@ -341,7 +347,7 @@ def test_allocating_a_controller_assigns_its_capture_path(tmp_path) -> None:
     env = make_env(tmp_path)
     backend = BabbleSimBackend(env, "sim")
 
-    default = backend.add_controller()
+    default = backend.add_controller(controller_type=zephyr.ZephyrController)
     located = backend.add_controller(snoop_dir=tmp_path / "python" / "bumble")
 
     assert default.hci_snoop_file == env.log_dir / "controllers" / "hci0.snoop"
@@ -354,7 +360,7 @@ def test_a_capture_can_be_relocated_until_the_simulation_starts(
     backend = BabbleSimBackend(make_env(tmp_path), "sim")
     backend.check_deps_ready = lambda: None
     backend.prepare = lambda: None
-    controller = backend.add_controller()
+    controller = backend.add_controller(controller_type=zephyr.ZephyrController)
 
     backend.set_snoop_dir(controller, tmp_path / "devices" / "dev0")
     assert controller.hci_snoop_file == tmp_path / "devices" / "dev0" / "hci0.snoop"
@@ -376,7 +382,7 @@ def test_finish_releases_clock_before_artifacts_even_if_close_fails(
     tmp_path, monkeypatch, close_fails
 ) -> None:
     backend = BabbleSimBackend(make_env(tmp_path), "sim")
-    backend.add_controller()
+    backend.add_controller(controller_type=zephyr.ZephyrController)
     calls = []
     warnings = []
 
@@ -460,3 +466,31 @@ def test_convert_ellisys_warns_when_dumps_are_missing(tmp_path, monkeypatch) -> 
     assert len(warnings) == 1
     assert "no BabbleSim Tx CSV dumps" in warnings[0]
     assert not (env.log_dir / "babblesim" / "ellisys.bttrp").exists()
+
+
+async def test_backend_can_start_with_only_complete_firmware(
+    unit_env, monkeypatch, spawn_recorder
+):
+    backend = BabbleSimBackend(unit_env, "sim")
+    backend.register_process(ProcessInstance(command=["/firmware"], label="device"))
+    monkeypatch.setattr(backend, "check_deps_ready", lambda: None)
+    monkeypatch.setattr(backend, "prepare", lambda: None)
+    monkeypatch.setattr(babblesim, "wait_for_path", lambda *args, **kwargs: None)
+    try:
+        await backend.start(spawn_recorder)
+        await backend.wait_for_hci_sockets()
+        assert [name for name, _, _ in spawn_recorder.calls] == ["bs_2G4_phy_v1"]
+        assert "-D=2" in spawn_recorder.calls[0][1]
+        assert backend.clock.dev_id == 1
+        await backend.stop_controllers()
+    finally:
+        backend.finish()
+
+
+def test_backend_rejects_duplicate_process_registration(unit_env):
+    backend = BabbleSimBackend(unit_env, "sim")
+    process = ProcessInstance(command=["/firmware"], label="device")
+    backend.register_process(process)
+    with pytest.raises(ValueError, match="already registered"):
+        backend.register_process(process)
+    assert backend.plan_devices().device_count == 2

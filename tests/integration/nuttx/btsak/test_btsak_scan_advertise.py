@@ -30,7 +30,7 @@ from tests.integration.nuttx.btsak.devices import (
 )
 from tests.integration.nuttx.common import (
     NuttXProcessProfile,
-    load_nuttx_profile,
+    create_nuttx_process,
     require_binaries,
 )
 
@@ -52,34 +52,32 @@ class ScanAdvertiseNetwork:
     advertisers: list[ProcessInstance]
 
 
-def _load_network(
+def _add_hosts(
+    topo, profiles: Sequence[NuttXProcessProfile], *, role: str, group: int
+) -> list[ProcessInstance]:
+    """Create one Host per profile, each on its own Controller address."""
+    hosts = []
+    for index, profile in enumerate(profiles, start=1):
+        host = create_nuttx_process(
+            topo, profile, log_subdir=Path("nuttx") / role / profile.name
+        )
+        host.attach(
+            topo.add_controller(public_address=f"C0:FF:EE:00:{group:02X}:{index:02X}")
+        )
+        hosts.append(host)
+    return hosts
+
+
+def _build_network(
     topo,
     *,
     scanners: Sequence[NuttXProcessProfile],
     advertisers: Sequence[NuttXProcessProfile],
 ) -> ScanAdvertiseNetwork:
-    profiles = [*scanners, *advertisers]
-    require_binaries(profiles)
-
-    loaded_scanners = [
-        load_nuttx_profile(
-            topo,
-            profile,
-            log_subdir=Path("nuttx") / "scanners" / profile.name,
-        )
-        for profile in scanners
-    ]
-    loaded_advertisers = [
-        load_nuttx_profile(
-            topo,
-            profile,
-            log_subdir=Path("nuttx") / "advertisers" / profile.name,
-        )
-        for profile in advertisers
-    ]
+    require_binaries([*scanners, *advertisers])
     return ScanAdvertiseNetwork(
-        scanners=loaded_scanners,
-        advertisers=loaded_advertisers,
+        scanners=_add_hosts(topo, scanners, role="scanners", group=1),
+        advertisers=_add_hosts(topo, advertisers, role="advertisers", group=0),
     )
 
 
@@ -117,7 +115,7 @@ async def _wait_scan_results(
 
 
 async def test_nuttx_btsak_scanner_finds_advertiser(topo):
-    network = _load_network(
+    network = _build_network(
         topo,
         scanners=[NUTTX_BTSAK_SCANNER],
         advertisers=[NUTTX_BTSAK_ADVERTISER],
@@ -128,7 +126,7 @@ async def test_nuttx_btsak_scanner_finds_advertiser(topo):
 
 
 async def test_nuttx_btsak_shell_commands_can_stage_scan(topo):
-    network = _load_network(
+    network = _build_network(
         topo,
         scanners=[NUTTX_BTSAK_SCANNER],
         advertisers=[NUTTX_BTSAK_ADVERTISER],
@@ -150,7 +148,7 @@ async def test_nuttx_btsak_shell_commands_can_stage_scan(topo):
 
 
 async def test_nuttx_btsak_scanner_finds_multiple_advertisers(topo):
-    network = _load_network(
+    network = _build_network(
         topo,
         scanners=[nuttx_btsak_scanner(0)],
         advertisers=[
@@ -164,7 +162,7 @@ async def test_nuttx_btsak_scanner_finds_multiple_advertisers(topo):
 
 
 async def test_nuttx_btsak_targeted_interference_isolates_and_recovers(topo):
-    network = _load_network(
+    network = _build_network(
         topo,
         scanners=[nuttx_btsak_scanner(0), nuttx_btsak_scanner(1)],
         advertisers=[nuttx_btsak_advertiser(0)],

@@ -69,6 +69,7 @@ class ProcessManager:
         stdout: int | None = None,
         stderr: int | None = None,
         log_fh: object | None = None,
+        env: dict[str, str] | None = None,
     ) -> Proc:
         """Spawn a background process.
 
@@ -105,6 +106,7 @@ class ProcessManager:
                 stderr=stderr,
                 start_new_session=True,
                 close_fds=True,
+                env=env,
             )
         except Exception:
             if owns_log_fh:

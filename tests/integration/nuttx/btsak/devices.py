@@ -18,23 +18,14 @@ from __future__ import annotations
 
 from tests.integration.nuttx.common import NuttXProcessProfile
 
-
-def _controller_address(group: int, index: int) -> str:
-    if not (0 <= group <= 255 and 0 <= index <= 255):
-        raise ValueError("controller address group/index must fit in one octet")
-    return f"C0:FF:EE:00:{group:02X}:{index:02X}"
-
-
 NUTTX_BTSAK_ADVERTISER = NuttXProcessProfile(
     name="nuttx_btsak_advertiser",
     binary_env="BSWORLD_NUTTX_BTSAK_BIN",
-    controller_address=_controller_address(0, 1),
 )
 
 NUTTX_BTSAK_SCANNER = NuttXProcessProfile(
     name="nuttx_btsak_scanner",
     binary_env="BSWORLD_NUTTX_BTSAK_BIN",
-    controller_address=_controller_address(1, 1),
 )
 
 
@@ -42,7 +33,6 @@ def nuttx_btsak_advertiser(index: int) -> NuttXProcessProfile:
     return NuttXProcessProfile(
         name=f"nuttx_btsak_advertiser{index}",
         binary_env="BSWORLD_NUTTX_BTSAK_BIN",
-        controller_address=_controller_address(0, index + 1),
     )
 
 
@@ -50,7 +40,6 @@ def nuttx_btsak_scanner(index: int) -> NuttXProcessProfile:
     return NuttXProcessProfile(
         name=f"nuttx_btsak_scanner{index}",
         binary_env="BSWORLD_NUTTX_BTSAK_BIN",
-        controller_address=_controller_address(1, index + 1),
     )
 
 

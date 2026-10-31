@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import AsyncExitStack
 
 from tests.integration.bumble.common import (
     ADVERTISER_NAME,
@@ -25,32 +24,28 @@ from tests.integration.bumble.common import (
     AdvertisingType,
     OwnAddressType,
     advertising_data,
-    open_bumble_pair,
 )
 
 
-async def test_bumble_central_connects_bumble_peripheral(topo):
+async def test_bumble_central_connects_bumble_peripheral(bumble_pair):
     peripheral_connected = asyncio.Event()
 
-    async with AsyncExitStack() as stack:
-        peripheral, central = await open_bumble_pair(topo, stack)
-        peripheral.on("connection", lambda _: peripheral_connected.set())
+    peripheral, central = bumble_pair
+    peripheral.on("connection", lambda _: peripheral_connected.set())
 
-        await peripheral.start_advertising(
-            advertising_type=AdvertisingType.UNDIRECTED_CONNECTABLE_SCANNABLE,
-            own_address_type=OwnAddressType.PUBLIC,
-            advertising_data=advertising_data(ADVERTISER_NAME),
-            advertising_interval_min=20.0,
-            advertising_interval_max=20.0,
-        )
-        connection = None
-        try:
-            connection = await central.connect(
-                peripheral.public_address, timeout=TIMEOUT
-            )
-            await asyncio.wait_for(peripheral_connected.wait(), timeout=TIMEOUT)
-            assert connection.handle is not None
-        finally:
-            if connection is not None:
-                await connection.disconnect()
-            await peripheral.stop_advertising()
+    await peripheral.start_advertising(
+        advertising_type=AdvertisingType.UNDIRECTED_CONNECTABLE_SCANNABLE,
+        own_address_type=OwnAddressType.PUBLIC,
+        advertising_data=advertising_data(ADVERTISER_NAME),
+        advertising_interval_min=20.0,
+        advertising_interval_max=20.0,
+    )
+    connection = None
+    try:
+        connection = await central.connect(peripheral.public_address, timeout=TIMEOUT)
+        await asyncio.wait_for(peripheral_connected.wait(), timeout=TIMEOUT)
+        assert connection.handle is not None
+    finally:
+        if connection is not None:
+            await connection.disconnect()
+        await peripheral.stop_advertising()

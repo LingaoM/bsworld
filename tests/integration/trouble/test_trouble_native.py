@@ -26,7 +26,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from tests.integration.applications import add_application
+from tests.integration.applications import create_application
 
 from bsworld.devices import AppSlot, ProcessInstance
 from bsworld.env import env_path
@@ -48,7 +48,7 @@ def _host_binary() -> Path:
     return _SOURCE_DIR / "target" / "debug" / "ble_bas"
 
 
-def _add_host(topo: BluetoothTopology, role: str) -> ProcessInstance:
+def _create_host(topo: BluetoothTopology, role: str) -> ProcessInstance:
     binary = _host_binary()
     if not binary.is_file() or not binary.stat().st_mode & 0o111:
         pytest.fail(
@@ -68,12 +68,11 @@ def _add_host(topo: BluetoothTopology, role: str) -> ProcessInstance:
             slot.hci_sock,
         ]
 
-    return add_application(
+    return create_application(
         topo,
         binary=binary,
         argv=argv,
         label=role,
-        controller_log_subdir=_LOG_SUBDIR / role,
         log_subdir=_LOG_SUBDIR / role,
     )
 
@@ -81,8 +80,10 @@ def _add_host(topo: BluetoothTopology, role: str) -> ProcessInstance:
 async def test_trouble_native_hosts_connect_discover_read_and_notify(
     topo: BluetoothTopology,
 ) -> None:
-    central = _add_host(topo, "central")
-    peripheral = _add_host(topo, "peripheral")
+    central = _create_host(topo, "central")
+    peripheral = _create_host(topo, "peripheral")
+    for host in (central, peripheral):
+        host.attach(topo.add_controller(log_subdir=_LOG_SUBDIR / host.label))
     topo.set_channel_attenuation(default_db=45.0)
 
     await topo.start()

@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,29 +29,62 @@ from .layout import AppSlot
 
 if TYPE_CHECKING:
     from ..runtime.proc import ProcessManager
+    from ..topology import BluetoothTopology
     from .controller import Controller
 
 
 class ProcessInstance:
-    """One Application process connected to one Virtual Controller."""
+    """An HCI Host or a complete firmware process joining the PHY directly.
+
+    A process with a Controller is an HCI Host. Set requires_controller for a
+    Host whose Controller is attached later, so a forgotten attach() fails when
+    the layout is planned instead of being counted as complete firmware.
+    """
 
     def __init__(
         self,
         *,
         command: list[str | Path] | Callable[[AppSlot], list[str | Path]],
-        controller: "Controller",
+        controller: "Controller | None" = None,
         label: str,
         shell: bool = False,
         log_subdir: Path | str | None = None,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
+        requires_controller: bool = False,
     ) -> None:
         if not callable(command) and not command:
             raise ValueError("process command must not be empty")
         self._command_factory = command
-        self.controller = controller
+        self._controller = controller
+        self.requires_controller = requires_controller or controller is not None
+        self._topology: BluetoothTopology | None = None
         self.label = label
         self.shell = ProcessShell(label=label, enabled=shell)
-        self.log_subdir = Path(log_subdir) if log_subdir is not None else Path()
+        # Labels are unique within a topology, so the default directory keeps
+        # each process's logs, capture and working files apart however its
+        # Controller is attached.
+        self.log_subdir = Path(log_subdir) if log_subdir is not None else Path(label)
+        self.cwd = cwd
+        self.env = dict(env) if env is not None else None
         self._pipe: LogCapture | None = None
+
+    @property
+    def controller(self) -> Controller | None:
+        return self._controller
+
+    def attach(self, controller: Controller) -> ProcessInstance:
+        """Bind an external Controller before the topology layout is frozen."""
+        from .controller import Controller
+
+        if self._controller is not None:
+            raise RuntimeError("process already has a Controller attached")
+        if not isinstance(controller, Controller):
+            raise TypeError("attach requires a Controller instance")
+        if self._topology is not None:
+            self._topology._attach_process_controller(self, controller)
+        self._controller = controller
+        return self
 
     def start(
         self,
@@ -68,15 +102,19 @@ class ProcessInstance:
         self._pipe = LogCapture.open(log_path)
 
         try:
+            options = (
+                {"env": {**os.environ, **self.env}} if self.env is not None else {}
+            )
             proc = pm.spawn(
                 self.label,
                 command,
-                cwd=dev_log_dir,
+                cwd=self.cwd if self.cwd is not None else dev_log_dir,
                 log_dir=dev_log_dir,
                 stdin=subprocess.PIPE if self.shell.enabled else None,
                 stdout=self._pipe.write_fd,
                 stderr=self._pipe.write_fd,
                 log_fh=self._pipe.log_fh,
+                **options,
             )
             self.shell.attach(proc)
         except Exception:

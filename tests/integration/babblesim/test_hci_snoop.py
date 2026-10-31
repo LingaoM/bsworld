@@ -10,7 +10,7 @@ import struct
 
 import pytest
 
-from bsworld.devices import BSController, ZephyrController
+from bsworld.devices import BSController
 
 _FILE_HEADER = bytes.fromhex("6274736e6f6f700000000001000003ea")
 _RECORD = struct.Struct(">IIIIQ")
@@ -18,16 +18,13 @@ _FLAG_COMMAND_EVENT = 0x02
 
 
 @pytest.mark.parametrize(
-    "controller_type", [ZephyrController, BSController], ids=["zephyr", "python"]
-)
-@pytest.mark.parametrize(
     "custom_path", [False, True], ids=["default-path", "application-path"]
 )
 async def test_snoop_matches_live_h4_traffic_without_host_relay(
-    topo, tmp_path, controller_type, custom_path
+    topo, tmp_path, custom_path
 ):
     ctl = topo.add_controller(
-        controller_type=controller_type, public_address="F0:F1:F2:F3:F4:01"
+        controller_type=BSController, public_address="F0:F1:F2:F3:F4:01"
     )
     if custom_path:
         ctl.hci_snoop_file = tmp_path / "application" / "hci0.snoop"

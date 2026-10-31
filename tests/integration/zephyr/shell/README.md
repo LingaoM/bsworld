@@ -2,56 +2,18 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-These tests run two Host-only upstream Zephyr shell executables. Each process connects to its own Virtual Controller and is driven by pytest through shell commands. [source/](source/) holds the BSWorld Kconfig and HCI overlay.
+These tests build the upstream Zephyr Bluetooth shell in two forms and drive each process through shell commands. Complete firmware contains the Zephyr Host, Controller and radio and joins the PHY directly; Host-only firmware connects to its own Virtual Controller over an HCI socket. [source/](source/) holds the BSWorld Kconfig and HCI overlay.
 
-| Executable | Upstream entry point | Executable variable |
-|---|---|---|
-| LE | `tests/bluetooth/shell` | `BSWORLD_ZEPHYR_SHELL_BIN` |
-| Mesh | `tests/bluetooth/mesh_shell` | `BSWORLD_ZEPHYR_MESH_SHELL_BIN` |
+| Executable | Upstream entry point | Contents | Executable variable |
+|---|---|---|---|
+| Complete | `tests/bluetooth/shell` | Host, Controller and radio | `BSWORLD_ZEPHYR_FULL_SHELL_BIN` |
+| Host-only | `tests/bluetooth/shell` | Host; Controller over HCI | `BSWORLD_ZEPHYR_SHELL_BIN` |
 
-The [Docker runtime image](../../../../docker/README.md#select-a-suite) includes both executables and sets the variables. The steps below are for native Linux builds.
+The [Docker runtime image](../../../../docker/README.md#select-a-suite) includes both executables and the Zephyr Controller, and sets the variables. The steps below are for native Linux builds.
 
-## Prepare the Zephyr Workspace
+## Prepare the Environment
 
-Prepare BSWorld using the [local Linux setup](../../../../README.md#local-linux) and install the system dependencies from Zephyr's [Getting Started Guide](https://docs.zephyrproject.org/latest/develop/getting_started/index.html).
-
-Create a separate Python environment for Zephyr and install west:
-
-```sh
-export ZEPHYR_WORKSPACE="$HOME/zephyrproject"
-mkdir -p "$ZEPHYR_WORKSPACE"
-python3.12 -m venv "$ZEPHYR_WORKSPACE/.venv"
-source "$ZEPHYR_WORKSPACE/.venv/bin/activate"
-python -m pip install west
-```
-
-Fetch the Zephyr revision pinned by the Dockerfile:
-
-```sh
-git init "$ZEPHYR_WORKSPACE/zephyr"
-git -C "$ZEPHYR_WORKSPACE/zephyr" remote add origin https://github.com/zephyrproject-rtos/zephyr
-git -C "$ZEPHYR_WORKSPACE/zephyr" fetch --depth=1 origin f545c1ca45bd0e5cb767d01996f5806f9f1e50be
-git -C "$ZEPHYR_WORKSPACE/zephyr" checkout --detach FETCH_HEAD
-```
-
-Initialize the workspace and download its modules and Python dependencies:
-
-```sh
-west init -l "$ZEPHYR_WORKSPACE/zephyr"
-cd "$ZEPHYR_WORKSPACE"
-west update
-west packages pip --install
-west zephyr-export
-```
-
-Install the toolchain:
-
-```sh
-cd "$ZEPHYR_WORKSPACE/zephyr"
-west sdk install --gnu-toolchains x86_64-zephyr-elf
-```
-
-Also build BabbleSim using the [repository instructions](../../../../README.md#build-and-test) and the [Zephyr Virtual Controller](../../../../docs/controllers.md#building-the-zephyr-controller).
+Prepare the [Zephyr workspace](../README.md#prepare-the-zephyr-workspace), build BabbleSim using the [repository instructions](../../../../README.md#build-and-test), and build the [Zephyr Controller](../../../../docs/controllers.md#building-the-zephyr-controller).
 
 ## Build and Run
 
@@ -61,27 +23,25 @@ Set the shared paths in the Zephyr environment:
 source "$ZEPHYR_WORKSPACE/.venv/bin/activate"
 cd "$ZEPHYR_WORKSPACE"
 SRC="$BSWORLD_ROOT/tests/integration/zephyr/shell/source"
-SHELL_APP="$ZEPHYR_WORKSPACE/zephyr/tests/bluetooth/shell"
-OVERLAY="$SHELL_APP/xterm-native-shell.overlay;$SRC/bsim_host_only.overlay"
+APP="$ZEPHYR_WORKSPACE/zephyr/tests/bluetooth/shell"
 ```
 
-Build the LE executable:
+Build the complete executable:
 
 ```sh
-west build -p always -b nrf52_bsim -d build/bsworld_zephyr_shell "$SHELL_APP" -- \
+west build -p always -b nrf52_bsim -d build/bsworld_zephyr_full_shell "$APP" -- \
+  -DCONF_FILE="$SRC/prj.conf" -DEXTRA_CONF_FILE="$SRC/le.conf;$SRC/full.conf" \
+  -DDTC_OVERLAY_FILE="$APP/xterm-native-shell.overlay"
+export BSWORLD_ZEPHYR_FULL_SHELL_BIN="$ZEPHYR_WORKSPACE/build/bsworld_zephyr_full_shell/zephyr/zephyr.exe"
+```
+
+Build the Host-only executable:
+
+```sh
+west build -p always -b nrf52_bsim -d build/bsworld_zephyr_shell "$APP" -- \
   -DCONF_FILE="$SRC/prj.conf" -DEXTRA_CONF_FILE="$SRC/le.conf" \
-  -DDTC_OVERLAY_FILE="$OVERLAY"
+  -DDTC_OVERLAY_FILE="$APP/xterm-native-shell.overlay;$SRC/bsim_host_only.overlay"
 export BSWORLD_ZEPHYR_SHELL_BIN="$ZEPHYR_WORKSPACE/build/bsworld_zephyr_shell/zephyr/zephyr.exe"
-```
-
-Build the Mesh executable:
-
-```sh
-west build -p always -b nrf52_bsim -d build/bsworld_zephyr_mesh_shell \
-  "$ZEPHYR_WORKSPACE/zephyr/tests/bluetooth/mesh_shell" -- \
-  -DCONF_FILE="$SRC/prj.conf" -DEXTRA_CONF_FILE="$SRC/mesh.conf" \
-  -DDTC_OVERLAY_FILE="$OVERLAY"
-export BSWORLD_ZEPHYR_MESH_SHELL_BIN="$ZEPHYR_WORKSPACE/build/bsworld_zephyr_mesh_shell/zephyr/zephyr.exe"
 ```
 
 Switch back to the BSWorld environment in the same terminal and run the tests:
@@ -89,27 +49,34 @@ Switch back to the BSWorld environment in the same terminal and run the tests:
 ```sh
 cd "$BSWORLD_ROOT"
 source .venv/bin/activate
-pytest tests/integration/zephyr/shell -n 2 -q
+pytest tests/integration/zephyr/shell -n 4 -q
 ```
 
-| File | Scenarios | Controllers |
+| Directory | Peer | Topologies |
 |---|---|---|
-| [test_le_features.py](test_le_features.py) | Scanning, interference, connection procedures, pairing and privacy, Coded PHY, periodic sync | Every Zephyr/BSController pairing |
-| [test_mesh.py](test_mesh.py) | Provisioning, model configuration, group control | Once per Controller |
+| [shell_peer/](shell_peer/README.md) | Another Zephyr shell | Complete with complete; complete with Host-only on either Controller, in both roles |
+| [bumble_peer/](bumble_peer/README.md) | Bumble Python Host | Complete firmware with Bumble, once per Controller |
 
 ## Adding Scenarios
 
 ```python
-from tests.integration.zephyr.shell.devices import add_zephyr_shell, initialize_shell
+from tests.integration.zephyr.shell.devices import (
+    create_zephyr_firmware_shell,
+    create_zephyr_shell,
+)
+from tests.integration.zephyr.shell_common import initialize_shell
 
-scanner = add_zephyr_shell(topo, name="scanner", address="C0:FF:EE:41:00:02")
+advertiser = create_zephyr_firmware_shell(topo, name="advertiser", seed=41)
+scanner = create_zephyr_shell(topo, name="scanner")
+scanner.attach(topo.add_controller(public_address="C0:FF:EE:41:00:02"))
 await topo.start()
-await initialize_shell(scanner)
+for device in (advertiser, scanner):
+    await initialize_shell(device)
 await scanner.shell.run("bt scan passive")
 await scanner.wait_log("Bluetooth passive scan enabled")
 ```
 
-For the Mesh executable, pass `mesh=True` to both helpers. Process output is under `zephyr/shell/<name>/`; see [artifacts](../../../../docs/artifacts.md) for the rest.
+Complete firmware needs no Controller. A Host-only shell must be attached to one before `topo.start()`; its factory takes neither an address nor a Controller type. Add shell-to-shell scenarios by feature under `shell_peer/`, whose `shell_pair` fixture supplies the topology, and Bumble scenarios under `bumble_peer/`. Process output is under `zephyr/complete/<name>/` and `zephyr/shell/<name>/`; see [artifacts](../../../../docs/artifacts.md) for the rest.
 
 ## License
 
