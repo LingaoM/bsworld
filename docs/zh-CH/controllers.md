@@ -12,7 +12,7 @@ BSWorld 提供两种实现：
 | 运行方式 | 原生仿真进程，每个 Controller 一个进程 | pytest 进程内的 worker 线程 |
 | 依赖 | `BSWORLD_BT_VIRT_CONTROLLER_BIN`（Docker 镜像已内置） | 安装 BSWorld 即可，无其他依赖 |
 | 配置 | 由 Zephyr 编译配置决定 | 可按 Controller 分别设置缓冲、列表大小、上限、版本（见[下文](#配置-bscontroller)） |
-| 默认 | 是 | 按测试或按 Controller 选择 |
+| 默认 | 显式选择 | 是 |
 
 两种实现都会为每个 Controller 生成一份 HCI 抓包（`hciN.snoop`），也都会记录到共享的射频跟踪文件（`ellisys.bttrp`）中。参见[日志、跟踪文件与抓包](artifacts.md)。
 
@@ -21,9 +21,11 @@ BSWorld 提供两种实现：
 `topo.add_controller()` 返回一个 Controller。在 `topo.start()` 之后，把 Host 连接到它的 `hci_sock`：
 
 ```python
-from bsworld.devices import BSController
+from bsworld.devices import BSController, ZephyrController
 
-zephyr_ctl = topo.add_controller(public_address="F0:F1:F2:F3:F4:02")
+zephyr_ctl = topo.add_controller(
+    controller_type=ZephyrController, public_address="F0:F1:F2:F3:F4:02"
+)
 python_ctl = topo.add_controller(
     controller_type=BSController,
     public_address="F0:F1:F2:F3:F4:01",
@@ -34,7 +36,7 @@ await topo.start()
 
 | 参数 | 含义 |
 |---|---|
-| `controller_type` | `ZephyrController`（默认）或 `BSController`，同一拓扑可以混用两种。 |
+| `controller_type` | `BSController`（默认）或 `ZephyrController`，同一拓扑可以混用两种。 |
 | `public_address` | 公共设备地址，格式为 `AA:BB:CC:DD:EE:FF`。省略时，`BSController` 根据 Controller 编号生成互不相同的地址，`ZephyrController` 保持其编译配置中的地址。 |
 | `log_subdir` | 该 Controller 的 `hciN.snoop` 存放位置，相对于测试日志目录。 |
 | `config` | 仅限 `BSController`：包含 Controller 自定义参数的 `ControllerConfig`，见[配置 BSController](#配置-bscontroller)。 |
@@ -42,7 +44,7 @@ await topo.start()
 
 ## 用两种 Controller 运行同一场景
 
-覆盖 `bsworld_default_controller_type` fixture 可设置 `topo` fixture 的默认 `controller_type`，显式传入的 `controller_type` 仍然优先：
+覆盖 `bsworld_default_controller_type` fixture 可设置 `topo` fixture 的默认 `controller_type`，显式传入的 `controller_type` 仍然优先。集成测试通过 [tests/integration/controllers.py](../../tests/integration/controllers.py) 共享这一覆盖，未设置 `BSWORLD_BT_VIRT_CONTROLLER_BIN` 时跳过 `[zephyr]` 用例：
 
 ```python
 import pytest
@@ -60,8 +62,6 @@ def bsworld_default_controller_type(request):
 pytest tests/integration -n auto -k '[zephyr]'
 pytest tests/integration -n auto -k '[bscontroller]'
 ```
-
-`test_le_features.py` 等混用两种实现的场景使用 `[<peripheral>-<central>]` 形式的 ID，例如 `[zephyr-bscontroller]`，上面两条命令都不会选中它们。
 
 ## 配置 BSController
 
@@ -109,7 +109,7 @@ Zephyr Controller 直接使用 Zephyr 上游的 [`samples/bluetooth/hci_virt`](h
 
 ### 编译 Zephyr Controller
 
-[Docker 测试镜像](../../docker/README.zh-CN.md#使用已发布镜像)已包含 Controller。本机构建先按[仓库构建说明](README.md#构建与测试)构建 BabbleSim，并准备 [Zephyr 工作区](../../tests/integration/zephyr/shell/README.zh-CN.md#准备-zephyr-工作区)。
+[Docker 测试镜像](../../docker/README.zh-CN.md#使用已发布镜像)已包含 Controller。本机构建先按[仓库构建说明](README.md#构建与测试)构建 BabbleSim，并准备 [Zephyr 工作区](../../tests/integration/zephyr/README.zh-CN.md#准备-zephyr-工作区)。
 
 叠加 BSWorld overlay 编译 sample：
 

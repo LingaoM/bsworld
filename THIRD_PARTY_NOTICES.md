@@ -47,10 +47,10 @@ BSWorld uses the public Python and HCI transport APIs without modifying the Bumb
 ## Zephyr Project
 
 - Source: https://github.com/zephyrproject-rtos/zephyr
-- Usage: [Virtual Controller](docs/controllers.md#using-a-zephyr-controller) and [Bluetooth and Mesh shells](tests/integration/zephyr/shell/README.md)
+- Usage: [Virtual Controller](docs/controllers.md#using-a-zephyr-controller) and [Bluetooth shells](tests/integration/zephyr/shell/README.md)
 - License: Apache License 2.0
 
-The Virtual Controller is Zephyr's `samples/bluetooth/hci_virt` with a BSWorld Kconfig overlay. The shell applications use external Zephyr sources.
+The Virtual Controller is Zephyr's `samples/bluetooth/hci_virt` with a BSWorld Kconfig overlay. The complete and Host-only shells use external Zephyr sources.
 
 ## QEMU
 

@@ -7,7 +7,7 @@ BSWorld is a deterministic simulation framework for testing Bluetooth Hosts and 
 Use BSWorld to:
 
 - Test open-source Host stacks such as Zephyr, NuttX, BlueZ, NimBLE, Bumble, and TrouBLE without modifying their source code.
-- Run without hardware: each Host connects over standard H4 HCI to its own virtual Controller.
+- Run without hardware: Hosts connect over standard H4 HCI to virtual Controllers, or complete firmware joins the PHY with its own Controller and radio.
 - Keep Application logs, HCI BTSnoop captures, PHY logs, and Ellisys traces for debugging failures.
 - Simulate many devices in one scenario. Repeated runs of the same scenario produce consistent logs and timing, regardless of host load or scheduling.
 - Share one discrete simulation clock across all devices. Scenarios are isolated and run in parallel with pytest-xdist, up to 100 times faster than real time.
@@ -93,7 +93,7 @@ pytest tests/integration/bumble -n auto -k '[bscontroller]'
 
 ### Test Controller Variants
 
-Integration scenarios run with both the Zephyr Controller (`[zephyr]`) and Python BSController (`[bscontroller]`) by default; see [Virtual Controllers](docs/controllers.md).
+Integration scenarios run with both the Zephyr Controller (`[zephyr]`) and Python BSController (`[bscontroller]`); `[zephyr]` cases are skipped when the Zephyr Controller is not built. See [Virtual Controllers](docs/controllers.md).
 
 Select one implementation with its pytest parameter ID:
 
@@ -106,7 +106,7 @@ pytest tests/integration -n auto -v -k '[bscontroller]'
 
 | Environment | Validated behavior | Guide |
 |---|---|---|
-| Zephyr Bluetooth shell | Advertising and scanning, interference and recovery, connections and GATT, LL procedures, pairing and privacy across Controller pairings, periodic advertising, Mesh provisioning and configuration | [Zephyr tests](tests/integration/zephyr/shell/README.md) |
+| Zephyr Bluetooth shell | Advertising and scanning, interference and recovery, connections and GATT, LL procedures, pairing and privacy, periodic advertising; complete firmware against Host-only shells on either Controller and against Bumble | [Zephyr tests](tests/integration/zephyr/README.md) |
 | Bumble Python Host | Advertising, scanning, connections, periodic advertising and synchronization | [Bumble tests](tests/integration/bumble/README.md) |
 | Linux and BlueZ under QEMU | Controller setup, advertising, scanning, connection and disconnection through the Linux Bluetooth subsystem | [BlueZ tests](tests/integration/qemu/bluez/README.md) |
 | TrouBLE Rust Host | Advertising, connection, Battery Service discovery, reads and notifications | [TrouBLE tests](tests/integration/trouble/README.md) |
@@ -115,11 +115,11 @@ pytest tests/integration -n auto -v -k '[bscontroller]'
 
 ## Technical Architecture
 
-BSWorld keeps each Application and Host stack on its native interface. Every Host connects through standard HCI to an independent Zephyr Controller process or Python BSController worker. All Controllers and interference sources share the BabbleSim PHY and simulation clock.
+BSWorld keeps each Application and Host stack on its native interface. Every Host connects through standard HCI to an independent Zephyr Controller process or Python BSController worker. Complete Zephyr firmware includes its own Controller and radio and joins the PHY directly; see [Complete firmware](docs/writing-tests.md#complete-firmware). All Controllers, complete firmware and interference sources share the BabbleSim PHY and simulation clock.
 
-<div align="center"><img src="docs/images/babblesim_arch.svg" alt="BSWorld participants connected through independent virtual Controllers to a shared BabbleSim PHY" width="80%"><br><em>Figure 1: BSWorld architecture</em><br><br></div>
+<div align="center"><img src="docs/images/babblesim_arch.svg" alt="BSWorld participants connected through independent virtual Controllers or as complete firmware to a shared BabbleSim PHY" width="80%"><br><em>Figure 1: BSWorld architecture</em><br><br></div>
 
-The virtual Controllers implement HCI commands, events, ACL data, Link Layer procedures, and radio transmission and reception. A topology can mix RTOS, Python, and QEMU-based Linux participants with either Controller implementation. See [Virtual Controllers](docs/controllers.md) to choose and configure them.
+The virtual Controllers implement HCI commands, events, ACL data, Link Layer procedures, and radio transmission and reception. A topology can mix RTOS, Python, QEMU-based Linux and complete Zephyr participants with either Controller implementation. See [Virtual Controllers](docs/controllers.md) to choose and configure them.
 
 HCI traffic is saved as `hciN.snoop` for Wireshark or another BTSnoop-capable tool. Radio traffic is saved as `babblesim/ellisys.bttrp` for Ellisys. See [Logs, traces, and captures](docs/artifacts.md) for locations and a recommended investigation order.
 

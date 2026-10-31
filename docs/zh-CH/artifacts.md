@@ -19,6 +19,8 @@ pytest tests/ --out-dir=/path/to/artifacts
 OUT_DIR=/path/to/artifacts pytest tests/
 ```
 
+相对输出目录会在子进程启动前解析为绝对路径，因此子进程切换工作目录后仍能读取 PHY 输入文件。
+
 框架会在指定根目录下继续创建 `run-<timestamp>/<uid>`。同一次 pytest 会话中的 [pytest-xdist](https://pytest-xdist.readthedocs.io/) worker 共享这个会话目录，但每个测试按照 pytest node ID 写入独立子目录，因此并行测试不会覆盖彼此的日志、socket 或抓包文件。
 
 ## Docker 与 CI 结果
@@ -31,7 +33,7 @@ OUT_DIR=/path/to/artifacts pytest tests/
 
 ## 目录结构
 
-下面是一项 NuttX 扫描测试的典型目录：
+下面是一项 NuttX 扫描测试 `[zephyr]` 用例的典型目录：
 
 ```text
 /tmp/run-<timestamp>/<uid>/
@@ -41,7 +43,7 @@ OUT_DIR=/path/to/artifacts pytest tests/
                 nuttx/
                     btsak/
                         test_btsak_scan_advertise/
-                            test_nuttx_btsak_scanner_finds_advertiser/
+                            test_nuttx_btsak_scanner_finds_advertiser_zephyr/
                                 bsworld.log
                                 babblesim/
                                     bs_2G4_phy_v1.log
@@ -62,7 +64,7 @@ OUT_DIR=/path/to/artifacts pytest tests/
                                             hci1.snoop
 ```
 
-`att_matrix.txt` 和 `timed_att_*.txt` 只在测试配置了对应的固定或时变路径衰减时生成。
+`[bscontroller]` 用例在 `..._bscontroller/` 下生成相同文件，但没有 `bt_virt_controller/`。`att_matrix.txt` 和 `timed_att_*.txt` 只在测试配置了对应的固定或时变路径衰减时生成。
 
 ## 各类产物
 
@@ -70,8 +72,8 @@ OUT_DIR=/path/to/artifacts pytest tests/
 |---|---|---|
 | `bsworld.log` | BSWorld | 进程命令、工作目录、PID、socket 与设备锁就绪状态、清理过程、Ellisys 转换命令和框架告警。 |
 | `babblesim/bs_2G4_phy_v1.log` | BabbleSim PHY | PHY 进程的标准输出和标准错误。正常运行时可能为空。 |
-| `bt_virt_controller/*.log` | 虚拟 Controller | Controller 启动信息、断言和内部诊断。 |
-| `<业务程序>/<名称>.log` | 业务程序 | 业务程序合并后的标准输出和标准错误，也是 `wait_log()` 的数据来源。 |
+| `bt_virt_controller/*.log` | ZephyrController | Controller 启动信息、断言和内部诊断。仅在测试使用 `ZephyrController` 时生成。 |
+| `<业务程序>/<名称>.log` | 业务程序 | 业务程序合并后的标准输出和标准错误，也是 `wait_log()` 的数据来源。完整 Zephyr 固件写在 `zephyr/complete/<名称>/` 下。 |
 | `<业务程序>/hciN.snoop` | Controller BTSnoop 文件 | Host 与对应虚拟 Controller 之间的 HCI 命令、事件和 ACL 数据。 |
 | `babblesim/ellisys.bttrp` | BSWorld Python 转换工具 | 同一个 PHY 中所有虚拟设备的 Bluetooth LE 空口交互。 |
 | `babblesim/att_matrix.txt` | BSWorld | 本测试实际传给 `multiatt` 信道模型的静态路径衰减矩阵。 |
@@ -125,7 +127,7 @@ wireshark /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 btmon -r /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 ```
 
-两种 Controller 的 HCI 抓包默认始终开启。绑定业务程序的 Controller 将抓包保存在业务程序目录，否则保存在 `bt_virt_controller/` 或 `bscontroller/` 下。两种实现的无线交互均记录在共享的 `ellisys.bttrp` 中。
+两种 Controller 实现的 HCI 抓包始终开启。绑定业务程序时抓包位于业务程序目录，否则位于 `controllers/hciN/`。完整 Zephyr 固件没有外部 HCI 抓包。两种 Controller 实现和完整固件的无线交互都记录在共享的 `ellisys.bttrp` 中。
 
 ## Ellisys 空口跟踪文件
 

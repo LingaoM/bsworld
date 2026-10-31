@@ -116,7 +116,7 @@ make -C "$BUILDROOT_DIR" O="$BUILDROOT_OUTPUT" show-info
 
 ## 添加场景
 
-在 [BlueZ](bluez/README.zh-CN.md) 或 [NimBLE](nimble/README.zh-CN.md) 目录中添加异步 pytest 测试。`topo.start()` 前调用 [common.py](common.py) 中的 `load_qemu_guest()`，启动后调用 `login_qemu_guest()`，再通过 `guest.shell` 发送命令并用 `wait_log()` 验证。
+在 [BlueZ](bluez/README.zh-CN.md) 或 [NimBLE](nimble/README.zh-CN.md) 目录中添加异步 pytest 测试。通过 [common.py](common.py) 中的 `create_qemu_guest(topo, ...)` 创建并登记程序，启动前调用 `guest.attach(topo.add_controller(...))` 绑定 Controller。启动后调用 `login_qemu_guest()`，再通过 `guest.shell` 发送命令并用 `wait_log()` 验证。
 
 ## 许可证
 

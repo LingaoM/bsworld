@@ -47,14 +47,16 @@ cargo test --locked --manifest-path tests/integration/trouble/source/Cargo.toml
 ## 添加场景
 
 ```python
-central = _add_host(topo, "central")
-peripheral = _add_host(topo, "peripheral")
+central = _create_host(topo, "central")
+peripheral = _create_host(topo, "peripheral")
+for host in (central, peripheral):
+    host.attach(topo.add_controller(log_subdir=f"trouble/{host.label}"))
 await topo.start()
 await peripheral.wait_log(r"\[adv\] connection established")
 await central.wait_log(r"Read value: \d+")
 ```
 
-`_add_host()` 定义在 [test_trouble_native.py](test_trouble_native.py) 中，角色行为在 Rust 可执行文件中实现。
+`_create_host()` 定义在 [test_trouble_native.py](test_trouble_native.py) 中，角色行为在 Rust 可执行文件中实现。
 
 进程输出位于 `trouble/<role>/`，其余见[产物目录结构](../../../docs/zh-CH/artifacts.md)。
 

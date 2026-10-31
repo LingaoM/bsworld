@@ -4,8 +4,8 @@ sequenceDiagram
     participant PS as pytest / asyncio
     participant PHY as BabbleSim PHY
     participant CH as BsimClock (in pytest)<br/>d=4
-    participant VC0 as Virtual Controller 0<br/>d=0
-    participant VC1 as Virtual Controller 1<br/>d=1
+    participant VC0 as BSController 0<br/>worker thread, d=0
+    participant VC1 as BSController 1<br/>worker thread, d=1
     participant CEN as Central App<br/>d=2
     participant PER as Peripheral App<br/>d=3
 
@@ -15,8 +15,8 @@ sequenceDiagram
         PS->>PHY: spawn bs_2G4_phy_v1<br/>-D=5 -defmodem=BLE_simple
         PHY-->>PS: PHY ready
 
-        PS->>VC0: spawn bt_virt_controller<br/>-d=0 -hci-socket=hci0.sock
-        PS->>VC1: spawn bt_virt_controller<br/>-d=1 -hci-socket=hci1.sock
+        PS->>VC0: start worker<br/>d=0, serve hci0.sock
+        PS->>VC1: start worker<br/>d=1, serve hci1.sock
 
         PS->>PS: wait for HCI sockets
         Note over VC0,VC1: hci0.sock / hci1.sock ready

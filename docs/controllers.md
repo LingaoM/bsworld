@@ -12,7 +12,7 @@ BSWorld ships two implementations:
 | Runs as | Native simulator process, one per Controller | Worker thread inside the pytest process |
 | Needs | `BSWORLD_BT_VIRT_CONTROLLER_BIN` (prebuilt in the Docker image) | Nothing beyond the BSWorld installation |
 | Configuration | Fixed by the Zephyr build | Per Controller: buffers, list sizes, limits, version ([below](#configuring-bscontroller)) |
-| Default | Yes | Selected per test or per Controller |
+| Default | Selected explicitly | Yes |
 
 Both write an HCI capture per Controller (`hciN.snoop`), and both appear in the shared radio trace (`ellisys.bttrp`). See [Logs, traces, and captures](artifacts.md).
 
@@ -21,9 +21,11 @@ Both write an HCI capture per Controller (`hciN.snoop`), and both appear in the 
 `topo.add_controller()` returns a Controller. Connect a Host to its `hci_sock` after `topo.start()`:
 
 ```python
-from bsworld.devices import BSController
+from bsworld.devices import BSController, ZephyrController
 
-zephyr_ctl = topo.add_controller(public_address="F0:F1:F2:F3:F4:02")
+zephyr_ctl = topo.add_controller(
+    controller_type=ZephyrController, public_address="F0:F1:F2:F3:F4:02"
+)
 python_ctl = topo.add_controller(
     controller_type=BSController,
     public_address="F0:F1:F2:F3:F4:01",
@@ -34,7 +36,7 @@ await topo.start()
 
 | Argument | Meaning |
 |---|---|
-| `controller_type` | `ZephyrController` (default) or `BSController`. One topology may mix both. |
+| `controller_type` | `BSController` (default) or `ZephyrController`. One topology may mix both. |
 | `public_address` | Public device address, `AA:BB:CC:DD:EE:FF`. If omitted, `BSController` derives a distinct address from the Controller number, and `ZephyrController` keeps the address of its build. |
 | `log_subdir` | Where this Controller's `hciN.snoop` goes, relative to the test log directory. |
 | `config` | `BSController` only: a `ControllerConfig` with Controller-defined values, see [Configuring BSController](#configuring-bscontroller). |
@@ -42,7 +44,7 @@ await topo.start()
 
 ## Running a scenario against both Controllers
 
-Override the `bsworld_default_controller_type` fixture to set the default `controller_type` of the `topo` fixture; an explicit `controller_type` still takes precedence:
+Override the `bsworld_default_controller_type` fixture to set the default `controller_type` of the `topo` fixture; an explicit `controller_type` still takes precedence. The integration suites share this override through [tests/integration/controllers.py](../tests/integration/controllers.py), which also skips `[zephyr]` cases when `BSWORLD_BT_VIRT_CONTROLLER_BIN` is not set:
 
 ```python
 import pytest
@@ -60,8 +62,6 @@ Select one implementation with its parameter ID:
 pytest tests/integration -n auto -k '[zephyr]'
 pytest tests/integration -n auto -k '[bscontroller]'
 ```
-
-Scenarios that pair the two implementations, such as `test_le_features.py`, use `[<peripheral>-<central>]` IDs, for example `[zephyr-bscontroller]`. Neither command above selects them.
 
 ## Configuring BSController
 
@@ -109,7 +109,7 @@ The Zephyr Controller is Zephyr's upstream [`samples/bluetooth/hci_virt`](https:
 
 ### Building the Zephyr Controller
 
-The [Docker test image](../docker/README.md#use-a-published-image) already includes the Controller. For native Linux builds, build BabbleSim using the [repository instructions](../README.md#build-and-test) and prepare the [Zephyr workspace](../tests/integration/zephyr/shell/README.md#prepare-the-zephyr-workspace).
+The [Docker test image](../docker/README.md#use-a-published-image) already includes the Controller. For native Linux builds, build BabbleSim using the [repository instructions](../README.md#build-and-test) and prepare the [Zephyr workspace](../tests/integration/zephyr/README.md#prepare-the-zephyr-workspace).
 
 Build the sample with the BSWorld overlay:
 

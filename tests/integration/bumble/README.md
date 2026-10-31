@@ -48,7 +48,7 @@ async with AsyncExitStack() as stack:
     await observer.start_scanning()
 ```
 
-For two devices, `open_bumble_pair()` does both steps. HCI captures are under `bumble/<role>/`; see [artifacts](../../../docs/artifacts.md) for the rest.
+For standard two-device scenarios, use the `bumble_pair` fixture from [conftest.py](conftest.py). It creates the Controllers, configures 45 dB attenuation, starts the topology and opens both Hosts. `open_bumble_device()` only opens the HCI connection and initializes Bumble; it does not configure or start the topology. HCI captures are under `bumble/<role>/`; see [artifacts](../../../docs/artifacts.md) for the rest.
 
 ## License
 

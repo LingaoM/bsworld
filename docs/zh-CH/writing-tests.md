@@ -16,11 +16,11 @@
 
 ## 测试生命周期
 
-`topo` fixture 为每个测试提供一个 `BluetoothTopology`。测试声明参与者、连接关系和 RF 条件，不直接编排底层操作系统进程。原生业务程序由所在测试目录的适配器注册为 `ProcessInstance`，从而获得日志等待和可选的 Shell 输入能力；基于 asyncio 的 Python Host 协议栈则直接注册虚拟 Controller，并在拓扑启动后连接它的 HCI socket。
+`topo` fixture 为每个测试提供一个 `BluetoothTopology`。测试声明参与者、连接关系和 RF 条件，不直接编排底层操作系统进程。原生业务程序由所在测试目录的创建函数描述为 `ProcessInstance`，获得日志等待和可选的 Shell 输入能力，并自动登记到传入的拓扑中；基于 asyncio 的 Python Host 协议栈则直接注册虚拟 Controller，并在拓扑启动后连接它的 HCI socket。
 
 一套拓扑依次经过四个阶段：
 
-1. 测试目录的进程加载函数、`topo.add_controller()` 和 RF 配置接口记录预期拓扑，此时不会创建子进程或推进仿真时间。
+1. 测试 fixture 通过程序创建函数、`attach()`、`topo.add_process()`、`topo.add_controller()` 和 RF 配置接口记录预期拓扑，此时不会创建子进程或推进仿真时间。
 2. `await topo.start()` 确定各设备标识，创建隔离的 socket 和日志路径，并启动 PHY、虚拟 Controller、干扰源和业务程序。当所有参与者完成注册、event loop 已运行在仿真时间上时，该调用返回。
 3. 测试通过 `ProcessInstance`、进程内 Host 协议栈接口、Shell 命令和标准 asyncio API 执行业务操作与断言。event loop 处理完当前时间戳上的回调和 I/O 后，才会推进共享仿真时间。
 4. fixture 清理阶段停止 Controller 和进程，写完日志和抓包文件，生成 Ellisys 跟踪文件并删除仿真临时文件。
@@ -39,7 +39,7 @@ await topo.start()
 # 将 Host 连接到 ctl.hci_sock。
 ```
 
-默认使用 `ZephyrController`，`BSController` 是 Python 实现，同一拓扑可以混用两种。参见[虚拟 Controller](controllers.md)。
+默认使用 `BSController`，`ZephyrController` 是原生实现的替代选项，同一拓扑可以混用两种。完整 Zephyr 固件自带 Controller，两者都不需要，参见[完整固件](#完整固件)和[虚拟 Controller](controllers.md)。
 
 ## 异步等待与仿真时间
 
@@ -68,7 +68,19 @@ result = await asyncio.wait_for(operation(), timeout=5)
 
 ## 接入业务程序进程
 
-各集成测试目录通过自己的加载函数，将业务程序及其 Controller 登记到拓扑中。原生程序以 `ProcessInstance` 运行；Python Host 协议栈在拓扑启动后打开 Controller 的 `hci_sock`，直接运行在测试的 asyncio event loop 中。添加场景时复用所在套件的现有辅助函数，环境准备、初始化和平台命令见对应 README。
+各集成测试目录通过自己的创建函数生成业务程序。创建函数以拓扑为第一个参数，并把新进程登记到拓扑中；测试随后选择 Controller，在 `topo.start()` 前通过 `host.attach(controller)` 绑定。Python Host 协议栈在拓扑启动后打开 Controller 的 `hci_sock`，直接运行在测试的 asyncio event loop 中。添加场景时复用所在套件的现有辅助函数，环境准备、初始化和平台命令见对应 README。
+
+```python
+from tests.integration.zephyr.shell.devices import create_zephyr_shell
+from bsworld.devices import BSController
+
+host = create_zephyr_shell(topo, name="host")
+host.attach(topo.add_controller(
+    controller_type=BSController, public_address="F0:F1:F2:F3:F4:02"
+))
+```
+
+设备标识发布前都可以修改绑定关系，通常由 `topo.start()` 发布，提前调用 `plan_devices()` 也会冻结。自行构造 `ProcessInstance` 时，需通过 `topo.add_process()` 登记；如果稍后才挂载 Controller，需传入 `requires_controller=True`。这样漏掉 `attach()` 时会在规划设备布局阶段、PHY 启动前报错，而不会被当作完整固件。套件的创建函数已经设置了该参数。
 
 | 平台 | 测试说明 |
 |---|---|
@@ -76,7 +88,35 @@ result = await asyncio.wait_for(operation(), timeout=5)
 | NuttX | [BTSak 与 NimBLE](../../tests/integration/nuttx/README.zh-CN.md#添加场景) |
 | QEMU Linux | [BlueZ 与 NimBLE](../../tests/integration/qemu/README.zh-CN.md#添加场景) |
 | TrouBLE | [原生 TrouBLE 测试](../../tests/integration/trouble/README.zh-CN.md#添加场景) |
-| Zephyr | [Bluetooth 与 Mesh shell](../../tests/integration/zephyr/shell/README.zh-CN.md#添加场景) |
+| Zephyr | [Bluetooth shell](../../tests/integration/zephyr/shell/README.zh-CN.md#添加场景) |
+
+## 完整固件
+
+自带 Controller 和无线模型的固件（例如 Zephyr `nrf52_bsim` 构建）直接接入 PHY，登记时不挂载 Controller：
+
+```python
+from pathlib import Path
+from bsworld.devices import ProcessInstance
+
+node = topo.add_process(ProcessInstance(
+    command=lambda slot: [
+        Path("/absolute/path/to/zephyr.exe"),
+        f"-s={slot.sim_id}", f"-p={slot.phy_id}", f"-d={slot.dev_id}",
+        "-rs=41", "-mro=1000", "-RealEncryption=1",
+    ],
+    label="node",
+    shell=True,
+    # -RealEncryption=1 loads libCryptov1.so from BabbleSim.
+    env={"LD_LIBRARY_PATH": str(topo.env.bsim_dir / "lib")},
+))
+await topo.start()
+```
+
+- 仅当镜像把 UART 接到 stdin/stdout 时设置 `shell=True`；否则用 `wait_log()` 检查输出。
+- 该进程可直接作为衰减路径的 `tx` 或 `rx`。
+- 没有 `hci_sock` 和 `hciN.snoop`，排查时看控制台日志和 `ellisys.bttrp`。
+
+Zephyr shell 镜像的构建步骤见 [Zephyr 蓝牙 Shell 测试](../../tests/integration/zephyr/shell/README.zh-CN.md#构建与运行)。
 
 ## 向进程发送 Shell 命令
 
@@ -139,7 +179,7 @@ topo.set_channel_attenuation(
 
 路径具有方向性；如果两个方向需要不同的损耗，应分别配置 `tx -> rx` 和 `rx -> tx`。`TimedAttenuation` 的时间点与衰减值必须一一对应，相邻时间点之间采用线性插值。
 
-`tx` 和 `rx` 可以是已经登记的 `ProcessInstance` 或 `Controller`、`add_*_interference()` 返回的 `InterferenceRef`，也可以是原始 BabbleSim 设备编号。业务程序进程会解析为关联虚拟 Controller 的 RF 设备，因为实际与 PHY 交换无线报文的是 Controller。
+`tx` 和 `rx` 可以是已经登记的 `ProcessInstance` 或 `Controller`、`add_*_interference()` 返回的 `InterferenceRef`，也可以是原始 BabbleSim 设备编号。HCI Host 进程解析为其虚拟 Controller 的 RF 设备编号；完整固件解析为自身的无线设备编号。
 
 ### 突发干扰
 
@@ -208,7 +248,7 @@ async def test_central_receives_notification(topo, peripheral, central):
     await central.wait_log(r"\[NOTIFICATION\]")
 ```
 
-图 2 将示例代码映射到实际执行过程：进程加载函数登记业务程序及其 Controller，`set_channel_attenuation()` 配置共享 PHY 上的 RF 路径。阶段 1 对应 `topo.start()`；HCI socket 和全部 BabbleSim 参与者就绪后，该调用才会返回。后续阶段对应三个 `wait_log()`，event loop 推进仿真时间，业务程序依次完成广播、连接和通知交互。
+图 2 将示例代码映射到实际执行过程：测试 fixture 创建 Controller、挂载 Host-only 业务程序并登记进程，`set_channel_attenuation()` 配置共享 PHY 上的 RF 路径。阶段 1 对应 `topo.start()`；HCI socket 和全部 BabbleSim 参与者就绪后，该调用才会返回。后续阶段对应三个 `wait_log()`，event loop 推进仿真时间，业务程序依次完成广播、连接和通知交互。
 
 <div align="center"><img src="../images/pytest-topology-execution.svg" alt="pytest 拓扑展开为确定性的 Bluetooth LE 执行" width="80%"><br><em>图 2：从 pytest 拓扑到确定性的 Bluetooth LE 执行</em><br><br></div>
 

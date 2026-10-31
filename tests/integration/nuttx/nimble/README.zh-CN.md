@@ -52,16 +52,19 @@ pytest tests/integration/nuttx/nimble -q
 ## 添加场景
 
 ```python
-from tests.integration.nuttx.common import load_nuttx_profile
+from tests.integration.nuttx.common import create_nuttx_process
 from tests.integration.nuttx.nimble.devices import NUTTX_NIMBLE_PERIPHERAL
 
-peripheral = load_nuttx_profile(
+peripheral = create_nuttx_process(
     topo, NUTTX_NIMBLE_PERIPHERAL, log_subdir="nuttx/nimble/peripheral"
 )
+peripheral.attach(topo.add_controller(public_address="C0:FF:EE:20:00:01"))
 await topo.start()
 await peripheral.shell.run_many(("ifup bnep0", "bleprph"))
 await peripheral.wait_log(r"connection established; status=0 handle=\d+")
 ```
+
+Profile 只描述程序名称、可执行文件和 shell 行为。测试通过 `topo.add_controller()` 选择 Controller 类型和地址，通过 `host.attach(controller)` 绑定程序；创建函数已经将程序登记到传入的拓扑中。
 
 | 角色 | Shell 命令 |
 |---|---|
