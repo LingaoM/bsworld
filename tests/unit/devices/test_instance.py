@@ -15,9 +15,11 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from tests.unit.helpers import register_process, slot_for
 
 from bsworld.devices.instance import ProcessInstance
@@ -78,17 +80,6 @@ def test_shell_start_attaches_stdin_without_sending_commands(
     assert spawn_recorder.stdin.getvalue() == b""
 
 
-def test_process_shell_is_disabled_by_default(tmp_path, unit_env: Env) -> None:
-    topo = BluetoothTopology(unit_env, "sim0", tmp_path / "log")
-    controller = topo.add_controller()
-
-    process = ProcessInstance(
-        command=[tmp_path / "device"], controller=controller, label="device"
-    )
-
-    assert process.shell.enabled is False
-
-
 def test_process_start_opens_capture_in_its_log_directory(
     tmp_path, unit_env: Env, spawn_recorder, monkeypatch
 ) -> None:
@@ -118,3 +109,34 @@ def test_process_start_opens_capture_in_its_log_directory(
         process.stop_capture()
 
     assert opened == [tmp_path / "log" / "devices" / "dev0" / "dev0.log"]
+
+
+@pytest.mark.parametrize("custom_cwd", [False, True], ids=["default-cwd", "custom-cwd"])
+def test_process_environment_overrides_and_working_directory(
+    tmp_path, unit_env, monkeypatch, spawn_recorder, custom_cwd
+):
+    monkeypatch.setenv("BSWORLD_PARENT_TEST", "parent")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "parent-lib")
+    topo = BluetoothTopology(unit_env, "sim", tmp_path / "log")
+    binary = tmp_path / "firmware"
+    binary.touch()
+    working_dir = tmp_path / "working" if custom_cwd else None
+    if working_dir is not None:
+        working_dir.mkdir()
+    process = topo.add_process(
+        ProcessInstance(
+            command=[binary],
+            label="device",
+            cwd=working_dir,
+            env={"LD_LIBRARY_PATH": "child-lib"},
+        )
+    )
+    try:
+        process.start(spawn_recorder, topo.test_log_dir, slot_for(topo, process))
+        options = spawn_recorder.calls[0][2]
+        assert options["cwd"] == (working_dir or topo.test_log_dir / "device")
+        assert options["env"]["BSWORLD_PARENT_TEST"] == "parent"
+        assert options["env"]["LD_LIBRARY_PATH"] == "child-lib"
+        assert os.environ["LD_LIBRARY_PATH"] == "parent-lib"
+    finally:
+        process.stop_capture()

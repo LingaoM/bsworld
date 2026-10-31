@@ -19,9 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.integration.applications import add_application, require_artifact
+from tests.integration.applications import create_application, require_artifact
 
-from bsworld.devices import AppSlot, Controller, ProcessInstance
+from bsworld.devices import AppSlot, ProcessInstance
 from bsworld.env import env_path
 from bsworld.topology import BluetoothTopology
 
@@ -30,10 +30,11 @@ _GUIDE = "tests/integration/nuttx/README.md"
 
 @dataclass(frozen=True)
 class NuttXProcessProfile:
+    """Program identity and console behavior, independent of the test topology."""
+
     name: str
     binary_env: str
     shell: bool = True
-    controller_address: str | None = None
 
     @property
     def path(self) -> Path | None:
@@ -56,21 +57,18 @@ def _argv(binary: Path, slot: AppSlot) -> list[str | Path]:
     ]
 
 
-def load_nuttx_profile(
+def create_nuttx_process(
     topo: BluetoothTopology,
     profile: NuttXProcessProfile,
     *,
     log_subdir: Path | str | None = None,
-    controller_type: type[Controller] | None = None,
 ) -> ProcessInstance:
-    return add_application(
+    return create_application(
         topo,
         binary_env=profile.binary_env,
         guide=_GUIDE,
         argv=_argv,
         label=profile.name,
-        controller_address=profile.controller_address,
-        controller_type=controller_type,
         log_subdir=log_subdir,
         shell=profile.shell,
     )
@@ -78,6 +76,6 @@ def load_nuttx_profile(
 
 __all__ = [
     "NuttXProcessProfile",
-    "load_nuttx_profile",
+    "create_nuttx_process",
     "require_binaries",
 ]

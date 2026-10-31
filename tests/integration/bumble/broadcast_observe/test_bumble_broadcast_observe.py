@@ -30,7 +30,6 @@ from tests.integration.bumble.common import (
     AdvertisingType,
     advertising_data,
     open_bumble_device,
-    open_bumble_pair,
 )
 
 from bsworld.interference import StaticAttenuation
@@ -40,32 +39,31 @@ _BLE_ADVERTISING_CHANNELS_MHZ = (2402.0, 2426.0, 2480.0)
 _INTERFERENCE_END_US = 5_000_000
 
 
-async def test_bumble_observer_finds_bumble_advertiser(topo):
+async def test_bumble_observer_finds_bumble_advertiser(bumble_pair):
     found = asyncio.Event()
 
-    async with AsyncExitStack() as stack:
-        advertiser, observer = await open_bumble_pair(topo, stack)
+    advertiser, observer = bumble_pair
 
-        def on_advertisement(advertisement) -> None:  # noqa: ANN001
-            if (
-                advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME)
-                == ADVERTISER_NAME
-            ):
-                found.set()
+    def on_advertisement(advertisement) -> None:  # noqa: ANN001
+        if (
+            advertisement.data.get(AdvertisingData.COMPLETE_LOCAL_NAME)
+            == ADVERTISER_NAME
+        ):
+            found.set()
 
-        observer.on("advertisement", on_advertisement)
-        await observer.start_scanning(active=False, filter_duplicates=False)
-        try:
-            await advertiser.start_advertising(
-                advertising_type=AdvertisingType.UNDIRECTED_CONNECTABLE_SCANNABLE,
-                advertising_data=advertising_data(ADVERTISER_NAME),
-                advertising_interval_min=20.0,
-                advertising_interval_max=20.0,
-            )
-            await asyncio.wait_for(found.wait(), timeout=TIMEOUT)
-        finally:
-            await advertiser.stop_advertising()
-            await observer.stop_scanning()
+    observer.on("advertisement", on_advertisement)
+    await observer.start_scanning(active=False, filter_duplicates=False)
+    try:
+        await advertiser.start_advertising(
+            advertising_type=AdvertisingType.UNDIRECTED_CONNECTABLE_SCANNABLE,
+            advertising_data=advertising_data(ADVERTISER_NAME),
+            advertising_interval_min=20.0,
+            advertising_interval_max=20.0,
+        )
+        await asyncio.wait_for(found.wait(), timeout=TIMEOUT)
+    finally:
+        await advertiser.stop_advertising()
+        await observer.stop_scanning()
 
 
 async def test_bumble_targeted_interference_isolates_and_recovers(topo):

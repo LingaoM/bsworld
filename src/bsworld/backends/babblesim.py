@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""BabbleSim backend: PHY + virtual HCI controllers + optional interference.
+"""BabbleSim backend: PHY, independent Controllers, firmware and interference.
 
-Direct-PHY firmware receives --sim-bsim-* arguments and registers with the
-BabbleSim PHY itself.
+Application command factories receive an AppSlot and select their native
+arguments for joining the PHY. Processes are registered once; Host and complete
+firmware slots are derived from their final attachments when the layout freezes.
 
 Bring-up shape:
-    1. verify configured BabbleSim and Virtual Controller artifacts.
-    2. prepare_sim: kill stragglers for this sim_id, remove stale HCI
+    1. verify configured BabbleSim artifacts.
+    2. prepare: kill stragglers for this sim_id, remove stale HCI
        socket files.
     3. plan_devices: freeze one DeviceLayout covering Virtual Controllers,
-       Application processes, the framework clock, then interference.
+       Host processes, complete firmware, the framework clock, then interference.
     4. spawn phy (-D = num_devs).
     5. spawn Virtual Controllers and interference devices. Firmware processes
        are started by topology.
@@ -36,11 +37,12 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..deps import check_babblesim_ready
+from ..devices.bscontroller import BSController
 from ..devices.controller import Controller
 from ..devices.layout import DeviceLayout, build_device_layout
-from ..devices.zephyr import ZephyrController
 from ..env import Env
 from ..interference import (
     BurstInterference,
@@ -56,6 +58,9 @@ from ..runtime.proc import ProcessManager
 from ..runtime.scheduler import BsimClock
 from ..runtime.wait import wait_for_path, wait_for_paths, wait_for_paths_async
 from .ellisys import convert_tx_csv
+
+if TYPE_CHECKING:
+    from ..devices.instance import ProcessInstance
 
 _RESIDUAL_PATTERNS = (
     "bs_2G4_phy_v1",
@@ -74,23 +79,35 @@ class BabbleSimBackend:
     controllers: list[Controller] = field(default_factory=list)
     channel_attenuation: ChannelAttenuation | None = None
     interference_sources: list[InterferenceSource] = field(default_factory=list)
-    _application_controllers: list[Controller] = field(
+    _processes: list[ProcessInstance] = field(
         default_factory=list, init=False, repr=False
     )
     _layout: DeviceLayout | None = field(default=None, init=False, repr=False)
     _started: bool = False
     clock: BsimClock | None = None
 
+    @property
+    def processes(self) -> tuple[ProcessInstance, ...]:
+        """Registered processes, read-only; register through register_process()."""
+        return tuple(self._processes)
+
+    def _ensure_layout_mutable(self) -> None:
+        """Reject registrations once PHY identities have been published.
+
+        start() freezes the layout first, so this also covers a started backend.
+        """
+        if self._layout is not None:
+            raise RuntimeError("cannot change participants after the layout is frozen")
+
     def add_controller(
         self,
         *,
-        controller_type: type[Controller] = ZephyrController,
+        controller_type: type[Controller] = BSController,
         public_address: str | None = None,
         snoop_dir: Path | None = None,
         **options,
     ) -> Controller:
-        if self._started:
-            raise RuntimeError("cannot add a Controller after BabbleSim has started")
+        self._ensure_layout_mutable()
         dev_id = len(self.controllers)
         ctl = controller_type(
             controller_dev_id=dev_id,
@@ -108,17 +125,36 @@ class BabbleSimBackend:
         self.controllers.append(ctl)
         return ctl
 
-    def reserve_application_device(self, controller: Controller) -> None:
-        """Reserve a BabbleSim participant for an external Application process."""
-        if self._started:
-            raise RuntimeError(
-                "cannot attach an Application after BabbleSim has started"
-            )
+    def validate_attachment(
+        self, process: ProcessInstance, controller: Controller
+    ) -> None:
+        """Check that a Controller can be attached, without changing any state."""
+        self._ensure_layout_mutable()
         if not any(candidate is controller for candidate in self.controllers):
             raise ValueError("Controller does not belong to this BabbleSim backend")
-        if any(candidate is controller for candidate in self._application_controllers):
-            return
-        self._application_controllers.append(controller)
+        if any(
+            other is not process and other.controller is controller
+            for other in self._processes
+        ):
+            raise ValueError(
+                "a Virtual Controller can only be attached to one Application process"
+            )
+
+    def register_process(self, process: ProcessInstance) -> None:
+        """Record a process once; its final attachment is read when ids are frozen."""
+        if any(existing is process for existing in self._processes):
+            raise ValueError("process is already registered with this backend")
+        if process.controller is None:
+            self._ensure_layout_mutable()
+        else:
+            self.validate_attachment(process, process.controller)
+        self._processes.append(process)
+
+    def add_interference_source(self, source: InterferenceSource) -> int:
+        """Record an interference device and return its index."""
+        self._ensure_layout_mutable()
+        self.interference_sources.append(source)
+        return len(self.interference_sources) - 1
 
     def set_snoop_dir(self, controller: Controller, snoop_dir: Path) -> None:
         """Relocate a Controller's capture before it starts."""
@@ -139,8 +175,9 @@ class BabbleSimBackend:
         if self._layout is None:
             self._layout = build_device_layout(
                 phy_id=_PHY_ID,
+                sim_id=self.sim_id,
                 controllers=self.controllers,
-                application_controllers=self._application_controllers,
+                processes=self._processes,
                 interference_count=len(self.interference_sources),
             )
         return self._layout
@@ -181,9 +218,10 @@ class BabbleSimBackend:
         bsim_log_dir = log_dir / "babblesim"
         if self._started:
             return
-        if not self.controllers:
+        if not self.controllers and not self._processes:
             raise RuntimeError(
-                "a BabbleSim simulation requires at least one Virtual Controller"
+                "a BabbleSim simulation requires at least one Virtual Controller "
+                "or complete firmware"
             )
         self.check_deps_ready()
         self.prepare()

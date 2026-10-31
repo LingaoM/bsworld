@@ -15,10 +15,13 @@
 from __future__ import annotations
 
 import pytest
-from tests.integration.nuttx.common import NuttXProcessProfile
+from tests.integration.nuttx.common import NuttXProcessProfile, create_nuttx_process
 from tests.integration.nuttx.common import require_binaries as require_nuttx_binaries
 from tests.integration.qemu.common import _artifact
-from tests.integration.zephyr.shell.devices import add_zephyr_shell
+from tests.integration.zephyr.shell.devices import (
+    create_zephyr_firmware_shell,
+    create_zephyr_shell,
+)
 
 from bsworld.devices import BSController, ZephyrController
 
@@ -49,20 +52,22 @@ def test_nuttx_profiles_follow_exports_without_staging(monkeypatch, tmp_path) ->
         require([profile])
 
 
-@pytest.mark.parametrize("mesh", [False, True], ids=["bluetooth", "mesh"])
+@pytest.mark.parametrize("host_only", [False, True], ids=["full", "host-only"])
 def test_zephyr_shell_follows_exports_without_staging(
-    monkeypatch, tmp_path, topo, mesh
+    monkeypatch, tmp_path, topo, host_only
 ) -> None:
-    binary_env = "BSWORLD_ZEPHYR_MESH_SHELL_BIN" if mesh else "BSWORLD_ZEPHYR_SHELL_BIN"
+    binary_env = (
+        "BSWORLD_ZEPHYR_SHELL_BIN" if host_only else "BSWORLD_ZEPHYR_FULL_SHELL_BIN"
+    )
 
     def register():
-        return add_zephyr_shell(
-            topo,
-            name="device",
-            address="C0:FF:EE:41:00:02",
-            mesh=mesh,
-            controller_type=ZephyrController,
-        )
+        if host_only:
+            host = create_zephyr_shell(topo, name="device")
+            host.attach(topo.add_controller(public_address="F0:F1:F2:F3:F4:01"))
+            return host
+        device = create_zephyr_firmware_shell(topo, name="device", seed=42)
+        assert topo.processes == (device,)
+        return device
 
     monkeypatch.delenv(binary_env, raising=False)
     with pytest.raises(pytest.skip.Exception, match=binary_env):
@@ -76,18 +81,23 @@ def test_zephyr_shell_follows_exports_without_staging(
         register()
 
     binary.chmod(0o755)
-    topo.default_controller_type = BSController
     device = register()
-    assert isinstance(device.controller, ZephyrController)
     assert device.shell.enabled is True
-    slot = topo.bsim.plan_devices().application_slot(device.controller)
+    slot = topo.bsim.plan_devices().application_slot(device)
+    if host_only:
+        assert device.controller is not None
+        tail = ["-mro=1000", f"--bt-dev={slot.hci_sock}"]
+    else:
+        assert device.controller is None
+        assert not topo.bsim.controllers
+        assert slot.hci_sock is None
+        tail = ["-rs=42", "-mro=1000", "-RealEncryption=1"]
     assert device._resolve_command(slot) == [
         binary,
         f"-s={slot.sim_id}",
         f"-p={slot.phy_id}",
         f"-d={slot.dev_id}",
-        "-mro=1000",
-        f"--bt-dev={slot.hci_sock}",
+        *tail,
     ]
     assert list(binary.parent.iterdir()) == [binary]
 
@@ -114,3 +124,25 @@ def test_qemu_requires_explicit_outputs(monkeypatch, tmp_path, variable) -> None
             _artifact(variable, executable=True)
         artifact.chmod(0o755)
         assert _artifact(variable, executable=True) == artifact
+
+
+@pytest.mark.parametrize("controller_type", [BSController, ZephyrController])
+def test_nuttx_profile_attaches_to_the_supplied_controller(
+    topo, tmp_path, monkeypatch, controller_type
+):
+    binary = tmp_path / "nuttx"
+    binary.write_text("native output")
+    binary.chmod(0o755)
+    monkeypatch.setenv("BSWORLD_NUTTX_BTSAK_BIN", str(binary))
+    profile = NuttXProcessProfile("device", "BSWORLD_NUTTX_BTSAK_BIN")
+    controller = topo.add_controller(
+        controller_type=controller_type, public_address="C0:FF:EE:00:00:09"
+    )
+    device = create_nuttx_process(topo, profile)
+    device.attach(controller)
+
+    assert device.controller is controller
+    assert topo.bsim.controllers == [controller]
+    slot = topo.bsim.plan_devices().application_slot(device)
+    assert device._resolve_command(slot)[-1] == f"--bt-dev={controller.hci_sock}"
+    assert slot.hci_sock == controller.hci_sock

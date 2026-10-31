@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.integration.nuttx.common import load_nuttx_profile, require_binaries
+from tests.integration.nuttx.common import create_nuttx_process, require_binaries
 from tests.integration.nuttx.nimble.devices import (
     DEFAULT_DEVICE_NAME,
     NUTTX_NIMBLE_CENTRAL,
@@ -40,25 +40,27 @@ class NimbleNetwork:
     peripheral: ProcessInstance
 
 
-def _load_network(topo) -> NimbleNetwork:
+def _build_network(topo) -> NimbleNetwork:
     profiles = [NUTTX_NIMBLE_CENTRAL, NUTTX_NIMBLE_PERIPHERAL]
     require_binaries(profiles)
-    return NimbleNetwork(
-        central=load_nuttx_profile(
-            topo,
-            NUTTX_NIMBLE_CENTRAL,
-            log_subdir=Path("nuttx") / "nimble" / "central",
-        ),
-        peripheral=load_nuttx_profile(
-            topo,
-            NUTTX_NIMBLE_PERIPHERAL,
-            log_subdir=Path("nuttx") / "nimble" / "peripheral",
-        ),
+    central = create_nuttx_process(
+        topo, NUTTX_NIMBLE_CENTRAL, log_subdir=Path("nuttx") / "nimble" / "central"
     )
+    peripheral = create_nuttx_process(
+        topo,
+        NUTTX_NIMBLE_PERIPHERAL,
+        log_subdir=Path("nuttx") / "nimble" / "peripheral",
+    )
+    for host, address in (
+        (central, "C0:FF:EE:20:01:01"),
+        (peripheral, "C0:FF:EE:20:00:01"),
+    ):
+        host.attach(topo.add_controller(public_address=address))
+    return NimbleNetwork(central=central, peripheral=peripheral)
 
 
 async def test_nuttx_nimble_central_connects_peripheral(topo):
-    network = _load_network(topo)
+    network = _build_network(topo)
     await topo.start()
     await network.central.shell.run_many(("ifup bnep0", "blecent"))
     await network.peripheral.shell.run_many(("ifup bnep0", "bleprph"))

@@ -42,7 +42,7 @@ def test_add_process_registers_controller_application_device(tmp_path) -> None:
 
     assert dev.label == "dev0"
     assert dev.controller is topo.bsim.controllers[0]
-    assert topo.bsim.plan_devices().application_slot(dev.controller).dev_id == 1
+    assert topo.bsim.plan_devices().application_slot(dev).dev_id == 1
     assert dev.controller.hci_sock == tmp_path / "state" / "sim0" / "hci0.sock"
 
 
@@ -73,20 +73,22 @@ def test_default_controller_type_applies_until_a_call_overrides_it(tmp_path) -> 
     assert isinstance(overridden, ZephyrController)
 
 
-def test_controller_type_defaults_to_the_zephyr_process(tmp_path) -> None:
+def test_controller_type_defaults_to_bscontroller(tmp_path) -> None:
     topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 
-    assert isinstance(topo.add_controller(), ZephyrController)
+    assert isinstance(topo.add_controller(), BSController)
 
 
 def test_add_process_rejects_duplicate_label(tmp_path) -> None:
     exe = tmp_path / "firmware"
     exe.write_text("")
     topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
-    register_process(topo, exe=exe, label="device")
+    original = register_process(topo, exe=exe, label="device")
 
     with pytest.raises(ValueError, match="label is already registered"):
         register_process(topo, exe=exe, label="device")
+    assert topo.processes == (original,)
+    assert len(topo.bsim.controllers) == 1
 
 
 def test_add_process_rejects_shared_controller(tmp_path) -> None:
@@ -98,6 +100,8 @@ def test_add_process_rejects_shared_controller(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="only be attached to one Application"):
         topo.add_process(second)
+    assert topo.processes == (first,)
+    assert topo.bsim.plan_devices().device_count == 3
 
 
 def test_topology_rejects_configuration_after_start(tmp_path) -> None:
@@ -141,10 +145,10 @@ def test_add_wlan_interference_exposes_full_wlan_parameters(tmp_path) -> None:
     assert source.rand_seed == 7
 
 
-async def test_start_requires_at_least_one_virtual_controller(tmp_path) -> None:
+async def test_start_requires_a_controller_or_complete_firmware(tmp_path) -> None:
     topo = BluetoothTopology(make_env(tmp_path), "sim0", tmp_path / "log")
 
-    with pytest.raises(RuntimeError, match="at least one Virtual Controller"):
+    with pytest.raises(RuntimeError, match="Virtual Controller or complete firmware"):
         await topo.start()
     # Teardown still has to release whatever the failed start opened.
     await topo.stop()
@@ -194,7 +198,7 @@ async def test_start_uses_registered_snoop_path_and_binds_clock(
     assert isinstance(loop, BsimEventLoop)
     await topo.start()
     try:
-        assert seen_snoop_paths == [tmp_path / "log" / "hci0.snoop"]
+        assert seen_snoop_paths == [tmp_path / "log" / "dev0" / "hci0.snoop"]
         assert started_slots == [
             AppSlot(
                 sim_id="sim0",
@@ -255,9 +259,8 @@ def test_channel_attenuation_resolves_processes_to_virtual_controllers(
         1,
     ]
     layout = topo.bsim.plan_devices()
-    assert [
-        layout.application_slot(process.controller).dev_id for process in topo.processes
-    ] == [2, 3]
+    dev_ids = [layout.application_slot(process).dev_id for process in topo.processes]
+    assert dev_ids == [2, 3]
 
     topo.set_channel_attenuation(
         default_db=90.0,

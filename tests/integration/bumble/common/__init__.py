@@ -68,7 +68,6 @@ __all__ = [
     "add_bumble_controller",
     "advertising_data",
     "open_bumble_device",
-    "open_bumble_pair",
     "wait_for_advertisement",
 ]
 
@@ -133,27 +132,3 @@ def add_bumble_controller(
         public_address=address,
         log_subdir=Path("bumble") / role,
     )
-
-
-async def open_bumble_pair(
-    topo: BluetoothTopology, stack: AsyncExitStack
-) -> tuple[Device, Device]:
-    advertiser_ctl = add_bumble_controller(topo, "advertiser", ADVERTISER_ADDRESS)
-    observer_ctl = add_bumble_controller(topo, "observer", OBSERVER_ADDRESS)
-    topo.set_channel_attenuation(default_db=45.0)
-
-    await topo.start()
-
-    advertiser = await open_bumble_device(
-        stack,
-        "advertiser",
-        ADVERTISER_ADDRESS,
-        advertiser_ctl.hci_sock,
-    )
-    observer = await open_bumble_device(
-        stack,
-        "observer",
-        OBSERVER_ADDRESS,
-        observer_ctl.hci_sock,
-    )
-    return advertiser, observer

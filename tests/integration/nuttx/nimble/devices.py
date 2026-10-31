@@ -21,22 +21,14 @@ from tests.integration.nuttx.common import NuttXProcessProfile
 DEFAULT_DEVICE_NAME = "NuttX NimBLE PRPH"
 
 
-def _controller_address(group: int, index: int) -> str:
-    if not (0 <= group <= 255 and 0 <= index <= 255):
-        raise ValueError("controller address group/index must fit in one octet")
-    return f"C0:FF:EE:20:{group:02X}:{index:02X}"
-
-
 NUTTX_NIMBLE_PERIPHERAL = NuttXProcessProfile(
     name="nuttx_nimble_peripheral",
     binary_env="BSWORLD_NUTTX_NIMBLE_BIN",
-    controller_address=_controller_address(0, 1),
 )
 
 NUTTX_NIMBLE_CENTRAL = NuttXProcessProfile(
     name="nuttx_nimble_central",
     binary_env="BSWORLD_NUTTX_NIMBLE_BIN",
-    controller_address=_controller_address(1, 1),
 )
 
 

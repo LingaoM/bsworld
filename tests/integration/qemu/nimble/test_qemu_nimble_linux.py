@@ -25,7 +25,7 @@ from tests.integration.bumble.common import (
     add_bumble_controller,
     open_bumble_device,
 )
-from tests.integration.qemu.common import load_qemu_guest, login_qemu_guest
+from tests.integration.qemu.common import create_qemu_guest, login_qemu_guest
 
 from bsworld.topology import BluetoothTopology
 
@@ -38,12 +38,12 @@ _TIMEOUT = 20.0
 async def test_qemu_nimble_linux_advertises_and_accepts_connection(
     topo: BluetoothTopology,
 ) -> None:
-    guest = load_qemu_guest(
+    guest = create_qemu_guest(
         topo,
-        controller_address=_NIMBLE_ADDRESS,
         label="qemu_nimble",
         log_subdir=Path("qemu") / "nimble",
     )
+    guest.attach(topo.add_controller(public_address=_NIMBLE_ADDRESS))
     central_ctl = add_bumble_controller(
         topo, "qemu_nimble_central", _BUMBLE_CENTRAL_ADDRESS
     )

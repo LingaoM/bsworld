@@ -50,20 +50,20 @@ def register_process(
 ) -> ProcessInstance:
     """Register a process through the same public topology API used by scenarios."""
     binary = Path(exe).absolute()
-    controller = topo.add_controller(public_address=public_address)
-    return topo.add_process(
+    process = topo.add_process(
         ProcessInstance(
             command=[binary, *args],
-            controller=controller,
             label=label,
             shell=shell,
             log_subdir=log_subdir,
         )
     )
+    process.attach(topo.add_controller(public_address=public_address))
+    return process
 
 
 def slot_for(topo: BluetoothTopology, process: ProcessInstance) -> AppSlot:
-    return topo.bsim.plan_devices().application_slot(process.controller)
+    return topo.bsim.plan_devices().application_slot(process)
 
 
 class SpawnRecorder:

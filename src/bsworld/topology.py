@@ -34,9 +34,9 @@ from pathlib import Path
 from bsworld.runtime.scheduler import BsimEventLoop
 
 from .backends.babblesim import BabbleSimBackend
+from .devices.bscontroller import BSController
 from .devices.controller import Controller
 from .devices.instance import ProcessInstance
-from .devices.zephyr import ZephyrController
 from .env import Env
 from .interference import (
     BurstInterference,
@@ -58,10 +58,9 @@ class BluetoothTopology:
     env: Env
     sim_id: str
     test_log_dir: Path
-    default_controller_type: type[Controller] = ZephyrController
+    default_controller_type: type[Controller] = BSController
     pm: ProcessManager = field(default_factory=ProcessManager)
     bsim: BabbleSimBackend = field(init=False)
-    processes: list[ProcessInstance] = field(default_factory=list)
     _event_loop: BsimEventLoop | None = field(default=None, init=False, repr=False)
     _started: bool = False
 
@@ -69,6 +68,11 @@ class BluetoothTopology:
         self.bsim = BabbleSimBackend(self.env, self.sim_id)
         self.env.out_dir.mkdir(parents=True, exist_ok=True)
         self.test_log_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def processes(self) -> tuple[ProcessInstance, ...]:
+        """Registered processes, read-only; register through add_process()."""
+        return self.bsim.processes
 
     # ------------- process registration -------------
 
@@ -106,23 +110,31 @@ class BluetoothTopology:
     def add_process(self, process: ProcessInstance) -> ProcessInstance:
         """Register an Application process that will be started with the topology."""
         self._ensure_configurable()
+        if process._topology is not None:
+            raise ValueError("process is already registered with a topology")
         if any(existing.label == process.label for existing in self.processes):
             raise ValueError(
                 f"Application process label is already registered: {process.label}"
             )
-        if any(
-            existing.controller is process.controller for existing in self.processes
-        ):
-            raise ValueError(
-                "a Virtual Controller can only be attached to one Application process"
-            )
-        self.bsim.reserve_application_device(process.controller)
-        # An Application keeps its Controller's capture beside its own logs.
-        self.bsim.set_snoop_dir(
-            process.controller, self.test_log_dir / process.log_subdir
-        )
-        self.processes.append(process)
+        # The backend validates the whole registration before recording it, so
+        # the capture is only moved once registration can no longer fail.
+        self.bsim.register_process(process)
+        process._topology = self
+        if process.controller is not None:
+            self._move_capture(process, process.controller)
         return process
+
+    def _attach_process_controller(
+        self, process: ProcessInstance, controller: Controller
+    ) -> None:
+        """Validate a late attachment of a registered process before it is recorded."""
+        self._ensure_configurable()
+        self.bsim.validate_attachment(process, controller)
+        self._move_capture(process, controller)
+
+    def _move_capture(self, process: ProcessInstance, controller: Controller) -> None:
+        # An Application keeps its Controller's capture beside its own logs.
+        self.bsim.set_snoop_dir(controller, self.test_log_dir / process.log_subdir)
 
     # ------------- interference -------------
 
@@ -212,9 +224,7 @@ class BluetoothTopology:
 
     def _add_interference_source(self, source) -> InterferenceRef:
         self._ensure_configurable()
-        ref = InterferenceRef(len(self.bsim.interference_sources))
-        self.bsim.interference_sources.append(source)
-        return ref
+        return InterferenceRef(self.bsim.add_interference_source(source))
 
     # ------------- start / stop -------------
 
@@ -229,7 +239,9 @@ class BluetoothTopology:
         layout = self.bsim.plan_devices()
         for process in self.processes:
             process.start(
-                self.pm, self.test_log_dir, layout.application_slot(process.controller)
+                self.pm,
+                self.test_log_dir,
+                layout.application_slot(process),
             )
         await asyncio.to_thread(self.bsim.wait_for_devices_registered)
         if self.bsim.clock is not None:
