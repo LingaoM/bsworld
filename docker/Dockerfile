@@ -148,9 +148,11 @@ RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
     && west sdk install --install-base "$ZEPHYR_SDK_INSTALL_DIR" \
         --gnu-toolchains ${ZEPHYR_SDK_TOOLCHAINS}
 
-# Compile the upstream hci_virt Controller and Host-only shells.
-COPY --chown=$BUILD_UID:$BUILD_GID components/hci_virt_overlay.conf /opt/bsworld-build/hci_virt_overlay.conf
 ARG BUILD_JOBS=4
+
+# The hci_virt Controller does not depend on the shell sources, so it keeps its
+# own layer and is not rebuilt when a shell configuration changes.
+COPY --chown=$BUILD_UID:$BUILD_GID components/hci_virt_overlay.conf /opt/bsworld-build/hci_virt_overlay.conf
 RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
     && export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS" \
     && cd "$ZEPHYR_WORKSPACE" \
@@ -159,24 +161,27 @@ RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
         "$ZEPHYR_BASE/samples/bluetooth/hci_virt" \
         -- -DEXTRA_CONF_FILE=/opt/bsworld-build/hci_virt_overlay.conf \
     && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_bt_virt_controller/zephyr/zephyr.exe"
+
+# Copy only the build inputs, so editing a test script keeps the shell layer cached.
+# Complete firmware joins the PHY with its own Controller, without an HCI socket.
 COPY --chown=$BUILD_UID:$BUILD_GID tests/integration/zephyr/shell/source /opt/bsworld-build/zephyr/shell
 RUN . "$ZEPHYR_WORKSPACE/.venv/bin/activate" \
     && export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS" \
     && cd "$ZEPHYR_WORKSPACE" \
+    && west build -p always -b nrf52_bsim \
+        -d "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_full_shell" \
+        "$ZEPHYR_BASE/tests/bluetooth/shell" \
+        -- -DCONF_FILE=/opt/bsworld-build/zephyr/shell/prj.conf \
+        -DEXTRA_CONF_FILE="/opt/bsworld-build/zephyr/shell/le.conf;/opt/bsworld-build/zephyr/shell/full.conf" \
+        -DDTC_OVERLAY_FILE="$ZEPHYR_BASE/tests/bluetooth/shell/xterm-native-shell.overlay" \
+    && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_full_shell/zephyr/zephyr.exe" \
     && west build -p always -b nrf52_bsim \
         -d "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_shell" \
         "$ZEPHYR_BASE/tests/bluetooth/shell" \
         -- -DCONF_FILE=/opt/bsworld-build/zephyr/shell/prj.conf \
         -DEXTRA_CONF_FILE=/opt/bsworld-build/zephyr/shell/le.conf \
         -DDTC_OVERLAY_FILE="$ZEPHYR_BASE/tests/bluetooth/shell/xterm-native-shell.overlay;/opt/bsworld-build/zephyr/shell/bsim_host_only.overlay" \
-    && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_shell/zephyr/zephyr.exe" \
-    && west build -p always -b nrf52_bsim \
-        -d "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_mesh_shell" \
-        "$ZEPHYR_BASE/tests/bluetooth/mesh_shell" \
-        -- -DCONF_FILE=/opt/bsworld-build/zephyr/shell/prj.conf \
-        -DEXTRA_CONF_FILE=/opt/bsworld-build/zephyr/shell/mesh.conf \
-        -DDTC_OVERLAY_FILE="$ZEPHYR_BASE/tests/bluetooth/shell/xterm-native-shell.overlay;/opt/bsworld-build/zephyr/shell/bsim_host_only.overlay" \
-    && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_mesh_shell/zephyr/zephyr.exe"
+    && strip --strip-unneeded "$ZEPHYR_WORKSPACE/build/bsworld_zephyr_shell/zephyr/zephyr.exe"
 
 # NuttX: prepare tools and source workspaces for sim:bthcisock and sim:nimble.
 # https://nuttx.apache.org/docs/latest/quickstart/install.html
@@ -368,9 +373,9 @@ RUN install -d -o "$BUILD_UID" -g "$BUILD_GID" /opt/babblesim/build/results
 
 # Keep BabbleSim's source, scripts, and outputs together at their build-time paths.
 COPY --from=babblesim --chown=$BUILD_UID:$BUILD_GID /opt/babblesim /opt/babblesim
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_bt_virt_controller/zephyr/zephyr.exe /opt/firmware/bt_virt_controller
+COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_full_shell/zephyr/zephyr.exe /opt/firmware/zephyr/full_shell
 COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_shell/zephyr/zephyr.exe /opt/firmware/zephyr/shell
-COPY --from=zephyr /opt/zephyrproject/build/bsworld_zephyr_mesh_shell/zephyr/zephyr.exe /opt/firmware/zephyr/mesh_shell
+COPY --from=zephyr /opt/zephyrproject/build/bsworld_bt_virt_controller/zephyr/zephyr.exe /opt/firmware/zephyr/bt_virt_controller
 COPY --from=nuttx /opt/nuttx/nuttx /opt/firmware/nuttx/btsak
 COPY --from=nuttx /opt/nuttx-nimble/nuttx /opt/firmware/nuttx/nimble
 COPY --from=qemu /opt/qemu/build/bsworld/qemu-system-aarch64 /opt/firmware/qemu/qemu-system-aarch64
@@ -380,9 +385,9 @@ COPY --from=trouble /opt/trouble/target/release/ble_bas /opt/firmware/trouble/bl
 
 ENV BSIM_OUT_PATH=/opt/babblesim/build \
     BSIM_COMPONENTS_PATH=/opt/babblesim/components \
-    BSWORLD_BT_VIRT_CONTROLLER_BIN=/opt/firmware/bt_virt_controller \
+    BSWORLD_ZEPHYR_FULL_SHELL_BIN=/opt/firmware/zephyr/full_shell \
     BSWORLD_ZEPHYR_SHELL_BIN=/opt/firmware/zephyr/shell \
-    BSWORLD_ZEPHYR_MESH_SHELL_BIN=/opt/firmware/zephyr/mesh_shell \
+    BSWORLD_BT_VIRT_CONTROLLER_BIN=/opt/firmware/zephyr/bt_virt_controller \
     BSWORLD_NUTTX_BTSAK_BIN=/opt/firmware/nuttx/btsak \
     BSWORLD_NUTTX_NIMBLE_BIN=/opt/firmware/nuttx/nimble \
     BSWORLD_QEMU_BIN=/opt/firmware/qemu/qemu-system-aarch64 \
@@ -394,7 +399,7 @@ USER bsworld
 
 # Verify binaries and their dynamic dependencies in the final filesystem.
 # BabbleSim .Tsymbols files are readable text maps, not executable binaries.
-RUN for binary in /opt/firmware/bt_virt_controller /opt/firmware/zephyr/* \
+RUN for binary in /opt/firmware/zephyr/* \
         /opt/firmware/nuttx/* /opt/firmware/qemu/qemu-system-aarch64 \
         /opt/firmware/trouble/ble_bas \
         /opt/babblesim/build/bin/*; do \
