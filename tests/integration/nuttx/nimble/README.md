@@ -52,16 +52,19 @@ pytest tests/integration/nuttx/nimble -q
 ## Adding Scenarios
 
 ```python
-from tests.integration.nuttx.common import load_nuttx_profile
+from tests.integration.nuttx.common import create_nuttx_process
 from tests.integration.nuttx.nimble.devices import NUTTX_NIMBLE_PERIPHERAL
 
-peripheral = load_nuttx_profile(
+peripheral = create_nuttx_process(
     topo, NUTTX_NIMBLE_PERIPHERAL, log_subdir="nuttx/nimble/peripheral"
 )
+peripheral.attach(topo.add_controller(public_address="C0:FF:EE:20:00:01"))
 await topo.start()
 await peripheral.shell.run_many(("ifup bnep0", "bleprph"))
 await peripheral.wait_log(r"connection established; status=0 handle=\d+")
 ```
+
+Profiles describe the program name, executable and shell behavior. Creation registers the process with the supplied topology. The test separately chooses the Controller type and address through `topo.add_controller()` and binds the program with `host.attach(controller)`.
 
 | Role | Shell commands |
 |---|---|

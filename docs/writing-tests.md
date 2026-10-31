@@ -10,17 +10,18 @@ The repository [README](../README.md#technical-architecture) introduces the Virt
 - [Choosing Controllers](#choosing-controllers)
 - [Async Waiting and Simulation Time](#async-waiting-and-simulation-time)
 - [Integrating Application Processes](#integrating-application-processes)
+- [Complete Firmware](#complete-firmware)
 - [Process Shell Commands](#process-shell-commands)
 - [RF Conditions and Interference](#rf-conditions-and-interference)
 - [Topology as a pytest Test](#topology-as-a-pytest-test)
 
 ## Test Lifecycle
 
-The `topo` fixture gives each test a `BluetoothTopology`. Tests declare participants, connectivity, and RF conditions instead of orchestrating operating-system processes directly. Suite-local adapters register native Applications as `ProcessInstance` objects with log waiting and optional shell input; asyncio-based Python Host stacks register Virtual Controllers directly and open their HCI sockets after topology startup.
+The `topo` fixture gives each test a `BluetoothTopology`. Tests declare participants, connectivity, and RF conditions instead of orchestrating operating-system processes directly. Suite-local factories describe native Applications as `ProcessInstance` objects with log waiting and optional shell input, and register them with the supplied topology; asyncio-based Python Host stacks register Virtual Controllers directly and open their HCI sockets after topology startup.
 
 The topology moves through four phases:
 
-1. Suite-local process loaders, `topo.add_controller()`, and RF configuration methods record the intended topology without spawning processes or advancing simulation time.
+1. Test fixtures use program factories, `attach()`, `topo.add_process()`, `topo.add_controller()`, and RF configuration methods to record the intended topology without spawning processes or advancing simulation time.
 2. `await topo.start()` assigns device identities, prepares isolated socket and log paths, and starts the PHY, Virtual Controllers, interference sources, and Application processes. It returns once every participant has registered and the event loop is running on simulation time.
 3. Tests drive behavior and evaluate results through `ProcessInstance`, in-process Host stack APIs, shell commands, and standard asyncio APIs. The event loop advances shared simulation time only after all callbacks and I/O at the current timestamp have been processed.
 4. Fixture teardown stops Controllers and processes, flushes logs and capture files, generates the Ellisys trace, and removes temporary simulation files.
@@ -39,7 +40,7 @@ await topo.start()
 # Connect the Host to ctl.hci_sock.
 ```
 
-`ZephyrController` is the default and `BSController` is the Python alternative; one topology may mix both. See [Virtual Controllers](controllers.md).
+`BSController` is the default and `ZephyrController` is the native alternative; one topology may mix both. Complete Zephyr firmware carries its own Controller and needs neither; see [Complete Firmware](#complete-firmware) and [Virtual Controllers](controllers.md).
 
 ## Async Waiting and Simulation Time
 
@@ -68,7 +69,19 @@ Simulation time only advances once every callback and I/O event at the current t
 
 ## Integrating Application Processes
 
-Each integration suite owns the loader that registers its Applications and Controllers with the topology. Native Applications run as `ProcessInstance` objects; Python Host stacks open their Controller's `hci_sock` after startup and run in the test's asyncio event loop. Reuse the suite's existing helpers when adding a scenario; its README describes setup, initialization, and available commands.
+Each integration suite owns the factories that create its Applications. A factory takes the topology as its first argument and registers the new process; the test then selects a Controller and binds it with `host.attach(controller)` before `topo.start()`. Python Host stacks open their Controller's `hci_sock` after startup and run in the test's asyncio event loop. Reuse the suite's existing helpers when adding a scenario; its README describes setup, initialization, and available commands.
+
+```python
+from tests.integration.zephyr.shell.devices import create_zephyr_shell
+from bsworld.devices import BSController
+
+host = create_zephyr_shell(topo, name="host")
+host.attach(topo.add_controller(
+    controller_type=BSController, public_address="F0:F1:F2:F3:F4:02"
+))
+```
+
+Attachments can change until device identities are published, normally by `topo.start()`; an earlier `plan_devices()` call also freezes them. When you construct a `ProcessInstance` yourself, register it with `topo.add_process()` and pass `requires_controller=True` if its Controller is attached later. A missing `attach()` then fails when the layout is planned, before the PHY starts, instead of the Host being treated as complete firmware. The suite factories already set it.
 
 | Platform | Test guide |
 |---|---|
@@ -76,7 +89,35 @@ Each integration suite owns the loader that registers its Applications and Contr
 | NuttX | [BTSak and NimBLE](../tests/integration/nuttx/README.md#adding-scenarios) |
 | QEMU Linux | [BlueZ and NimBLE](../tests/integration/qemu/README.md#adding-scenarios) |
 | TrouBLE | [Native TrouBLE tests](../tests/integration/trouble/README.md#adding-scenarios) |
-| Zephyr | [Bluetooth and Mesh shells](../tests/integration/zephyr/shell/README.md#adding-scenarios) |
+| Zephyr | [Bluetooth shell](../tests/integration/zephyr/shell/README.md#adding-scenarios) |
+
+## Complete Firmware
+
+Firmware that contains its own Controller and radio, such as a Zephyr `nrf52_bsim` build, joins the PHY directly. Register it without a Controller:
+
+```python
+from pathlib import Path
+from bsworld.devices import ProcessInstance
+
+node = topo.add_process(ProcessInstance(
+    command=lambda slot: [
+        Path("/absolute/path/to/zephyr.exe"),
+        f"-s={slot.sim_id}", f"-p={slot.phy_id}", f"-d={slot.dev_id}",
+        "-rs=41", "-mro=1000", "-RealEncryption=1",
+    ],
+    label="node",
+    shell=True,
+    # -RealEncryption=1 loads libCryptov1.so from BabbleSim.
+    env={"LD_LIBRARY_PATH": str(topo.env.bsim_dir / "lib")},
+))
+await topo.start()
+```
+
+- Set `shell=True` only for images with the UART on stdin/stdout; otherwise check output with `wait_log()`.
+- Use the process as a `tx` or `rx` endpoint in attenuation paths.
+- There is no `hci_sock` and no `hciN.snoop`; use the console log and `ellisys.bttrp`.
+
+Build steps for the Zephyr shell images: [Zephyr Bluetooth shell](../tests/integration/zephyr/shell/README.md#build-and-run).
 
 ## Process Shell Commands
 
@@ -139,7 +180,7 @@ topo.set_channel_attenuation(
 
 Paths are directional. Configure both `tx -> rx` and `rx -> tx` when the two directions require distinct loss values. A `TimedAttenuation` curve pairs each timestamp with one attenuation value and linearly interpolates between adjacent points.
 
-`tx` and `rx` can be registered `ProcessInstance` or `Controller` objects, `InterferenceRef` objects returned by `add_*_interference()`, or raw BabbleSim device IDs. An Application process resolves to its associated Virtual Controller because the Controller is the RF participant that exchanges packets with the PHY.
+`tx` and `rx` can be registered `ProcessInstance` or `Controller` objects, `InterferenceRef` objects returned by `add_*_interference()`, or raw BabbleSim device IDs. An HCI Host process resolves to its associated Virtual Controller. A complete firmware process resolves to its own radio device ID.
 
 ### Burst Interference
 
@@ -208,7 +249,7 @@ async def test_central_receives_notification(topo, peripheral, central):
     await central.wait_log(r"\[NOTIFICATION\]")
 ```
 
-Figure 2 maps the example to its runtime behavior. Process loaders register each Application and its Controller, while `set_channel_attenuation()` configures RF paths on their shared PHY. Phase 1 corresponds to `topo.start()`, which returns only after the HCI sockets and all BabbleSim participants are ready. The remaining phases correspond to the three `wait_log()` calls as the event loop advances simulation time through advertising, connection establishment, and notification delivery.
+Figure 2 maps the example to its runtime behavior. Test fixtures create Controllers, attach Host-only Applications and register the processes, while `set_channel_attenuation()` configures RF paths on their shared PHY. Phase 1 corresponds to `topo.start()`, which returns only after the HCI sockets and all BabbleSim participants are ready. The remaining phases correspond to the three `wait_log()` calls as the event loop advances simulation time through advertising, connection establishment, and notification delivery.
 
 <div align="center"><img src="images/pytest-topology-execution.svg" alt="A pytest topology expanded into deterministic Bluetooth LE execution" width="80%"><br><em>Figure 2: From a pytest topology to deterministic Bluetooth LE execution</em><br><br></div>
 

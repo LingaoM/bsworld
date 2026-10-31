@@ -19,6 +19,8 @@ pytest tests/ --out-dir=/path/to/artifacts
 OUT_DIR=/path/to/artifacts pytest tests/
 ```
 
+Relative output roots are resolved to absolute paths before starting child processes, so PHY inputs remain valid when a child uses another working directory.
+
 BSWorld appends `run-<timestamp>/<uid>` beneath the selected root. [pytest-xdist](https://pytest-xdist.readthedocs.io/) workers in one pytest session share this run directory, while every test writes beneath a separate path derived from its pytest node ID. Parallel tests therefore do not overwrite each other's logs, sockets, or captures.
 
 ## Docker and CI Results
@@ -31,7 +33,7 @@ See the [Docker guide](../docker/README.md#use-a-published-image) to select an i
 
 ## Directory Layout
 
-A typical NuttX scanning test produces this layout:
+A typical NuttX scanning test produces this layout for its `[zephyr]` case:
 
 ```text
 /tmp/run-<timestamp>/<uid>/
@@ -41,7 +43,7 @@ A typical NuttX scanning test produces this layout:
                 nuttx/
                     btsak/
                         test_btsak_scan_advertise/
-                            test_nuttx_btsak_scanner_finds_advertiser/
+                            test_nuttx_btsak_scanner_finds_advertiser_zephyr/
                                 bsworld.log
                                 babblesim/
                                     bs_2G4_phy_v1.log
@@ -62,7 +64,7 @@ A typical NuttX scanning test produces this layout:
                                             hci1.snoop
 ```
 
-`att_matrix.txt` and `timed_att_*.txt` appear only when the test defines matching static or time-varying attenuation paths.
+The `[bscontroller]` case writes the same files under `..._bscontroller/`, without `bt_virt_controller/`. `att_matrix.txt` and `timed_att_*.txt` appear only when the test defines matching static or time-varying attenuation paths.
 
 ## Artifact Reference
 
@@ -70,8 +72,8 @@ A typical NuttX scanning test produces this layout:
 |---|---|---|
 | `bsworld.log` | BSWorld | Process commands, working directories, PIDs, socket and device-lock barriers, teardown, Ellisys conversion, and framework warnings. |
 | `babblesim/bs_2G4_phy_v1.log` | BabbleSim PHY | PHY process stdout and stderr. It can be empty during a normal run. |
-| `bt_virt_controller/*.log` | Virtual Controller | Controller startup output, assertions, and internal diagnostics. |
-| `<Application>/<name>.log` | Application | Combined Application stdout and stderr, also used as the source for `wait_log()`. |
+| `bt_virt_controller/*.log` | ZephyrController | Controller startup output, assertions, and internal diagnostics. Written only when the test uses `ZephyrController`. |
+| `<Application>/<name>.log` | Application | Combined Application stdout and stderr, also used as the source for `wait_log()`. Complete Zephyr firmware writes it under `zephyr/complete/<name>/`. |
 | `<Application>/hciN.snoop` | Controller BTSnoop file | HCI commands, events, and ACL data between the Host and its Virtual Controller. |
 | `babblesim/ellisys.bttrp` | BSWorld Python converter | Bluetooth LE over-the-air activity for every virtual device on the shared PHY. |
 | `babblesim/att_matrix.txt` | BSWorld | Static path-attenuation matrix passed to the `multiatt` channel model. |
@@ -125,7 +127,7 @@ wireshark /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 btmon -r /tmp/run-<timestamp>/<uid>/log/tests/.../hci1.snoop
 ```
 
-HCI capture is always enabled for both Controller implementations. Application-bound Controllers save the capture under the Application directory; otherwise, captures are saved under `bt_virt_controller/` or `bscontroller/`. Radio traffic from both implementations is included in the shared `ellisys.bttrp` trace.
+HCI capture is always enabled for both Controller implementations. Application-bound Controllers save the capture under the Application directory; otherwise it goes under `controllers/hciN/`. Complete Zephyr firmware has no external HCI capture. Radio traffic from both Controller implementations and from complete firmware is included in the shared `ellisys.bttrp` trace.
 
 ## Ellisys Over-the-Air Trace
 

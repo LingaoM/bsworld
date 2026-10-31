@@ -47,14 +47,16 @@ cargo test --locked --manifest-path tests/integration/trouble/source/Cargo.toml
 ## Adding Scenarios
 
 ```python
-central = _add_host(topo, "central")
-peripheral = _add_host(topo, "peripheral")
+central = _create_host(topo, "central")
+peripheral = _create_host(topo, "peripheral")
+for host in (central, peripheral):
+    host.attach(topo.add_controller(log_subdir=f"trouble/{host.label}"))
 await topo.start()
 await peripheral.wait_log(r"\[adv\] connection established")
 await central.wait_log(r"Read value: \d+")
 ```
 
-`_add_host()` is defined in [test_trouble_native.py](test_trouble_native.py); role behavior lives in the Rust executable. Process output is under `trouble/<role>/`; see [artifacts](../../../docs/artifacts.md) for the rest.
+`_create_host()` is defined in [test_trouble_native.py](test_trouble_native.py); role behavior lives in the Rust executable. Process output is under `trouble/<role>/`; see [artifacts](../../../docs/artifacts.md) for the rest.
 
 ## License
 

@@ -55,7 +55,7 @@ Build BabbleSim using the [repository instructions](../../../README.md#build-and
 
 ## Adding Scenarios
 
-Add an async pytest test under [BTSak](btsak/README.md) or [NimBLE](nimble/README.md), reusing that suite's device profiles with `load_nuttx_profile()` from [common/](common/). Register processes before `topo.start()`, then send the role commands documented in the suite README and verify their output with `wait_log()`.
+Add an async pytest test under [BTSak](btsak/README.md) or [NimBLE](nimble/README.md), reusing that suite's device profiles with `create_nuttx_process()` from [common/](common/). Register processes before `topo.start()`, then send the role commands documented in the suite README and verify their output with `wait_log()`.
 
 ## License
 

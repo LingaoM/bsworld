@@ -116,7 +116,7 @@ After changing the defconfig, Linux fragment or toolchain, rebuild into a new `B
 
 ## Adding Scenarios
 
-Add an async pytest test under [BlueZ](bluez/README.md) or [NimBLE](nimble/README.md). Call `load_qemu_guest()` from [common.py](common.py) before `topo.start()` and `login_qemu_guest()` after it, then send guest commands through `guest.shell` and verify them with `wait_log()`.
+Add an async pytest test under [BlueZ](bluez/README.md) or [NimBLE](nimble/README.md). Create and register the program with `create_qemu_guest(topo, ...)` from [common.py](common.py), then bind it with `guest.attach(topo.add_controller(...))` before startup. Call `login_qemu_guest()` after startup, then send guest commands through `guest.shell` and verify them with `wait_log()`.
 
 ## License
 

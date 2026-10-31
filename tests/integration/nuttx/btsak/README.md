@@ -50,14 +50,17 @@ pytest tests/integration/nuttx/btsak -q
 
 ```python
 from tests.integration.nuttx.btsak.devices import NUTTX_BTSAK_ADVERTISER
-from tests.integration.nuttx.common import load_nuttx_profile
+from tests.integration.nuttx.common import create_nuttx_process
 
-advertiser = load_nuttx_profile(
+advertiser = create_nuttx_process(
     topo, NUTTX_BTSAK_ADVERTISER, log_subdir="nuttx/advertisers/advertiser"
 )
+advertiser.attach(topo.add_controller(public_address="C0:FF:EE:00:00:01"))
 await topo.start()
 await advertiser.shell.run_many(("ifup bnep0", "bt bnep0 advertise start"))
 ```
+
+Profiles describe the program name, executable and shell behavior. Creation registers the process with the supplied topology. The test separately chooses the Controller type and address through `topo.add_controller()` and binds the program with `host.attach(controller)`.
 
 | Role | Shell commands |
 |---|---|
