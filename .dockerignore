@@ -1,0 +1,12 @@
+# The image is built with the repository root as context. Only paths named by
+# COPY in docker/Dockerfile are needed; keep caches and local outputs out so they
+# neither inflate the context nor invalidate cached layers.
+.git
+.cache
+.venv
+.coverage
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+**/target
