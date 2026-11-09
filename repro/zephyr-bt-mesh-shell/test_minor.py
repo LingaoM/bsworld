@@ -1,7 +1,7 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Smaller Mesh shell problems: parse errors, 64-bit BLOB IDs, help texts (PR ME)."""
+"""Smaller Mesh shell problems: parse errors, 64-bit BLOB IDs, help texts (#125089)."""
 
 
 async def test_prb_priv_node_id_get_parse_error(node):

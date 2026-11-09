@@ -10,12 +10,12 @@ passes after it.
 
 | Test | Problem | Issue | Fix |
 |---|---|---|---|
-| Build | `tests/bluetooth/mesh_shell` does not build on `nrf52_bsim` | MA | MA |
-| Build | The Mesh shell does not build with the Remote Provisioning Client, or with the Distributor and the host C library | MB | MB |
-| [test_crashes.py](test_crashes.py) | Five commands crash the device | MC | MC |
-| [test_arguments.py](test_arguments.py) | Eight commands parse or check their arguments wrongly | MD | MD |
-| [test_minor.py](test_minor.py) | Ignored parse errors, 32-bit BLOB IDs, missing AD type check, decimal-only arguments, help texts | - | ME |
-| [test_doc_examples.py](test_doc_examples.py) | Documented commands that the shell rejects or treats differently | - | MF |
+| Build | `tests/bluetooth/mesh_shell` does not build on `nrf52_bsim` | [#125081](https://github.com/zephyrproject-rtos/zephyr/issues/125081) | [#125085](https://github.com/zephyrproject-rtos/zephyr/pull/125085) |
+| Build | The Mesh shell does not build with the Remote Provisioning Client, or with the Distributor and the host C library | [#125082](https://github.com/zephyrproject-rtos/zephyr/issues/125082) | [#125086](https://github.com/zephyrproject-rtos/zephyr/pull/125086) |
+| [test_crashes.py](test_crashes.py) | Five commands crash the device | [#125083](https://github.com/zephyrproject-rtos/zephyr/issues/125083) | [#125087](https://github.com/zephyrproject-rtos/zephyr/pull/125087) |
+| [test_arguments.py](test_arguments.py) | Eight commands parse or check their arguments wrongly | [#125084](https://github.com/zephyrproject-rtos/zephyr/issues/125084) | [#125088](https://github.com/zephyrproject-rtos/zephyr/pull/125088) |
+| [test_minor.py](test_minor.py) | Ignored parse errors, 32-bit BLOB IDs, missing AD type check, decimal-only arguments, help texts | - | [#125089](https://github.com/zephyrproject-rtos/zephyr/pull/125089) |
+| [test_doc_examples.py](test_doc_examples.py) | Documented commands that the shell rejects or treats differently | - | [#125090](https://github.com/zephyrproject-rtos/zephyr/pull/125090) |
 | [test_flows.py](test_flows.py) | Provisioning, configuration, Health, Proxy, LPN, Heartbeat, RPR, BLOB and DFU between devices | - | - |
 
 `test_doc_examples.py` and `test_flows.py` pass before and after the fixes.
@@ -30,7 +30,7 @@ and prepare a Zephyr workspace with the BabbleSim variables exported.
 ## Build
 
 On Zephyr main, the application does not build for `nrf52_bsim`, which is the
-first issue. Apply the fixes of issues MA and MB before building.
+first issue. Apply #125085 and #125086 before building.
 
 The tests use two images. [full.conf](full.conf) enables every Mesh model that
 the shell has commands for, including the Firmware Update models, and
@@ -70,10 +70,10 @@ whose node crashes fails with `<label>: crashed after '<command>'`, and
 
 ## Results
 
-Zephyr main 5b375948321 with the fixes of MA and MB as the base, and each other
-fix applied on top of it on its own:
+Zephyr main 5b375948321 with #125085 and #125086 as the base, and each other
+pull request applied on top of it on its own:
 
-| Test | Base | MC | MD | ME | All |
+| Test | Base | #125087 | #125088 | #125089 | All |
 |---|---|---|---|---|---|
 | test_crashes.py (5 tests) | fail | pass | fail | fail | pass |
 | test_arguments.py (8 tests) | fail | fail | pass | fail | pass |
@@ -81,7 +81,7 @@ fix applied on top of it on its own:
 | test_doc_examples.py (7 tests) | pass | pass | pass | pass | pass |
 | test_flows.py (8 tests) | pass | pass | pass | pass | pass |
 
-Without the MA fix, `west build -b nrf52_bsim/native tests/bluetooth/mesh_shell`
-fails in `lll_conn.c`. With the MA fix but without the MB fix, the `full.conf`
-build fails in `rpr.c`, and a build that adds [dfd.conf](dfd.conf) (the
-Firmware Distribution Server) fails in `dfd.c`.
+Without #125085, `west build -b nrf52_bsim/native tests/bluetooth/mesh_shell`
+fails in `lll_conn.c`. With #125085 but without #125086, the `full.conf` build
+fails in `rpr.c`. With only the `rpr.c` fix of #125086, a build that adds
+[dfd.conf](dfd.conf) (the Firmware Distribution Server) fails in `dfd.c`.

@@ -1,7 +1,7 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Mesh shell commands that parse or check their arguments wrongly (issue MD)."""
+"""Mesh shell commands that parse or check their arguments wrongly (#125084)."""
 
 import re
 

@@ -1,7 +1,7 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Mesh shell documentation that does not match the shell (PR MF).
+"""Mesh shell documentation that does not match the shell (Zephyr PR #125090).
 
 These tests pass before and after the documentation fix. Each one runs the
 documented form next to the form the shell accepts.

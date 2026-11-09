@@ -1,7 +1,7 @@
 # Copyright 2026 Xiaomi Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Mesh shell commands that crash the device (issue MC).
+"""Mesh shell commands that crash the device (Zephyr issue #125083).
 
 Each test runs a command that crashes the shell with SIGSEGV before the fix
 and checks the correct result.
@@ -60,7 +60,7 @@ async def test_dfu_pull_after_target(network):
         "mesh models dfu cli send 0 0 pull", until="Starting DFU|Unable to parse"
     )
     if "Unable to parse" in out:
-        # Without the mode parsing fix (issue MD), the mode is a number: 2 is pull.
+        # Without the mode parsing fix (#125088), the mode is a number: 2 is pull.
         await prov.run("mesh models dfu cli send 0 0 2", until="Starting DFU")
     await prov.wait("DFU ended: 0", timeout=300)
 
