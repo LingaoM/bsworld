@@ -9,11 +9,11 @@ BabbleSim through BSWorld.
 
 | Test | Problem | Issue | Fix |
 |---|---|---|---|
-| [test_iso_big.py](test_iso_big.py) | `iso create-big`, `sync-big` and `term-big` are unknown commands; `create-big enc` without a code crashes; `sync-big` rejects all three options together | A | A |
-| [test_l2cap_ecred.py](test_l2cap_ecred.py) | `l2cap ecred-reconfigure` without an MTU crashes | B | B |
-| [test_iso_cig_create.py](test_iso_cig_create.py) | `iso cig_create` reads the SDU, PHY and RTN from the wrong arguments | C | C |
-| [test_scan_and_per_adv.py](test_scan_and_per_adv.py) | `bt scan --window` checks the interval; `bt per-adv-param tx-power` sets an advertising option; unbalanced brackets in help text | - | D |
-| [test_doc_examples.py](test_doc_examples.py) | Documented commands that the shell rejects or treats differently | - | E |
+| [test_iso_big.py](test_iso_big.py) | `iso create-big`, `sync-big` and `term-big` are unknown commands; `create-big enc` without a code crashes; `sync-big` rejects all three options together | [#125069](https://github.com/zephyrproject-rtos/zephyr/issues/125069) | [#125073](https://github.com/zephyrproject-rtos/zephyr/pull/125073) |
+| [test_l2cap_ecred.py](test_l2cap_ecred.py) | `l2cap ecred-reconfigure` without an MTU crashes | [#125070](https://github.com/zephyrproject-rtos/zephyr/issues/125070) | [#125074](https://github.com/zephyrproject-rtos/zephyr/pull/125074) |
+| [test_iso_cig_create.py](test_iso_cig_create.py) | `iso cig_create` reads the SDU, PHY and RTN from the wrong arguments | [#125071](https://github.com/zephyrproject-rtos/zephyr/issues/125071) | [#125075](https://github.com/zephyrproject-rtos/zephyr/pull/125075) |
+| [test_scan_and_per_adv.py](test_scan_and_per_adv.py) | `bt scan --window` checks the interval; `bt per-adv-param tx-power` sets an advertising option; unbalanced brackets in help text | - | [#125076](https://github.com/zephyrproject-rtos/zephyr/pull/125076) |
+| [test_doc_examples.py](test_doc_examples.py) | Documented commands that the shell rejects or treats differently | - | [#125077](https://github.com/zephyrproject-rtos/zephyr/pull/125077) |
 
 `test_doc_examples.py` passes before and after the documentation fix. Each of
 its tests runs the documented form next to the form the shell accepts.
@@ -76,7 +76,7 @@ When a shell crashes, `bsworld.log` in the same test directory reports
 Zephyr 0534e997eac, with each fix applied on its own. The host shell files
 are the same as on main 5b375948321.
 
-| Test | Before | A | B | C | D | All |
+| Test | Before | #125073 | #125074 | #125075 | #125076 | All |
 |---|---|---|---|---|---|---|
 | test_iso_big.py (5 tests) | fail | pass | fail | fail | fail | pass |
 | test_l2cap_ecred.py | fail | fail | pass | fail | fail | pass |
